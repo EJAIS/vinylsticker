@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3)",
+      "WebSearch",
+      "Bash(python3 -c ':*)",
+      "WebFetch(domain:www.avery.ae)",
+      "WebFetch(domain:foxylabels.com)",
+      "WebFetch(domain:labelsmerge.com)",
+      "WebFetch(domain:hlabels.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.avery-zweckform.com)",
+      "WebFetch(domain:www.officio.de)",
+      "WebFetch(domain:www.etikettenhandel.de)"
+    ]
+  }
+}
