@@ -5,11 +5,15 @@ Renders vinyl record labels onto Avery 4780 label sheets using ReportLab.
 All measurements are converted from millimetres to points internally.
 
 Label layout (centred, top → bottom):
-  Line 1 — Title          Helvetica        7 pt
-  Line 2 — Artist         Helvetica-Bold   7 pt
-  Line 3 — "---"          Helvetica        5 pt
-  Line 4 — Label (Ctry, Year)  Helvetica  5.5 pt
-  Line 5 — Side A/B       Helvetica-Bold  12 pt
+  Line 1 — Title              Helvetica        up to 9 pt  (min 5.0 pt)
+  Line 2 — Artist             Helvetica-Bold   up to 8 pt  (min 5.0 pt)
+  Line 3 — "---"              Helvetica        6 pt  (fixed)
+  Line 4 — Label (Ctry, Year) Helvetica        up to 7 pt  (min 4.5 pt)
+  Line 5 — Side A/B           Helvetica-Bold   14 pt (fixed)
+
+Each text field is independently scaled down via fit_text_to_width() so that
+it never exceeds the usable label width.  The vertical block is re-centred
+after fitting so the layout remains balanced.
 """
 
 from __future__ import annotations
@@ -32,13 +36,17 @@ _WATERMARK_ALPHA = 25   # ≈ 10 %
 
 _LINE_SPACING_FACTOR = 1.25   # multiplied by font size for line height
 
-_LINES_SPEC: list[tuple[str, str, float]] = [
-    # (field_name | literal,  font_name,         font_size_pt)
-    ("title",                 "Helvetica",        7.0),
-    ("artist",                "Helvetica-Bold",   7.0),
-    ("---",                   "Helvetica",        5.0),
-    ("info",                  "Helvetica",        5.5),
-    ("side",                  "Helvetica-Bold",  12.0),
+# Horizontal padding on each side of the text area (points).
+# max_text_width = label_width - 2 * _H_PADDING_PT
+_H_PADDING_PT = 4.0
+
+_LINES_SPEC: list[tuple[str, str, float, float]] = [
+    # (field_name | literal,  font_name,        font_size_max, font_size_min)
+    ("title",                 "Helvetica",        9.0,          5.0),
+    ("artist",                "Helvetica-Bold",   8.0,          5.0),
+    ("---",                   "Helvetica",        6.0,          6.0),   # fixed
+    ("info",                  "Helvetica",        7.0,          4.5),
+    ("side",                  "Helvetica-Bold",  14.0,         14.0),   # fixed
 ]
 
 
@@ -121,6 +129,32 @@ def generate_pdf(
 
 # ── Internal rendering ────────────────────────────────────────────────────────
 
+def fit_text_to_width(
+    c: canvas.Canvas,
+    text: str,
+    max_width: float,
+    font_name: str,
+    font_size_max: float,
+    font_size_min: float,
+    step: float = 0.5,
+) -> float:
+    """Return the largest font size ≤ font_size_max that fits *text* in *max_width*.
+
+    Decreases the size from *font_size_max* towards *font_size_min* in
+    increments of *step* until ``canvas.stringWidth(text, font_name, size)``
+    fits within *max_width*.
+
+    If even *font_size_min* is too wide the text will be clipped by ReportLab
+    at render time — this is an intentional last-resort fallback.
+    """
+    size = font_size_max
+    while size > font_size_min:
+        if c.stringWidth(text, font_name, size) <= max_width:
+            return size
+        size -= step
+    return font_size_min
+
+
 def _draw_label(
     c: canvas.Canvas,
     record: LabelRecord,
@@ -130,20 +164,29 @@ def _draw_label(
     h: float,
     watermark: ImageReader | None = None,
 ) -> None:
-    """Draw watermark (if any) then all 5 text lines, centred in the cell."""
+    """Draw watermark (if any) then all 5 text lines, centred in the cell.
+
+    Each field is independently scaled down to fit the usable label width
+    before the vertical block height is computed, so centering is always
+    based on the actual rendered sizes.
+    """
     if watermark is not None:
         _draw_watermark(c, watermark, x, y_bottom, w, h)
 
-    lines = _resolve_lines(record)
+    raw_lines = _resolve_lines(record)
+    max_text_w = w - 2.0 * _H_PADDING_PT
 
-    # Total block height (sum of line heights with spacing)
-    total_block_h = sum(size * _LINE_SPACING_FACTOR for _, _, size in lines)
+    # Pass 1: determine the actual font size for every line
+    fitted: list[tuple[str, str, float]] = [
+        (text, font, fit_text_to_width(c, text, max_text_w, font, size_max, size_min))
+        for text, font, size_max, size_min in raw_lines
+    ]
 
-    # y_cursor starts at the top of the centred text block
+    # Pass 2: compute total block height, then render top-to-bottom
+    total_block_h = sum(size * _LINE_SPACING_FACTOR for _, _, size in fitted)
     y_cursor = y_bottom + (h + total_block_h) / 2.0
 
-    for text, font, size in lines:
-        # Move down by one line height before drawing baseline
+    for text, font, size in fitted:
         y_cursor -= size * _LINE_SPACING_FACTOR
         c.setFont(font, size)
         c.drawCentredString(x + w / 2.0, y_cursor, text)
@@ -194,18 +237,23 @@ def _draw_watermark(
     c.drawImage(reader, img_x, img_y, draw_w, draw_h, mask="auto")
 
 
-def _resolve_lines(record: LabelRecord) -> list[tuple[str, str, float]]:
-    """Build the 5-line list by substituting record field values."""
+def _resolve_lines(record: LabelRecord) -> list[tuple[str, str, float, float]]:
+    """Build the 5-line list by substituting record field values.
+
+    Returns a list of (text, font_name, font_size_max, font_size_min) tuples.
+    Callers are expected to pass each entry through fit_text_to_width() before
+    rendering.
+    """
     info_text = f"{record.label} ({record.country}, {record.year})"
-    resolved = []
-    for field, font, size in _LINES_SPEC:
+    resolved  = []
+    for field, font, size_max, size_min in _LINES_SPEC:
         if field == "info":
             text = info_text
         elif field == "---":
             text = "---"
         else:
             text = getattr(record, field, "")
-        resolved.append((text, font, size))
+        resolved.append((text, font, size_max, size_min))
     return resolved
 
 

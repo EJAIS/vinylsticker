@@ -80,6 +80,124 @@ _STRINGS: dict[str, dict[str, str]] = {
         "err_watermark_missing":
             "Wasserzeichen-Datei nicht gefunden:\n{path}\n\n"
             "Bitte eine neue Datei auswählen oder das Wasserzeichen entfernen.",
+
+        # Discogs button in main window
+        "btn_discogs":           "Aus Discogs laden",
+        "tooltip_discogs":       "7\" Singles aus der Discogs-Sammlung importieren",
+        "status_discogs_done":   "Discogs-Import abgeschlossen.",
+
+        # Discogs dialog — window title
+        "dlg_discogs_title":     "Aus Discogs laden",
+
+        # Setup panel
+        "discogs_setup_heading": "Discogs Token einrichten",
+        "discogs_setup_info":    (
+            "Erstelle unter <a href='https://www.discogs.com/settings/developers'>"
+            "discogs.com/settings/developers</a> einen persönlichen Token "
+            "und trage ihn hier ein. Der Token wird ausschließlich lokal in "
+            "<tt>config/credentials.json</tt> gespeichert und verlässt deinen "
+            "Rechner nicht."
+        ),
+        "discogs_group_creds":   "Zugangsdaten",
+        "discogs_lbl_username":  "Discogs Benutzername:",
+        "discogs_lbl_token":     "Persönlicher Token:",
+        "discogs_ph_username":   "dein_benutzername",
+        "discogs_ph_token":      "••••••••••••••••••••",
+        "discogs_btn_verify":    "Token prüfen und speichern",
+        "discogs_enter_fields":  "Bitte Benutzername und Token eintragen.",
+        "discogs_verifying":     "Prüfe Token…",
+        "discogs_err_token":     "Token ungültig – bitte prüfen.",
+        "discogs_err_network":   "Keine Verbindung zu Discogs.",
+
+        # Collection panel
+        "discogs_logged_in":     "Angemeldet als: <b>{username}</b>",
+        "discogs_btn_logout":    "Abmelden",
+        "discogs_btn_fetch":     "7\" Singles laden",
+        "discogs_connecting":    "Verbinde…",
+        "discogs_progress":      "Lade Seite {current} von {total}…",
+        "discogs_found":         "{n} Singles gefunden.",
+        "discogs_cached":        "{n} Singles (zwischengespeichert)",
+        "discogs_search_lbl":    "Suche:",
+        "discogs_search_ph":     "Nach Interpret oder Titel filtern…",
+        "discogs_col_title":     "Titel",
+        "discogs_col_artist":    "Interpret",
+        "discogs_col_label":     "Label",
+        "discogs_col_year":      "Jahr",
+        "discogs_btn_all":       "Alle auswählen",
+        "discogs_btn_none":      "Auswahl aufheben",
+        "discogs_btn_import":    "In Druckwarteschlange übernehmen",
+        "discogs_btn_cancel":    "Abbrechen",
+
+        # Collection panel — messages
+        "discogs_no_results_title": "Keine Ergebnisse",
+        "discogs_no_results_msg":   "Keine 7\" Singles in deiner Sammlung gefunden.",
+        "discogs_token_expired_title": "Token abgelaufen",
+        "discogs_token_expired_msg":   "Token abgelaufen. Bitte neu einrichten.",
+        "discogs_rate_limit":    "Rate Limit – warte {n}s…",
+        "discogs_no_sel_title":  "Keine Auswahl",
+        "discogs_no_sel_msg":    "Bitte mindestens einen Eintrag auswählen.",
+        "discogs_write_err_title": "Fehler beim Schreiben",
+        "discogs_write_err_msg": "Die Druckwarteschlange konnte nicht gespeichert werden:\n{detail}",
+        "discogs_imported_title":"Importiert",
+        "discogs_imported_msg":  "{n} Singles in Druckwarteschlange übernommen.",
+        "discogs_err_title":     "Fehler",
+
+        # Tracklist fetch progress / errors
+        "discogs_tracklist_progress":  "Lade Tracklist {n} von {total}…",
+        "discogs_tracklist_warn_title": "Hinweis",
+        "discogs_tracklist_warn_msg":  (
+            "Für {n} Release(s) konnte keine Trackliste geladen werden. "
+            "Die Seite wurde leer gelassen."
+        ),
+
+        # Review dialog — window titles
+        "review_title":          "Druckwarteschlange prüfen – {n} Einträge",
+        "review_title_warning":  "Druckwarteschlange prüfen – {n} Einträge ⚠️ Prüfung erforderlich",
+        "review_title_ok":       "Druckwarteschlange prüfen – {n} Einträge ✓ Bereit zum Drucken",
+
+        # Review dialog — info banner
+        "review_banner_line1":   "Bitte prüfe die übernommenen Daten vor dem Druck.",
+        "review_banner_line2":   "Klicke in eine Zelle, um sie zu bearbeiten. Einträge mit roter Markierung erfordern deine Aufmerksamkeit.",
+
+        # Review dialog — column headers (editable cols get ✎ appended in code)
+        "review_col_title":     "Titel",
+        "review_col_artist":    "Interpret",
+        "review_col_label":     "Label",
+        "review_col_country":   "Country",
+        "review_col_year":      "Jahr",
+        "review_col_side":      "Seite",
+        "review_col_edit_tip":  "Doppelklick oder F2 zum Bearbeiten",
+
+        # Review dialog — toolbar
+        "review_btn_all":       "Alle auswählen",
+        "review_btn_none":      "Auswahl aufheben",
+        "review_btn_delete_sel":"Ausgewählte Zeilen löschen",
+        "review_btn_add_row":   "Zeile hinzufügen",
+        "review_search_ph":     "Titel oder Interpret suchen…",
+
+        # Review dialog — context menu
+        "review_ctx_delete":    "Zeile löschen",
+        "review_ctx_duplicate": "Zeile duplizieren",
+
+        # Review dialog — status bar
+        "review_status_counts": "{n} Einträge gesamt | {m} ausgewählt zum Drucken",
+        "review_status_warning":"⚠️  {k} Einträge haben leere Pflichtfelder",
+        "review_status_ok":     "✓ Alle Einträge vollständig",
+
+        # Review dialog — cell tooltip
+        "review_cell_required_tip": "Pflichtfeld – bitte ausfüllen",
+
+        # Review dialog — bottom buttons
+        "review_btn_cancel":    "Abbrechen",
+        "review_btn_confirm":   "Weiter zum Drucken →",
+        "review_btn_confirm_tip": "Überträgt die markierten Einträge in die Druckwarteschlange",
+
+        # Review dialog — validation messages
+        "review_warn_title":    "Unvollständige Einträge",
+        "review_warn_msg":      "{k} Einträge haben leere Felder (markiert in Rot).\nMöchtest du trotzdem fortfahren?",
+        "review_warn_continue": "Fortfahren",
+        "review_warn_back":     "Zurück zur Liste",
+        "review_no_sel_msg":    "Keine Zeilen ausgewählt.",
     },
 
     "EN": {
@@ -147,6 +265,123 @@ _STRINGS: dict[str, dict[str, str]] = {
         "err_watermark_missing":
             "Watermark file not found:\n{path}\n\n"
             "Please select a new file or remove the watermark.",
+
+        # Discogs button in main window
+        "btn_discogs":           "Load from Discogs",
+        "tooltip_discogs":       "Import 7\" singles from your Discogs collection",
+        "status_discogs_done":   "Discogs import complete.",
+
+        # Discogs dialog — window title
+        "dlg_discogs_title":     "Load from Discogs",
+
+        # Setup panel
+        "discogs_setup_heading": "Set up Discogs Token",
+        "discogs_setup_info":    (
+            "Create a personal token at "
+            "<a href='https://www.discogs.com/settings/developers'>"
+            "discogs.com/settings/developers</a> and enter it below. "
+            "The token is stored locally in "
+            "<tt>config/credentials.json</tt> only and never leaves your machine."
+        ),
+        "discogs_group_creds":   "Credentials",
+        "discogs_lbl_username":  "Discogs Username:",
+        "discogs_lbl_token":     "Personal Token:",
+        "discogs_ph_username":   "your_username",
+        "discogs_ph_token":      "••••••••••••••••••••",
+        "discogs_btn_verify":    "Verify and save token",
+        "discogs_enter_fields":  "Please enter username and token.",
+        "discogs_verifying":     "Verifying token…",
+        "discogs_err_token":     "Token invalid – please check.",
+        "discogs_err_network":   "No connection to Discogs.",
+
+        # Collection panel
+        "discogs_logged_in":     "Logged in as: <b>{username}</b>",
+        "discogs_btn_logout":    "Log out",
+        "discogs_btn_fetch":     "Load 7\" Singles",
+        "discogs_connecting":    "Connecting…",
+        "discogs_progress":      "Loading page {current} of {total}…",
+        "discogs_found":         "{n} singles found.",
+        "discogs_cached":        "{n} singles (cached)",
+        "discogs_search_lbl":    "Search:",
+        "discogs_search_ph":     "Filter by artist or title…",
+        "discogs_col_title":     "Title",
+        "discogs_col_artist":    "Artist",
+        "discogs_col_label":     "Label",
+        "discogs_col_year":      "Year",
+        "discogs_btn_all":       "Select all",
+        "discogs_btn_none":      "Deselect all",
+        "discogs_btn_import":    "Add to print queue",
+        "discogs_btn_cancel":    "Cancel",
+
+        # Collection panel — messages
+        "discogs_no_results_title": "No results",
+        "discogs_no_results_msg":   "No 7\" singles found in your collection.",
+        "discogs_token_expired_title": "Token expired",
+        "discogs_token_expired_msg":   "Token expired. Please set it up again.",
+        "discogs_rate_limit":    "Rate limit – waiting {n}s…",
+        "discogs_no_sel_title":  "No selection",
+        "discogs_no_sel_msg":    "Please select at least one entry.",
+        "discogs_write_err_title": "Write error",
+        "discogs_write_err_msg": "Could not save print queue:\n{detail}",
+        "discogs_imported_title":"Imported",
+        "discogs_imported_msg":  "{n} singles added to print queue.",
+        "discogs_err_title":     "Error",
+
+        # Tracklist fetch progress / errors
+        "discogs_tracklist_progress":  "Loading tracklist {n} of {total}…",
+        "discogs_tracklist_warn_title": "Note",
+        "discogs_tracklist_warn_msg":  (
+            "Could not load tracklist for {n} release(s). Side left blank."
+        ),
+
+        # Review dialog — window titles
+        "review_title":          "Review print queue – {n} entries",
+        "review_title_warning":  "Review print queue – {n} entries ⚠️ Review required",
+        "review_title_ok":       "Review print queue – {n} entries ✓ Ready to print",
+
+        # Review dialog — info banner
+        "review_banner_line1":   "Please review the imported data before printing.",
+        "review_banner_line2":   "Click a cell to edit it. Entries with red marking require your attention.",
+
+        # Review dialog — column headers (editable cols get ✎ appended in code)
+        "review_col_title":     "Title",
+        "review_col_artist":    "Artist",
+        "review_col_label":     "Label",
+        "review_col_country":   "Country",
+        "review_col_year":      "Year",
+        "review_col_side":      "Side",
+        "review_col_edit_tip":  "Double-click or F2 to edit",
+
+        # Review dialog — toolbar
+        "review_btn_all":       "Select all",
+        "review_btn_none":      "Deselect all",
+        "review_btn_delete_sel":"Delete selected rows",
+        "review_btn_add_row":   "Add row",
+        "review_search_ph":     "Search title or artist…",
+
+        # Review dialog — context menu
+        "review_ctx_delete":    "Delete row",
+        "review_ctx_duplicate": "Duplicate row",
+
+        # Review dialog — status bar
+        "review_status_counts": "{n} entries total | {m} selected for printing",
+        "review_status_warning":"⚠️  {k} entries have empty required fields",
+        "review_status_ok":     "✓ All entries complete",
+
+        # Review dialog — cell tooltip
+        "review_cell_required_tip": "Required field – please fill in",
+
+        # Review dialog — bottom buttons
+        "review_btn_cancel":    "Cancel",
+        "review_btn_confirm":   "Continue to print →",
+        "review_btn_confirm_tip": "Transfers the checked entries to the print queue",
+
+        # Review dialog — validation messages
+        "review_warn_title":    "Incomplete entries",
+        "review_warn_msg":      "{k} entries have empty fields (marked in red).\nContinue anyway?",
+        "review_warn_continue": "Continue",
+        "review_warn_back":     "Back to list",
+        "review_no_sel_msg":    "No rows selected.",
     },
 }
 

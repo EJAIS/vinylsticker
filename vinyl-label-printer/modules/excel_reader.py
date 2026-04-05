@@ -42,6 +42,22 @@ def load_print_queue(xlsx_path: Path) -> list[LabelRecord]:
     return records
 
 
+def write_print_queue(xlsx_path: Path, records: list[LabelRecord]) -> None:
+    """Overwrite the 'Print' sheet with *records*.
+
+    The sheet is cleared and rewritten with a header row followed by one
+    data row per record.  All other sheets in the workbook are untouched.
+    """
+    wb = openpyxl.load_workbook(str(xlsx_path))
+    ws = wb[SHEET_PRINT]
+    ws.delete_rows(1, ws.max_row)          # clear all existing rows
+    ws.append(list(COLUMNS))              # write header
+    for rec in records:
+        ws.append([rec.title, rec.artist, rec.label, rec.country, rec.year, rec.side])
+    wb.save(str(xlsx_path))
+    wb.close()
+
+
 def load_database(xlsx_path: Path) -> list[LabelRecord]:
     """Read the 'Database' sheet (read-only, never modified).
 

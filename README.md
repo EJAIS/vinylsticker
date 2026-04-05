@@ -12,6 +12,7 @@ A desktop application for printing 7" vinyl record labels on **Avery Zweckform 4
    - [Starting the Application](#starting-the-application)
    - [Workflow](#workflow)
    - [Interface Overview](#interface-overview)
+   - [Discogs Einrichtung](#discogs-einrichtung)
 2. [Technical Reference](#technical-reference)
    - [Project Structure](#project-structure)
    - [Dependencies](#dependencies)
@@ -143,6 +144,42 @@ Click **Drucken** to open the operating system's print dialog.
 └─────────────────────────────────┴──────────────────────────────────────┘
 ```
 
+### Discogs Einrichtung
+
+Die App kann deine 7"-Singles direkt aus deiner Discogs-Sammlung importieren.
+
+#### Schritt 1 — Persönlichen Token erstellen
+
+1. Melde dich auf [discogs.com](https://www.discogs.com) an.
+2. Öffne [discogs.com/settings/developers](https://www.discogs.com/settings/developers).
+3. Klicke auf **Generate Token**.
+4. Kopiere den angezeigten Token.
+
+#### Schritt 2 — Token in der App eintragen
+
+1. Klicke in der App auf **Aus Discogs laden**.
+2. Trage deinen Discogs-Benutzernamen und den Token ein.
+3. Klicke auf **Token prüfen und speichern**.
+   Die App überprüft den Token einmalig gegen die Discogs-API und speichert ihn lokal.
+
+#### Schritt 3 — Sammlung laden
+
+1. Klicke auf **7" Singles laden**.
+   Die App ruft alle Releases aus deiner Sammlung ab und filtert automatisch auf 7"-Formate.
+2. Nutze die Suchleiste, um die Liste nach Interpret oder Titel zu filtern.
+3. Wähle die gewünschten Singles aus und klicke auf **In Druckwarteschlange übernehmen**.
+
+> **Hinweis zum Seitenfeld:** Discogs speichert keine A/B-Seiten-Information auf Sammlungsebene.
+> Das Feld *Side* bleibt beim Import leer. Trage die Seite anschließend manuell in der Excel-Datei
+> nach, oder wähle sie vor dem Drucken direkt im Programm aus.
+
+#### Datenschutz & Sicherheit
+
+- Der Token wird ausschließlich lokal in `config/credentials.json` gespeichert.
+- Die Datei verlässt deinen Rechner nicht und ist in `.gitignore` eingetragen.
+- Auf Linux/macOS werden die Dateiberechtigungen automatisch auf `600` gesetzt (nur Eigentümer darf lesen/schreiben).
+- Über **Abmelden** im Dialog werden die gespeicherten Zugangsdaten sofort gelöscht.
+
 ---
 
 ## Technical Reference
@@ -151,25 +188,30 @@ Click **Drucken** to open the operating system's print dialog.
 
 ```
 vinyl-label-printer/
-├── main.py                   # Entry point — creates QApplication and MainWindow
-├── requirements.txt          # pip dependencies
+├── main.py                        # Entry point — creates QApplication and MainWindow
+├── requirements.txt               # pip dependencies
 ├── data/
-│   └── database.xlsx         # Excel workbook (user-supplied)
+│   └── database.xlsx              # Excel workbook (user-supplied)
 ├── output/
-│   └── labels.pdf            # Generated PDF (created on first run)
+│   └── labels.pdf                 # Generated PDF (created on first run)
 ├── config/
-│   ├── avery_formats.py      # Avery sheet dimensions and coordinate helpers
-│   └── settings.py           # Persistent JSON settings (watermark path)
-│   └── settings.json         # Auto-created on first save
+│   ├── avery_formats.py           # Avery sheet dimensions and coordinate helpers
+│   ├── settings.py                # Persistent JSON settings (watermark path)
+│   ├── settings.json              # Auto-created on first save
+│   ├── credentials.example.json   # Committed template — values intentionally empty
+│   └── credentials.json           # Real credentials — NOT committed (see .gitignore)
 ├── modules/
-│   ├── excel_reader.py       # openpyxl — loads Print/Database sheets
-│   ├── pdf_generator.py      # ReportLab — renders labels to PDF
-│   ├── printer.py            # Cross-platform OS print dialog trigger
-│   └── i18n.py               # All UI strings, language switching
+│   ├── excel_reader.py            # openpyxl — loads/writes Print sheet, loads Database
+│   ├── pdf_generator.py           # ReportLab — renders labels to PDF
+│   ├── printer.py                 # Cross-platform OS print dialog trigger
+│   ├── i18n.py                    # All UI strings, language switching
+│   ├── discogs_client.py          # Discogs REST API client (fetch + filter)
+│   └── credentials_manager.py     # Load/save/clear config/credentials.json
 └── ui/
-    ├── app.py                # QMainWindow — wires all components together
-    ├── grid_widget.py        # QWidget — interactive 4×10 start-position grid
-    └── preview_widget.py     # QWidget — pdf2image + QPixmap page viewer
+    ├── app.py                     # QMainWindow — wires all components together
+    ├── grid_widget.py             # QWidget — interactive 4×10 start-position grid
+    ├── preview_widget.py          # QWidget — pdf2image + QPixmap page viewer
+    └── discogs_dialog.py          # QDialog — Discogs import (setup + collection panels)
 ```
 
 ### Dependencies
@@ -178,9 +220,10 @@ vinyl-label-printer/
 |---|---|---|
 | PyQt6 | ≥ 6.4 | UI framework |
 | reportlab | ≥ 4.0 | PDF generation |
-| openpyxl | ≥ 3.1 | Excel file reading |
+| openpyxl | ≥ 3.1 | Excel file reading and writing |
 | pdf2image | ≥ 1.17 | PDF → image for preview (requires Poppler system library) |
 | Pillow | ≥ 10.0 | Image loading and watermark alpha processing |
+| requests | ≥ 2.31 | Discogs REST API HTTP client |
 
 ### Avery 4780 Sheet Dimensions
 

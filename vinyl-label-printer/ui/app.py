@@ -16,6 +16,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -39,6 +40,7 @@ from modules.printer import print_pdf
 from config.settings import get_watermark_path, set_watermark_path
 from ui.grid_widget import GridWidget
 from ui.preview_widget import PreviewWidget
+from ui.discogs_dialog import DiscogsDialog
 
 # Paths are resolved relative to this file's location (vinyl-label-printer/)
 _BASE_DIR  = Path(__file__).parent.parent
@@ -81,8 +83,12 @@ class MainWindow(QMainWindow):
         self._btn_reload = QPushButton(t("btn_reload"))
         self._btn_reload.setToolTip(t("tooltip_reload"))
         self._btn_reload.clicked.connect(self._on_reload)
+        self._btn_discogs = QPushButton(t("btn_discogs"))
+        self._btn_discogs.setToolTip(t("tooltip_discogs"))
+        self._btn_discogs.clicked.connect(self._on_load_discogs)
         file_row.addWidget(self._btn_open_db)
         file_row.addWidget(self._btn_reload)
+        file_row.addWidget(self._btn_discogs)
         left_layout.addLayout(file_row)
 
         # Queue info group
@@ -292,6 +298,13 @@ class MainWindow(QMainWindow):
                 self, t("app_title"), t("err_print", detail=str(exc))
             )
 
+    def _on_load_discogs(self) -> None:
+        """Open the Discogs import dialog; reload the print queue on success."""
+        dlg = DiscogsDialog(self._db_path, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._load_queue()
+            self._status.showMessage(t("status_discogs_done"))
+
     def _on_language_changed(self, code: str) -> None:
         """Switch the active language and retranslate all widgets."""
         try:
@@ -319,6 +332,8 @@ class MainWindow(QMainWindow):
         self._btn_watermark_clear.setText(t("btn_watermark_clear"))
         self._btn_watermark_clear.setToolTip(t("tooltip_watermark_clear"))
         self._update_watermark_label()
+        self._btn_discogs.setText(t("btn_discogs"))
+        self._btn_discogs.setToolTip(t("tooltip_discogs"))
         self._btn_generate.setText(t("btn_generate"))
         self._btn_print.setText(t("btn_print"))
 

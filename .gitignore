@@ -1,0 +1,31 @@
+# Credentials — never commit
+config/credentials.json
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Generated output
+output/
+
+# OS
+.DS_Store
+Thumbs.db
+execute.bat
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# PyInstaller
+*.spec
