@@ -8,6 +8,8 @@ Made with :heart: and ClaudeCode by a Collector for Collectors.
 + Discogs integration reads your 7" collection and also pulls A/B sides and more.
 + Watermark option available.
 
+![Picture of an example label](https://github.com/EJAIS/vinylsticker/blob/main/examples/label_with_watermark.png)
+
 Currently in BETA status; please get yourself familiar (if you arent already) with the needed tools. Executables are planned, but not ready yet.
 Please feel free to contact me for bugs and feature requests.
 
