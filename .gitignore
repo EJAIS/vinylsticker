@@ -26,6 +26,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+.claude
 
 # PyInstaller
 *.spec

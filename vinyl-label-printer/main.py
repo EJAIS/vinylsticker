@@ -14,6 +14,7 @@ _ROOT = Path(__file__).parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from __version__ import __version__
 from PyQt6.QtWidgets import QApplication
 from ui.app import MainWindow
 
@@ -22,6 +23,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Vinyl-Label-Drucker")
     window = MainWindow()
+    window.setWindowTitle(f"Vinyl Label Printer v{__version__}")
     window.show()
     sys.exit(app.exec())
 
