@@ -2,7 +2,7 @@
 
 A desktop application for printing 7" vinyl record labels on **Avery Zweckform 4780** label sheets (A4, 4 × 10 = 40 labels per sheet).
 
-Made with :heart: and ClaudeCode by a Collector for Collectors.
+Made with :heart: and ClaudeCode - by a Collector for Collectors.
 
 + Local database (Excel) or Discogs integration.
 + Discogs integration reads your 7" collection and also pulls A/B sides and more.
@@ -43,7 +43,7 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 
 | Component | Details |
 |---|---|
-| Operating system | Windows 11 or Linux (tested on Linux Mint) |
+| Operating system | Windows 11 or Linux |
 | Python | 3.10 or newer |
 | Poppler | Required for PDF preview (see [Installation](#installation)) |
 
