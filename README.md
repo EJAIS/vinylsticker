@@ -4,6 +4,10 @@ A desktop application for printing 7" vinyl record labels on **Avery Zweckform 4
 
 Made with :heart: and ClaudeCode by a Collector for Collectors.
 
++ Local database (Excel) or Discogs integration.
++ Discogs integration reads your 7" collection and also pulls A/B sides and more.
++ Watermark option available.
+
 Currently in BETA status; please get yourself familiar (if you arent already) with the needed tools. Executables are planned, but not ready yet.
 Please feel free to contact me for bugs and feature requests.
 
