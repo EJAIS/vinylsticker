@@ -1,5 +1,5 @@
 # Credentials — never commit
-config/credentials.json
+**/config/credentials.json
 *.env
 
 # Python
@@ -15,12 +15,12 @@ build/
 venv/
 
 # Generated output
-output/
+**/output/
 
 # OS
 .DS_Store
 Thumbs.db
-execute.bat
+**/execute.bat
 
 # IDE
 .vscode/
