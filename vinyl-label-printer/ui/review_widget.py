@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import (
 
 from modules.excel_reader import LabelRecord, write_print_queue
 from modules.i18n import t
+from ui.styles import apply_search_style, apply_table_style
 
 # ── Column indices ────────────────────────────────────────────────────────────
 
@@ -65,21 +66,6 @@ _COLOR_ROW_WARN    = QColor("#FFF5F5")   # row contains an empty required field
 _COLOR_BLINK       = QColor("#FFF9C4")   # transient blink on edit (600 ms)
 
 # ── StyleSheets ───────────────────────────────────────────────────────────────
-
-_TABLE_STYLESHEET = """
-QTableWidget::item {
-    border: 1px solid #CCCCCC;
-    padding: 2px 4px;
-    background: #FAFAFA;
-}
-QTableWidget::item:hover {
-    background: #EEF4FF;
-}
-QTableWidget::item:selected {
-    background: #BBDEFB;
-    color: black;
-}
-"""
 
 _CONFIRM_BUTTON_STYLESHEET = """
 QPushButton {
@@ -183,6 +169,7 @@ class ReviewDialog(QDialog):
 
         self._search = QLineEdit()
         self._search.setPlaceholderText(t("review_search_ph"))
+        apply_search_style(self._search)
         self._search.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -196,7 +183,7 @@ class ReviewDialog(QDialog):
 
         # ── Table ─────────────────────────────────────────────────────────────
         self._table = QTableWidget(0, _NUM_COLS)
-        self._table.setStyleSheet(_TABLE_STYLESHEET)
+        apply_table_style(self._table)
 
         edit_tip = t("review_col_edit_tip")
         self._table.setHorizontalHeaderLabels([
@@ -304,45 +291,61 @@ class ReviewDialog(QDialog):
 
     def _refresh_cell_colors(self, row: int) -> None:
         """Apply (or clear) background colours on every cell in *row*."""
-        # Determine whether this row needs overall attention tinting
-        row_needs_attention = any(
-            not (self._table.item(row, col) and self._table.item(row, col).text().strip())
-            for col in _REQUIRED_COLS
-        )
+        # Guard: setBackground/setData fire itemChanged synchronously; without
+        # this flag _on_item_changed would call _blink_cell again → recursion.
+        self._populating = True
+        try:
+            # Determine whether this row needs overall attention tinting
+            row_needs_attention = any(
+                not (self._table.item(row, col) and self._table.item(row, col).text().strip())
+                for col in _REQUIRED_COLS
+            )
 
-        # Checkbox cell
-        chk = self._table.item(row, _COL_CHECK)
-        if chk:
-            if row_needs_attention:
-                chk.setBackground(QBrush(_COLOR_ROW_WARN))
-            else:
-                chk.setData(Qt.ItemDataRole.BackgroundRole, None)
+            # Checkbox cell
+            chk = self._table.item(row, _COL_CHECK)
+            if chk:
+                if row_needs_attention:
+                    chk.setBackground(QBrush(_COLOR_ROW_WARN))
+                else:
+                    chk.setData(Qt.ItemDataRole.BackgroundRole, None)
 
-        # Data cells
-        required_tip = t("review_cell_required_tip")
-        for col in range(1, _NUM_COLS):
-            item = self._table.item(row, col)
-            if item is None:
-                continue
-            is_required = col in _REQUIRED_COLS
-            is_empty    = not item.text().strip()
+            # Data cells
+            required_tip = t("review_cell_required_tip")
+            for col in range(1, _NUM_COLS):
+                item = self._table.item(row, col)
+                if item is None:
+                    continue
+                is_required = col in _REQUIRED_COLS
+                is_empty    = not item.text().strip()
 
-            if is_required and is_empty:
-                item.setBackground(QBrush(_COLOR_CELL_ERROR))
-                item.setToolTip(required_tip)
-            elif row_needs_attention:
-                item.setBackground(QBrush(_COLOR_ROW_WARN))
-                item.setToolTip("")
-            else:
-                item.setData(Qt.ItemDataRole.BackgroundRole, None)
-                item.setToolTip("")
+                if is_required and is_empty:
+                    item.setBackground(QBrush(_COLOR_CELL_ERROR))
+                    item.setToolTip(required_tip)
+                elif row_needs_attention:
+                    item.setBackground(QBrush(_COLOR_ROW_WARN))
+                    item.setToolTip("")
+                else:
+                    item.setData(Qt.ItemDataRole.BackgroundRole, None)
+                    item.setToolTip("")
+        finally:
+            self._populating = False
 
     def _blink_cell(self, row: int, col: int) -> None:
         """Flash the cell yellow for 600 ms, then restore the correct colour."""
         item = self._table.item(row, col)
         if item:
+            # Guard: setBackground fires itemChanged synchronously; set
+            # _populating to prevent _on_item_changed from re-entering here.
+            self._populating = True
             item.setBackground(QBrush(_COLOR_BLINK))
-        QTimer.singleShot(600, lambda: self._refresh_cell_colors(row))
+            self._populating = False
+
+        # Parented timer: destroyed with the dialog, so the callback can never
+        # fire after the dialog is closed (prevents use-after-free on the table).
+        t = QTimer(self)
+        t.setSingleShot(True)
+        t.timeout.connect(lambda: self._refresh_cell_colors(row))
+        t.start(600)
 
     # ── itemChanged slot ──────────────────────────────────────────────────────
 

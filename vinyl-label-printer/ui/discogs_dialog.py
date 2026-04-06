@@ -54,6 +54,7 @@ from modules.credentials_manager import CredentialsManager
 from modules.discogs_client import DiscogsClient
 from modules.i18n import t
 from ui.review_widget import ReviewDialog
+from ui.styles import apply_search_style, apply_table_style
 
 
 # ── Background workers ────────────────────────────────────────────────────────
@@ -320,21 +321,23 @@ class DiscogsDialog(QDialog):
         self._search_bar = QLineEdit()
         self._search_bar.setPlaceholderText(t("discogs_search_ph"))
         self._search_bar.textChanged.connect(self._on_search)
+        apply_search_style(self._search_bar)
         search_row.addWidget(self._search_bar)
         layout.addLayout(search_row)
 
         # Table
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels([
-            "☐",
+            "",
             t("discogs_col_title"),
             t("discogs_col_artist"),
             t("discogs_col_label"),
             t("discogs_col_year"),
         ])
         self._table.horizontalHeader().setSectionResizeMode(
-            _COL_CHECK, QHeaderView.ResizeMode.ResizeToContents
+            _COL_CHECK, QHeaderView.ResizeMode.Fixed
         )
+        self._table.setColumnWidth(_COL_CHECK, 32)
         self._table.horizontalHeader().setSectionResizeMode(
             _COL_TITLE, QHeaderView.ResizeMode.Stretch
         )
@@ -347,6 +350,7 @@ class DiscogsDialog(QDialog):
         self._table.horizontalHeader().setSectionResizeMode(
             _COL_YEAR, QHeaderView.ResizeMode.ResizeToContents
         )
+        apply_table_style(self._table)
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )

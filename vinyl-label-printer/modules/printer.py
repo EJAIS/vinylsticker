@@ -47,7 +47,13 @@ def print_pdf(pdf_path: Path) -> None:
 
 def _print_windows(pdf_path: Path) -> None:
     import os
-    os.startfile(str(pdf_path), "print")
+    try:
+        os.startfile(str(pdf_path), "print")
+    except OSError:
+        # WinError 1155: default PDF viewer does not register the "print"
+        # shell verb (common with Microsoft Edge on Windows 11).
+        # Fall back to opening the file so the user can print manually.
+        os.startfile(str(pdf_path))
 
 
 def _print_linux(pdf_path: Path) -> None:

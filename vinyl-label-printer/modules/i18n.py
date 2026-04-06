@@ -81,6 +81,48 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Wasserzeichen-Datei nicht gefunden:\n{path}\n\n"
             "Bitte eine neue Datei auswählen oder das Wasserzeichen entfernen.",
 
+        # Generic buttons
+        "btn_cancel_generic":    "Abbrechen",
+
+        # Data source toggle
+        "datasource_group":          "Datenquelle",
+        "datasource_local":          "\U0001f5c4 Lokale Datenbank",
+        "datasource_discogs":        "\U0001f310 Discogs",
+        "datasource_no_creds_title": "Discogs nicht eingerichtet",
+        "datasource_no_creds_msg":   (
+            "Bitte zuerst einen Discogs-Token einrichten, "
+            "bevor du zu Discogs wechselst."
+        ),
+        "datasource_no_creds_btn":       "Jetzt einrichten",
+        "datasource_overwrite_title":    "Lokale Daten überschreiben?",
+        "datasource_overwrite_msg":      (
+            "Die lokale Druckwarteschlange enthält {n} Einträge. "
+            "Bei Übernahme aus Discogs werden diese überschrieben. "
+            "Möchtest du fortfahren?"
+        ),
+        "datasource_overwrite_continue": "Fortfahren",
+        "datasource_switch_local_title": "Zu lokaler Datenbank wechseln",
+        "datasource_switch_local_msg":   (
+            "Du wechselst zur lokalen Datenbank. "
+            "Die Druckwarteschlange bleibt erhalten und kann manuell "
+            "in Excel bearbeitet werden."
+        ),
+        "datasource_discogs_hint":       (
+            "\u2139 Änderungen an der Druckwarteschlange werden in die "
+            "lokale Datenbank geschrieben und beim nächsten Start geladen."
+        ),
+        "tooltip_discogs_disabled":      (
+            "Wechsle zu Discogs als Datenquelle, um diese Funktion zu nutzen"
+        ),
+        "status_mode_local":         "\U0001f5c4 Lokale Datenbank | {n} Einträge",
+        "status_mode_local_empty":   "\U0001f5c4 Lokale Datenbank | Keine Einträge",
+        "status_mode_discogs":       (
+            "\U0001f310 Discogs | Angemeldet als {username} | {n} Einträge"
+        ),
+        "status_mode_discogs_empty": (
+            "\U0001f310 Discogs | Angemeldet als {username} | Keine Einträge"
+        ),
+
         # Discogs button in main window
         "btn_discogs":           "Aus Discogs laden",
         "tooltip_discogs":       "7\" Singles aus der Discogs-Sammlung importieren",
@@ -265,6 +307,46 @@ _STRINGS: dict[str, dict[str, str]] = {
         "err_watermark_missing":
             "Watermark file not found:\n{path}\n\n"
             "Please select a new file or remove the watermark.",
+
+        # Generic buttons
+        "btn_cancel_generic":    "Cancel",
+
+        # Data source toggle
+        "datasource_group":          "Data source",
+        "datasource_local":          "\U0001f5c4 Local database",
+        "datasource_discogs":        "\U0001f310 Discogs",
+        "datasource_no_creds_title": "Discogs not configured",
+        "datasource_no_creds_msg":   (
+            "Please set up a Discogs token before switching to Discogs."
+        ),
+        "datasource_no_creds_btn":       "Set up now",
+        "datasource_overwrite_title":    "Overwrite local data?",
+        "datasource_overwrite_msg":      (
+            "The local print queue contains {n} entries. "
+            "Importing from Discogs will overwrite them. "
+            "Continue?"
+        ),
+        "datasource_overwrite_continue": "Continue",
+        "datasource_switch_local_title": "Switch to local database",
+        "datasource_switch_local_msg":   (
+            "You are switching to the local database. "
+            "The print queue is preserved and can be edited manually in Excel."
+        ),
+        "datasource_discogs_hint":       (
+            "\u2139 Changes to the print queue are written to the local "
+            "database and loaded on next start."
+        ),
+        "tooltip_discogs_disabled":      (
+            "Switch to Discogs as data source to use this feature"
+        ),
+        "status_mode_local":         "\U0001f5c4 Local database | {n} entries",
+        "status_mode_local_empty":   "\U0001f5c4 Local database | No entries",
+        "status_mode_discogs":       (
+            "\U0001f310 Discogs | Signed in as {username} | {n} entries"
+        ),
+        "status_mode_discogs_empty": (
+            "\U0001f310 Discogs | Signed in as {username} | No entries"
+        ),
 
         # Discogs button in main window
         "btn_discogs":           "Load from Discogs",

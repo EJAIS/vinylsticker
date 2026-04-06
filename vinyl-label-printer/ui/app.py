@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -24,6 +25,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QSplitter,
     QStatusBar,
@@ -37,10 +39,20 @@ from modules.i18n import t
 from modules.excel_reader import LabelRecord, load_print_queue
 from modules.pdf_generator import generate_pdf
 from modules.printer import print_pdf
-from config.settings import get_watermark_path, set_watermark_path
+from modules.data_source import DataSourceMode
+from modules.credentials_manager import CredentialsManager
+from config.settings import (
+    get_watermark_path, set_watermark_path,
+    get_data_source_mode, set_data_source_mode,
+)
 from ui.grid_widget import GridWidget
 from ui.preview_widget import PreviewWidget
 from ui.discogs_dialog import DiscogsDialog
+
+_RADIO_STYLE = """
+QRadioButton         { color: #757575; }
+QRadioButton:checked { color: #1976D2; font-weight: bold; }
+"""
 
 # Paths are resolved relative to this file's location (vinyl-label-printer/)
 _BASE_DIR  = Path(__file__).parent.parent
@@ -54,14 +66,17 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self._records:       list[LabelRecord] = []
-        self._pdf_path:      Path | None = None
-        self._db_path:       Path = _DB_PATH
-        self._watermark_path: Path | None = get_watermark_path()
+        self._records:          list[LabelRecord] = []
+        self._pdf_path:         Path | None = None
+        self._db_path:          Path = _DB_PATH
+        self._watermark_path:   Path | None = get_watermark_path()
+        self._mode:             DataSourceMode = get_data_source_mode()
+        self._switching_source: bool = False
 
         self._init_ui()
         self._load_queue()
         self._update_watermark_label()
+        self._apply_mode_ui()
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -74,6 +89,28 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(10)
+
+        # Data source toggle
+        self._grp_source = QGroupBox(t("datasource_group"))
+        grp_source_layout = QVBoxLayout(self._grp_source)
+        grp_source_layout.setSpacing(4)
+        grp_source_layout.setContentsMargins(6, 4, 6, 4)
+        radio_row = QHBoxLayout()
+        self._radio_local   = QRadioButton(t("datasource_local"))
+        self._radio_discogs = QRadioButton(t("datasource_discogs"))
+        self._radio_local.setStyleSheet(_RADIO_STYLE)
+        self._radio_discogs.setStyleSheet(_RADIO_STYLE)
+        self._source_group = QButtonGroup(self)
+        self._source_group.addButton(self._radio_local,   0)
+        self._source_group.addButton(self._radio_discogs, 1)
+        radio_row.addWidget(self._radio_local)
+        radio_row.addWidget(self._radio_discogs)
+        radio_row.addStretch()
+        grp_source_layout.addLayout(radio_row)
+        left_layout.addWidget(self._grp_source)
+
+        self._radio_local.toggled.connect(self._on_source_changed)
+        self._radio_discogs.toggled.connect(self._on_source_changed)
 
         # File picker + reload row
         file_row = QHBoxLayout()
@@ -188,10 +225,115 @@ class MainWindow(QMainWindow):
 
         if self._records:
             self._lbl_queue_count.setText(t("status_loaded", n=len(self._records)))
-            self._status.showMessage(t("status_loaded", n=len(self._records)))
         else:
             self._lbl_queue_count.setText(t("status_no_records"))
-            self._status.showMessage(t("status_no_records"))
+        self._update_status_bar()
+
+    # ── Data source mode ──────────────────────────────────────────────────────
+
+    def _on_source_changed(self, _checked: bool) -> None:
+        if self._switching_source:
+            return
+        new_mode = (
+            DataSourceMode.DISCOGS
+            if self._radio_discogs.isChecked()
+            else DataSourceMode.LOCAL
+        )
+        if new_mode == self._mode:
+            return
+
+        if new_mode == DataSourceMode.DISCOGS:
+            cred_mgr = CredentialsManager()
+            if not cred_mgr.are_valid():
+                box = QMessageBox(self)
+                box.setWindowTitle(t("datasource_no_creds_title"))
+                box.setText(t("datasource_no_creds_msg"))
+                btn_setup = box.addButton(
+                    t("datasource_no_creds_btn"),
+                    QMessageBox.ButtonRole.AcceptRole,
+                )
+                box.addButton(
+                    t("btn_cancel_generic"),
+                    QMessageBox.ButtonRole.RejectRole,
+                )
+                box.exec()
+                if box.clickedButton() == btn_setup:
+                    dlg = DiscogsDialog(self._db_path, parent=self)
+                    dlg.exec()
+                if not cred_mgr.are_valid():
+                    self._revert_source()
+                    return
+
+            if self._records:
+                box = QMessageBox(self)
+                box.setWindowTitle(t("datasource_overwrite_title"))
+                box.setText(t("datasource_overwrite_msg", n=len(self._records)))
+                btn_cont = box.addButton(
+                    t("datasource_overwrite_continue"),
+                    QMessageBox.ButtonRole.AcceptRole,
+                )
+                box.addButton(
+                    t("btn_cancel_generic"),
+                    QMessageBox.ButtonRole.RejectRole,
+                )
+                box.exec()
+                if box.clickedButton() != btn_cont:
+                    self._revert_source()
+                    return
+
+        else:  # LOCAL
+            QMessageBox.information(
+                self,
+                t("datasource_switch_local_title"),
+                t("datasource_switch_local_msg"),
+            )
+
+        self._mode = new_mode
+        set_data_source_mode(new_mode)
+        self._apply_mode_ui()
+        self._update_status_bar()
+
+    def _revert_source(self) -> None:
+        """Restore radio buttons to match the current mode without triggering the slot."""
+        self._switching_source = True
+        self._radio_local.setChecked(self._mode == DataSourceMode.LOCAL)
+        self._radio_discogs.setChecked(self._mode == DataSourceMode.DISCOGS)
+        self._switching_source = False
+
+    def _apply_mode_ui(self) -> None:
+        """Sync all mode-dependent widget states to self._mode."""
+        is_discogs = self._mode == DataSourceMode.DISCOGS
+        self._btn_discogs.setEnabled(is_discogs)
+        self._btn_discogs.setToolTip(
+            t("tooltip_discogs") if is_discogs else t("tooltip_discogs_disabled")
+        )
+        self._grp_source.setToolTip(
+            t("datasource_discogs_hint") if is_discogs else ""
+        )
+        self._switching_source = True
+        self._radio_local.setChecked(not is_discogs)
+        self._radio_discogs.setChecked(is_discogs)
+        self._switching_source = False
+
+    def _update_status_bar(self) -> None:
+        """Show a mode-aware status message in the status bar."""
+        n = len(self._records)
+        if self._mode == DataSourceMode.DISCOGS:
+            creds = CredentialsManager().load()
+            username = creds.get("discogs_username", "")
+            if n:
+                self._status.showMessage(
+                    t("status_mode_discogs", username=username, n=n)
+                )
+            else:
+                self._status.showMessage(
+                    t("status_mode_discogs_empty", username=username)
+                )
+        else:
+            if n:
+                self._status.showMessage(t("status_mode_local", n=n))
+            else:
+                self._status.showMessage(t("status_mode_local_empty"))
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
@@ -300,10 +442,11 @@ class MainWindow(QMainWindow):
 
     def _on_load_discogs(self) -> None:
         """Open the Discogs import dialog; reload the print queue on success."""
+        if self._mode != DataSourceMode.DISCOGS:
+            return
         dlg = DiscogsDialog(self._db_path, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._load_queue()
-            self._status.showMessage(t("status_discogs_done"))
 
     def _on_language_changed(self, code: str) -> None:
         """Switch the active language and retranslate all widgets."""
@@ -318,6 +461,9 @@ class MainWindow(QMainWindow):
     def _retranslate_ui(self) -> None:
         """Update every translatable string after a language switch."""
         self.setWindowTitle(t("app_title"))
+        self._grp_source.setTitle(t("datasource_group"))
+        self._radio_local.setText(t("datasource_local"))
+        self._radio_discogs.setText(t("datasource_discogs"))
         self._grp_queue.setTitle(t("group_queue"))
         self._grp_start.setTitle(t("group_start"))
         self._grid.setToolTip(t("tooltip_grid"))
@@ -333,17 +479,16 @@ class MainWindow(QMainWindow):
         self._btn_watermark_clear.setToolTip(t("tooltip_watermark_clear"))
         self._update_watermark_label()
         self._btn_discogs.setText(t("btn_discogs"))
-        self._btn_discogs.setToolTip(t("tooltip_discogs"))
+        self._apply_mode_ui()  # re-applies tooltip based on mode
         self._btn_generate.setText(t("btn_generate"))
         self._btn_print.setText(t("btn_print"))
 
         # Update queue count label text
         if self._records:
             self._lbl_queue_count.setText(t("status_loaded", n=len(self._records)))
-            self._status.showMessage(t("status_loaded", n=len(self._records)))
         else:
             self._lbl_queue_count.setText(t("status_no_records"))
-            self._status.showMessage(t("status_no_records"))
+        self._update_status_bar()
 
         # Retranslate preview navigation buttons/label
         self._preview.retranslate()

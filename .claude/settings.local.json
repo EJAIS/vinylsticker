@@ -14,7 +14,8 @@
       "WebFetch(domain:www.officio.de)",
       "WebFetch(domain:www.etikettenhandel.de)",
       "Bash(python3 -c \"import openpyxl; wb = openpyxl.load_workbook\\('vinyl-label-printer/data/database.xlsx'\\); print\\('Sheet names:', wb.sheetnames\\); ws = wb[wb.sheetnames[0]]; print\\(f'First sheet \\({wb.sheetnames[0]}\\) dimensions:', ws.dimensions\\); print\\('First 3 rows:'\\); [print\\(row\\) for row in list\\(ws.iter_rows\\(values_only=True\\)\\)[:3]]\")",
-      "Bash(/c/Users/alexa/Nextcloud/Coding/vinylsticker/vinyl-label-printer/venv/Scripts/python.exe -c \"import openpyxl; wb = openpyxl.load_workbook\\('vinyl-label-printer/data/database.xlsx'\\); print\\('Sheet names:', wb.sheetnames\\); ws = wb[wb.sheetnames[0]]; print\\(f'First sheet \\({wb.sheetnames[0]}\\) dimensions:', ws.dimensions\\); print\\('First 3 rows:'\\); [print\\(row\\) for row in list\\(ws.iter_rows\\(values_only=True\\)\\)[:3]]\")"
+      "Bash(/c/Users/alexa/Nextcloud/Coding/vinylsticker/vinyl-label-printer/venv/Scripts/python.exe -c \"import openpyxl; wb = openpyxl.load_workbook\\('vinyl-label-printer/data/database.xlsx'\\); print\\('Sheet names:', wb.sheetnames\\); ws = wb[wb.sheetnames[0]]; print\\(f'First sheet \\({wb.sheetnames[0]}\\) dimensions:', ws.dimensions\\); print\\('First 3 rows:'\\); [print\\(row\\) for row in list\\(ws.iter_rows\\(values_only=True\\)\\)[:3]]\")",
+      "Bash(python -c ':*)"
     ]
   }
 }

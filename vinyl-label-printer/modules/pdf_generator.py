@@ -244,7 +244,10 @@ def _resolve_lines(record: LabelRecord) -> list[tuple[str, str, float, float]]:
     Callers are expected to pass each entry through fit_text_to_width() before
     rendering.
     """
-    info_text = f"{record.label} ({record.country}, {record.year})"
+    _inner    = ", ".join(str(v) for v in (record.country, record.year)
+                          if v and str(v).strip())
+    _paren    = f" ({_inner})" if _inner else ""
+    info_text = f"{record.label or ''}{_paren}".strip()
     resolved  = []
     for field, font, size_max, size_min in _LINES_SPEC:
         if field == "info":
