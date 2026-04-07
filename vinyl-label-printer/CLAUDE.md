@@ -5,7 +5,7 @@
 - README.md and all documentation files: English
 - Commit messages: English
 - Variable names, function names, class names: English
-- UI strings and user-facing text: German (de)
+- UI strings and user-facing text: German (de) and English (en), switchable at runtime via a Language selector
 - Log messages and error output: English
 
 ## Project Context
