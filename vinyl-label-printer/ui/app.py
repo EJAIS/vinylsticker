@@ -16,7 +16,6 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QButtonGroup,
-    QComboBox,
     QDialog,
     QFileDialog,
     QGroupBox,
@@ -169,18 +168,6 @@ class MainWindow(QMainWindow):
         grp_wm_layout.addLayout(wm_btn_row)
         left_layout.addWidget(self._grp_watermark)
 
-        # Language selector
-        lang_row = QHBoxLayout()
-        self._lbl_lang = QLabel(t("language_label"))
-        self._lang_combo = QComboBox()
-        self._lang_combo.addItems(i18n.AVAILABLE_LANGUAGES)
-        self._lang_combo.setCurrentText(i18n.get_language())
-        self._lang_combo.currentTextChanged.connect(self._on_language_changed)
-        lang_row.addWidget(self._lbl_lang)
-        lang_row.addWidget(self._lang_combo)
-        lang_row.addStretch()
-        left_layout.addLayout(lang_row)
-
         # Action buttons
         self._btn_generate = QPushButton(t("btn_generate"))
         self._btn_generate.clicked.connect(self._on_generate_pdf)
@@ -217,25 +204,43 @@ class MainWindow(QMainWindow):
     # ── Menu bar ──────────────────────────────────────────────────────────────
 
     def _init_menu(self) -> None:
-        settings_menu = self.menuBar().addMenu("Einstellungen")
-        appearance_menu = settings_menu.addMenu("Erscheinungsbild")
+        self._menu_settings   = self.menuBar().addMenu(t("menu_settings"))
+        self._menu_appearance = self._menu_settings.addMenu(t("menu_appearance"))
 
-        group = QActionGroup(self)
-        group.setExclusive(True)
-
-        current = get_theme()
-        for label, value in [
-            ("Automatisch (Systemeinstellung)", "auto"),
-            ("Hell", "light"),
-            ("Dunkel", "dark"),
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        current_theme = get_theme()
+        self._theme_actions: list[tuple[str, QAction]] = []
+        for key, value in [
+            ("theme_auto",  "auto"),
+            ("theme_light", "light"),
+            ("theme_dark",  "dark"),
         ]:
-            action = QAction(label, self, checkable=True)
-            action.setChecked(current == value)
+            action = QAction(t(key), self, checkable=True)
+            action.setChecked(current_theme == value)
             action.setData(value)
-            group.addAction(action)
-            appearance_menu.addAction(action)
+            theme_group.addAction(action)
+            self._menu_appearance.addAction(action)
+            self._theme_actions.append((key, action))
+        theme_group.triggered.connect(self._on_theme_changed)
 
-        group.triggered.connect(self._on_theme_changed)
+        self._menu_settings.addSeparator()
+        self._menu_language = self._menu_settings.addMenu(t("menu_language"))
+
+        lang_group = QActionGroup(self)
+        lang_group.setExclusive(True)
+        current_lang = i18n.get_language()
+        self._lang_actions: list[tuple[str, QAction]] = []
+        for code in i18n.AVAILABLE_LANGUAGES:
+            action = QAction(code, self, checkable=True)
+            action.setChecked(code == current_lang)
+            action.setData(code)
+            lang_group.addAction(action)
+            self._menu_language.addAction(action)
+            self._lang_actions.append((code, action))
+        lang_group.triggered.connect(
+            lambda a: self._on_language_changed(a.data())
+        )
 
     def _on_theme_changed(self, action: QAction) -> None:
         from PyQt6.QtWidgets import QApplication
@@ -251,8 +256,8 @@ class MainWindow(QMainWindow):
         app.setPalette(qdarktheme.load_palette(resolved))
         QMessageBox.information(
             self,
-            "Design geändert",
-            "Bitte App neu starten, um das Theme vollständig anzuwenden.",
+            t("theme_changed_title"),
+            t("theme_changed_msg"),
         )
 
     # ── Data loading ──────────────────────────────────────────────────────────
@@ -493,6 +498,8 @@ class MainWindow(QMainWindow):
         dlg = DiscogsDialog(self._db_path, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._load_queue()
+        else:
+            self._update_status_bar()
 
     def _on_language_changed(self, code: str) -> None:
         """Switch the active language and retranslate all widgets."""
@@ -500,6 +507,8 @@ class MainWindow(QMainWindow):
             i18n.set_language(code)
         except KeyError:
             return
+        for c, action in self._lang_actions:
+            action.setChecked(c == code)
         self._retranslate_ui()
 
     # ── Retranslation ─────────────────────────────────────────────────────────
@@ -513,7 +522,11 @@ class MainWindow(QMainWindow):
         self._grp_queue.setTitle(t("group_queue"))
         self._grp_start.setTitle(t("group_start"))
         self._grid.setToolTip(t("tooltip_grid"))
-        self._lbl_lang.setText(t("language_label"))
+        self._menu_settings.setTitle(t("menu_settings"))
+        self._menu_appearance.setTitle(t("menu_appearance"))
+        self._menu_language.setTitle(t("menu_language"))
+        for key, action in self._theme_actions:
+            action.setText(t(key))
         self._btn_open_db.setText(t("btn_open_db"))
         self._btn_open_db.setToolTip(t("tooltip_open_db"))
         self._btn_reload.setText(t("btn_reload"))

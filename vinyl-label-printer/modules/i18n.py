@@ -240,6 +240,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_warn_continue": "Fortfahren",
         "review_warn_back":     "Zurück zur Liste",
         "review_no_sel_msg":    "Keine Zeilen ausgewählt.",
+
+        # Settings menu / theme / language
+        "menu_settings":            "Einstellungen",
+        "menu_appearance":          "Erscheinungsbild",
+        "menu_language":            "Sprache",
+        "theme_auto":               "Automatisch (Systemeinstellung)",
+        "theme_light":              "Hell",
+        "theme_dark":               "Dunkel",
+        "theme_changed_title":      "Design geändert",
+        "theme_changed_msg":        "Bitte App neu starten, um das Theme vollständig anzuwenden.",
     },
 
     "EN": {
@@ -464,6 +474,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_warn_continue": "Continue",
         "review_warn_back":     "Back to list",
         "review_no_sel_msg":    "No rows selected.",
+
+        # Settings menu / theme / language
+        "menu_settings":            "Settings",
+        "menu_appearance":          "Appearance",
+        "menu_language":            "Language",
+        "theme_auto":               "Automatic (system setting)",
+        "theme_light":              "Light",
+        "theme_dark":               "Dark",
+        "theme_changed_title":      "Theme changed",
+        "theme_changed_msg":        "Please restart the app to fully apply the new theme.",
     },
 }
 

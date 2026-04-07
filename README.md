@@ -7,7 +7,7 @@ Made with :heart: and ClaudeCode - by a Collector for Collectors.
 + Local database (Excel) or Discogs integration.
 + Discogs integration reads your 7" collection and also pulls A/B sides and more.
 + Watermark option available.
-+ Dark / Light / Auto theme via **Einstellungen → Erscheinungsbild** (follows OS setting by default).
++ Dark / Light / Auto theme via **Settings → Appearance** (follows OS setting by default).
 
 ![Picture of an example label](https://github.com/EJAIS/vinylsticker/blob/main/examples/label_with_watermark.png)
 
@@ -188,10 +188,11 @@ Click **Print** to send the PDF to your printer.
 │ │  logo.png                    │ │    [ ← Back ]  Page 1 of 1          │
 │ │  [Watermark …]  [Remove]     │ │                          [Next → ]  │
 │ └──────────────────────────────┘ │                                      │
-│ Language: [ EN ▾ ]               │                                      │
 │ [ Generate PDF ]                 │                                      │
 │ [ Print        ]                 │                                      │
 └──────────────────────────────────┴──────────────────────────────────────┘
+
+Menu bar: **Settings → Appearance** (Auto / Light / Dark) · **Settings → Language** (DE / EN)
 ```
 
 ### Discogs Import
@@ -492,4 +493,4 @@ Use `debug_frames=True` in `generate_pdf()` (from a Python script or temporary c
 1. Open `modules/i18n.py`.
 2. Copy the `"EN"` block and paste it with a new ISO 639-1 key (e.g., `"FR"`).
 3. Translate all string values.
-4. The new language will automatically appear in the language selector dropdown at next launch — no other code changes are needed.
+4. The new language will automatically appear in **Settings → Language** at next launch — no other code changes are needed.
