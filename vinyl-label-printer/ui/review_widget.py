@@ -123,7 +123,6 @@ class ReviewDialog(QDialog):
         banner = QWidget()
         banner.setStyleSheet("""
             QWidget {
-                background-color: #E8F4FD;
                 border-left: 4px solid #2196F3;
                 border-top: none;
                 border-right: none;

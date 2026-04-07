@@ -4,6 +4,7 @@ Persistent application settings stored as JSON.
 Currently stores:
   watermark_path    — absolute path string, or null
   data_source_mode  — "local" or "discogs"
+  theme             — "auto", "dark", or "light"
 """
 
 from __future__ import annotations
@@ -58,4 +59,17 @@ def set_data_source_mode(mode: DataSourceMode) -> None:
     """Persist *mode* as the active data source."""
     data = _load()
     data["data_source_mode"] = mode.value
+    _save(data)
+
+
+def get_theme() -> str:
+    """Return the saved theme ("auto", "dark", or "light"), defaulting to "auto"."""
+    val = _load().get("theme", "auto")
+    return val if val in ("auto", "dark", "light") else "auto"
+
+
+def set_theme(theme: str) -> None:
+    """Persist *theme* as the active UI theme."""
+    data = _load()
+    data["theme"] = theme
     _save(data)

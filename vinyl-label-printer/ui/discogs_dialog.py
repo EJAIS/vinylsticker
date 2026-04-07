@@ -247,7 +247,10 @@ class DiscogsDialog(QDialog):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        info = QLabel(t("discogs_setup_info"))
+        info_html = t("discogs_setup_info").replace(
+            "<a href=", "<a style='color:#2196F3;' href="
+        )
+        info = QLabel(info_html)
         info.setWordWrap(True)
         info.setOpenExternalLinks(True)
         layout.addWidget(info)

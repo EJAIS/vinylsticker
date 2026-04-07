@@ -1,4 +1,5 @@
 {
   "watermark_path": null,
-  "data_source_mode": "discogs"
+  "data_source_mode": "discogs",
+  "theme": "light"
 }

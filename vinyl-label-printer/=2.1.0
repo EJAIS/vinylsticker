@@ -1,0 +1,6 @@
+Collecting pyqtdarktheme
+  Downloading PyQtDarkTheme-0.1.7-py3-none-any.whl.metadata (5.7 kB)
+Downloading PyQtDarkTheme-0.1.7-py3-none-any.whl (99 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 99.6/99.6 kB 2.7 MB/s eta 0:00:00
+Installing collected packages: pyqtdarktheme
+Successfully installed pyqtdarktheme-0.1.7
