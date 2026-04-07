@@ -4,11 +4,8 @@ TABLE_STYLESHEET = """
 QTableWidget {
     border: 1px solid #CCCCCC;
     gridline-color: #E0E0E0;
-    background-color: white;
-    color: black;
 }
 QTableWidget::item {
-    color: black;
     padding: 4px;
 }
 QTableWidget::item:hover {
@@ -16,11 +13,8 @@ QTableWidget::item:hover {
 }
 QTableWidget::item:selected {
     background-color: #BBDEFB;
-    color: black;
 }
 QHeaderView::section {
-    background-color: #F5F5F5;
-    color: black;
     border: 1px solid #CCCCCC;
     padding: 4px;
     font-weight: bold;
@@ -32,8 +26,6 @@ QLineEdit {
     border: 1px solid #CCCCCC;
     border-radius: 3px;
     padding: 4px 8px;
-    background: white;
-    color: black;
 }
 QLineEdit:focus {
     border: 1px solid #2196F3;

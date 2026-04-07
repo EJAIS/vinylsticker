@@ -33,6 +33,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QActionGroup
+
+import qdarktheme
 
 import modules.i18n as i18n
 from modules.i18n import t
@@ -44,6 +47,7 @@ from modules.credentials_manager import CredentialsManager
 from config.settings import (
     get_watermark_path, set_watermark_path,
     get_data_source_mode, set_data_source_mode,
+    get_theme, set_theme,
 )
 from ui.grid_widget import GridWidget
 from ui.preview_widget import PreviewWidget
@@ -74,6 +78,7 @@ class MainWindow(QMainWindow):
         self._switching_source: bool = False
 
         self._init_ui()
+        self._init_menu()
         self._load_queue()
         self._update_watermark_label()
         self._apply_mode_ui()
@@ -208,6 +213,47 @@ class MainWindow(QMainWindow):
         # ── Status bar ────────────────────────────────────────────────────────
         self._status = QStatusBar()
         self.setStatusBar(self._status)
+
+    # ── Menu bar ──────────────────────────────────────────────────────────────
+
+    def _init_menu(self) -> None:
+        settings_menu = self.menuBar().addMenu("Einstellungen")
+        appearance_menu = settings_menu.addMenu("Erscheinungsbild")
+
+        group = QActionGroup(self)
+        group.setExclusive(True)
+
+        current = get_theme()
+        for label, value in [
+            ("Automatisch (Systemeinstellung)", "auto"),
+            ("Hell", "light"),
+            ("Dunkel", "dark"),
+        ]:
+            action = QAction(label, self, checkable=True)
+            action.setChecked(current == value)
+            action.setData(value)
+            group.addAction(action)
+            appearance_menu.addAction(action)
+
+        group.triggered.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, action: QAction) -> None:
+        from PyQt6.QtWidgets import QApplication
+        new_theme = action.data()
+        if new_theme == get_theme():
+            return
+        set_theme(new_theme)
+        app = QApplication.instance()
+        resolved = new_theme
+        if new_theme == "auto":
+            resolved = "dark" if app.styleHints().colorScheme() == Qt.ColorScheme.Dark else "light"
+        app.setStyleSheet(qdarktheme.load_stylesheet(resolved))
+        app.setPalette(qdarktheme.load_palette(resolved))
+        QMessageBox.information(
+            self,
+            "Design geändert",
+            "Bitte App neu starten, um das Theme vollständig anzuwenden.",
+        )
 
     # ── Data loading ──────────────────────────────────────────────────────────
 

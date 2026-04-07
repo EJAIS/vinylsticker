@@ -7,6 +7,7 @@ Made with :heart: and ClaudeCode - by a Collector for Collectors.
 + Local database (Excel) or Discogs integration.
 + Discogs integration reads your 7" collection and also pulls A/B sides and more.
 + Watermark option available.
++ Dark / Light / Auto theme via **Einstellungen → Erscheinungsbild** (follows OS setting by default).
 
 ![Picture of an example label](https://github.com/EJAIS/vinylsticker/blob/main/examples/label_with_watermark.png)
 
@@ -308,6 +309,7 @@ vinyl-label-printer/
 | Package | Version | Purpose |
 |---|---|---|
 | PyQt6 | ≥ 6.4 | UI framework |
+| pyqtdarktheme | ≥ 0.1.7 | Dark / Light theme stylesheet and palette |
 | reportlab | ≥ 4.0 | PDF generation |
 | openpyxl | ≥ 3.1 | Excel file reading and writing |
 | pdf2image | ≥ 1.17 | PDF → image for preview (requires Poppler system library) |
@@ -369,6 +371,7 @@ Reads and writes `config/settings.json`. Keys:
 |---|---|---|
 | `watermark_path` | `string \| null` | Absolute path to the watermark image |
 | `data_source_mode` | `"local" \| "discogs"` | Active data source; persisted across sessions |
+| `theme` | `"auto" \| "dark" \| "light"` | UI colour scheme; `"auto"` follows the OS setting |
 
 #### `modules/data_source.py`
 
