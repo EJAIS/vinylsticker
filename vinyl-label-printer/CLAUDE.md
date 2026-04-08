@@ -5,7 +5,7 @@
 - README.md and all documentation files: English
 - Commit messages: English
 - Variable names, function names, class names: English
-- UI strings and user-facing text: German (de) and English (en), switchable at runtime via a Language selector
+- All UI strings must be implemented bilingually (DE + EN), switchable during runtime by the language selector and maintained in i18n. See also existing i18n implementation.
 - Log messages and error output: English
 
 ## Project Context
@@ -17,6 +17,9 @@
 - Follow PEP 8
 - Max line length: 100 characters
 - Use type hints where possible
+
+## Testing
+- Test after each prompt: App must start and all existing features must remain functional
 
 ## Git
 - Branch naming: feature/xyz, bugfix/xyz
