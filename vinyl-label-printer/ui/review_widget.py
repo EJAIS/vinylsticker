@@ -67,21 +67,6 @@ _COLOR_BLINK       = QColor("#FFF9C4")   # transient blink on edit (600 ms)
 
 # ── StyleSheets ───────────────────────────────────────────────────────────────
 
-_CONFIRM_BUTTON_STYLESHEET = """
-QPushButton {
-    background-color: #1976D2;
-    color: white;
-    padding: 6px 18px;
-    border-radius: 4px;
-    font-weight: bold;
-}
-QPushButton:hover   { background-color: #1565C0; }
-QPushButton:pressed { background-color: #0D47A1; }
-QPushButton:disabled {
-    background-color: #90CAF9;
-    color: #E3F2FD;
-}
-"""
 
 
 class ReviewDialog(QDialog):
@@ -239,7 +224,7 @@ class ReviewDialog(QDialog):
         self._btn_confirm.setDefault(True)
         self._btn_confirm.setEnabled(False)   # enabled once rows are checked
         self._btn_confirm.setToolTip(t("review_btn_confirm_tip"))
-        self._btn_confirm.setStyleSheet(_CONFIRM_BUTTON_STYLESHEET)
+        self._btn_confirm.setProperty("primary", True)
         self._btn_confirm.clicked.connect(self._on_confirm)
 
         btn_row.addWidget(btn_cancel)

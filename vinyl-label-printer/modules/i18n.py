@@ -250,6 +250,66 @@ _STRINGS: dict[str, dict[str, str]] = {
         "theme_dark":               "Dunkel",
         "theme_changed_title":      "Design geändert",
         "theme_changed_msg":        "Bitte App neu starten, um das Theme vollständig anzuwenden.",
+
+        # Settings dialog — restart notice
+        "restart_required":         "Bitte starte die App neu, um das Theme vollständig anzuwenden.",
+
+        # Settings dialog tabs
+        "settings_tab_datasource":  "Datenquelle",
+        "settings_tab_discogs":     "Discogs-Konto",
+        "settings_tab_updates":     "Updates",
+        "settings_tab_about":       "Über die App",
+
+        # Settings dialog — appearance tab
+        "settings_theme_label":         "Theme",
+        "settings_theme_dark_name":     "Dark Teal",
+        "settings_theme_dark_desc":     "Dunkles Theme mit Teal-Akzent",
+        "settings_theme_light_name":    "Light Teal",
+        "settings_theme_light_desc":    "Helles Theme mit Teal-Akzent",
+        "settings_lang_change_info":    "Sprachänderung wird sofort übernommen.",
+
+        # Settings dialog — data source tab
+        "settings_active_mode":         "Aktiver Modus",
+        "settings_mode_local_sub":      "manuell gepflegt",
+        "settings_mode_discogs_sub":    "Sammlung via Discogs API",
+        "settings_mode_switch_warn":    (
+            "Beim Wechsel des Modus werden vorhandene "
+            "Warteschlangen-Daten überschrieben."
+        ),
+
+        # Settings dialog — Discogs account tab
+        "settings_discogs_connected":   "Verbunden",
+        "settings_discogs_logged_in_as":"Angemeldet als",
+        "settings_discogs_show_token":  "Token anzeigen",
+        "settings_discogs_hide_token":  "Token verbergen",
+        "settings_discogs_change_token":"Token ändern",
+
+        # Settings dialog — updates tab
+        "settings_current_version":     "Aktuelle Version",
+        "settings_check_updates":       "Auf Updates prüfen",
+        "settings_updates_wip":         "Wird implementiert...",
+        "settings_github_link":         "Projekt auf GitHub öffnen",
+
+        # Settings dialog — about tab
+        "settings_license":             "Lizenz",
+        "settings_author":              "Autor",
+
+        # Sidebar / footer
+        "sidebar_load_data":        "Daten laden",
+        "sidebar_queue":            "Warteschlange",
+        "sidebar_labels_ready":     "Labels bereit",
+        "sidebar_empty":            "Leer",
+        "sidebar_start_pos":        "Startposition",
+        "sidebar_create_pdf":       "PDF erstellen",
+        "sidebar_status_ready":     "Bereit",
+        "sidebar_status_generating":"Generiere...",
+        "sidebar_status_created":   "Erstellt",
+        "sidebar_not_connected":    "Nicht verbunden",
+        "sidebar_local_mode":       "Lokal-Modus",
+        "sidebar_discogs_mode":     "Discogs-Modus",
+        "sidebar_local":            "Lokal",
+        "sidebar_section_data":     "Daten",
+        "sidebar_section_print":    "Druck",
     },
 
     "EN": {
@@ -484,6 +544,65 @@ _STRINGS: dict[str, dict[str, str]] = {
         "theme_dark":               "Dark",
         "theme_changed_title":      "Theme changed",
         "theme_changed_msg":        "Please restart the app to fully apply the new theme.",
+
+        # Settings dialog — restart notice
+        "restart_required":         "Please restart the app to fully apply the theme.",
+
+        # Settings dialog tabs
+        "settings_tab_datasource":  "Data source",
+        "settings_tab_discogs":     "Discogs account",
+        "settings_tab_updates":     "Updates",
+        "settings_tab_about":       "About",
+
+        # Settings dialog — appearance tab
+        "settings_theme_label":         "Theme",
+        "settings_theme_dark_name":     "Dark Teal",
+        "settings_theme_dark_desc":     "Dark theme with teal accent",
+        "settings_theme_light_name":    "Light Teal",
+        "settings_theme_light_desc":    "Light theme with teal accent",
+        "settings_lang_change_info":    "Language change is applied immediately.",
+
+        # Settings dialog — data source tab
+        "settings_active_mode":         "Active mode",
+        "settings_mode_local_sub":      "manually maintained",
+        "settings_mode_discogs_sub":    "Collection via Discogs API",
+        "settings_mode_switch_warn":    (
+            "When switching modes, existing queue data may be overwritten."
+        ),
+
+        # Settings dialog — Discogs account tab
+        "settings_discogs_connected":   "Connected",
+        "settings_discogs_logged_in_as":"Logged in as",
+        "settings_discogs_show_token":  "Show token",
+        "settings_discogs_hide_token":  "Hide token",
+        "settings_discogs_change_token":"Change token",
+
+        # Settings dialog — updates tab
+        "settings_current_version":     "Current version",
+        "settings_check_updates":       "Check for updates",
+        "settings_updates_wip":         "Will be implemented...",
+        "settings_github_link":         "Open project on GitHub",
+
+        # Settings dialog — about tab
+        "settings_license":             "License",
+        "settings_author":              "Author",
+
+        # Sidebar / footer
+        "sidebar_load_data":        "Load data",
+        "sidebar_queue":            "Queue",
+        "sidebar_labels_ready":     "Labels ready",
+        "sidebar_empty":            "Empty",
+        "sidebar_start_pos":        "Start position",
+        "sidebar_create_pdf":       "Create PDF",
+        "sidebar_status_ready":     "Ready",
+        "sidebar_status_generating":"Generating...",
+        "sidebar_status_created":   "Created",
+        "sidebar_not_connected":    "Not connected",
+        "sidebar_local_mode":       "Local mode",
+        "sidebar_discogs_mode":     "Discogs mode",
+        "sidebar_local":            "Local",
+        "sidebar_section_data":     "Data",
+        "sidebar_section_print":    "Print",
     },
 }
 
