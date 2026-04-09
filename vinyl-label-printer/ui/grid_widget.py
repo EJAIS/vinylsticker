@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import pyqtSignal, QRect, Qt
 from PyQt6.QtGui import QPainter, QColor, QMouseEvent, QPen
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QApplication, QWidget
 
 
 class GridWidget(QWidget):
@@ -67,11 +67,18 @@ class GridWidget(QWidget):
 
     # ── Qt event overrides ────────────────────────────────────────────────────
 
+    def _theme_colors(self):
+        """Return ThemeColors from the app property, or None if not set."""
+        app = QApplication.instance()
+        return app.property("theme_colors") if app else None
+
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
-        pen = QPen(self.COLOR_BORDER)
+        colors = self._theme_colors()
+        border_color = QColor(colors.border) if colors else self.COLOR_BORDER
+        pen = QPen(border_color)
         pen.setWidth(1)
         painter.setPen(pen)
 
@@ -132,10 +139,11 @@ class GridWidget(QWidget):
         return None
 
     def _cell_color(self, linear_index: int) -> QColor:
+        colors = self._theme_colors()
         if linear_index == self._hovered_index:
-            return self.COLOR_HOVER
+            return QColor(colors.accent_light) if colors else self.COLOR_HOVER
         if linear_index < self._start_index:
-            return self.COLOR_SKIPPED
+            return QColor(colors.label_skipped) if colors else self.COLOR_SKIPPED
         if linear_index < self._start_index + self._total_records:
-            return self.COLOR_ACTIVE
-        return self.COLOR_EMPTY
+            return QColor(colors.label_filled) if colors else self.COLOR_ACTIVE
+        return QColor(colors.label_empty) if colors else self.COLOR_EMPTY

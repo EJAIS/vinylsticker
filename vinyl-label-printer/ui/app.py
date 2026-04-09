@@ -2,9 +2,10 @@
 Main application window.
 
 Wires together:
-  - GridWidget      — start-position picker
+  - SidebarWidget   — navigation / action panel
   - PreviewWidget   — PDF preview
-  - excel_reader    — Print-queue loader
+  - FooterWidget    — settings button + connection / mode status
+  - excel_reader    — print-queue loader
   - pdf_generator   — PDF generation
   - printer         — OS print trigger
   - i18n            — language switching
@@ -12,29 +13,22 @@ Wires together:
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QButtonGroup,
+    QApplication,
     QDialog,
     QFileDialog,
-    QGroupBox,
     QHBoxLayout,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QRadioButton,
     QSizePolicy,
-    QSplitter,
-    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QActionGroup
-
-import qdarktheme
 
 import modules.i18n as i18n
 from modules.i18n import t
@@ -46,22 +40,20 @@ from modules.credentials_manager import CredentialsManager
 from config.settings import (
     get_watermark_path, set_watermark_path,
     get_data_source_mode, set_data_source_mode,
-    get_theme, set_theme,
+    get_theme,
 )
 from ui.grid_widget import GridWidget
 from ui.preview_widget import PreviewWidget
+from ui.sidebar_widget import SidebarWidget
+from ui.footer_widget import FooterWidget
 from ui.discogs_dialog import DiscogsDialog
+from ui.review_widget import ReviewDialog
 
-_RADIO_STYLE = """
-QRadioButton         { color: #757575; }
-QRadioButton:checked { color: #1976D2; font-weight: bold; }
-"""
-
-# Paths are resolved relative to this file's location (vinyl-label-printer/)
-_BASE_DIR  = Path(__file__).parent.parent
-_DB_PATH   = _BASE_DIR / "data" / "database.xlsx"
-_OUT_DIR   = _BASE_DIR / "output"
-_PDF_NAME  = "labels.pdf"
+# Paths resolved relative to vinyl-label-printer/
+_BASE_DIR = Path(__file__).parent.parent
+_DB_PATH  = _BASE_DIR / "data" / "database.xlsx"
+_OUT_DIR  = _BASE_DIR / "output"
+_PDF_NAME = "labels.pdf"
 
 
 class MainWindow(QMainWindow):
@@ -69,201 +61,72 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self._records:          list[LabelRecord] = []
-        self._pdf_path:         Path | None = None
-        self._db_path:          Path = _DB_PATH
-        self._watermark_path:   Path | None = get_watermark_path()
-        self._mode:             DataSourceMode = get_data_source_mode()
-        self._switching_source: bool = False
+        self._records:        list[LabelRecord] = []
+        self._pdf_path:       Path | None = None
+        self._db_path:        Path = _DB_PATH
+        self._watermark_path: Path | None = get_watermark_path()
+        self._mode:           DataSourceMode = get_data_source_mode()
+        self._start_index:    int = 0
 
         self._init_ui()
-        self._init_menu()
         self._load_queue()
-        self._update_watermark_label()
-        self._apply_mode_ui()
+        self._update_footer_status()
 
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _init_ui(self) -> None:
         self.setWindowTitle(t("app_title"))
         self.setMinimumSize(900, 620)
+        self.menuBar().setVisible(False)
 
-        # ── Left panel ────────────────────────────────────────────────────────
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(8, 8, 8, 8)
-        left_layout.setSpacing(10)
+        # Sidebar
+        self._sidebar = SidebarWidget()
+        self._sidebar.set_active_mode(self._mode)
+        self._sidebar.set_start_position(1, 1, 1)
 
-        # Data source toggle
-        self._grp_source = QGroupBox(t("datasource_group"))
-        grp_source_layout = QVBoxLayout(self._grp_source)
-        grp_source_layout.setSpacing(4)
-        grp_source_layout.setContentsMargins(6, 4, 6, 4)
-        radio_row = QHBoxLayout()
-        self._radio_local   = QRadioButton(t("datasource_local"))
-        self._radio_discogs = QRadioButton(t("datasource_discogs"))
-        self._radio_local.setStyleSheet(_RADIO_STYLE)
-        self._radio_discogs.setStyleSheet(_RADIO_STYLE)
-        self._source_group = QButtonGroup(self)
-        self._source_group.addButton(self._radio_local,   0)
-        self._source_group.addButton(self._radio_discogs, 1)
-        radio_row.addWidget(self._radio_local)
-        radio_row.addWidget(self._radio_discogs)
-        radio_row.addStretch()
-        grp_source_layout.addLayout(radio_row)
-        left_layout.addWidget(self._grp_source)
-
-        self._radio_local.toggled.connect(self._on_source_changed)
-        self._radio_discogs.toggled.connect(self._on_source_changed)
-
-        # File picker + reload row
-        file_row = QHBoxLayout()
-        self._btn_open_db = QPushButton(t("btn_open_db"))
-        self._btn_open_db.setToolTip(t("tooltip_open_db"))
-        self._btn_open_db.clicked.connect(self._on_open_db)
-        self._btn_reload = QPushButton(t("btn_reload"))
-        self._btn_reload.setToolTip(t("tooltip_reload"))
-        self._btn_reload.clicked.connect(self._on_reload)
-        self._btn_discogs = QPushButton(t("btn_discogs"))
-        self._btn_discogs.setToolTip(t("tooltip_discogs"))
-        self._btn_discogs.clicked.connect(self._on_load_discogs)
-        file_row.addWidget(self._btn_open_db)
-        file_row.addWidget(self._btn_reload)
-        file_row.addWidget(self._btn_discogs)
-        left_layout.addLayout(file_row)
-
-        # Queue info group
-        self._grp_queue = QGroupBox(t("group_queue"))
-        grp_queue_layout = QVBoxLayout(self._grp_queue)
-        self._lbl_queue_count = QLabel()
-        grp_queue_layout.addWidget(self._lbl_queue_count)
-        left_layout.addWidget(self._grp_queue)
-
-        # Start-position group
-        self._grp_start = QGroupBox(t("group_start"))
-        grp_start_layout = QVBoxLayout(self._grp_start)
-
-        self._grid = GridWidget()
-        self._grid.setToolTip(t("tooltip_grid"))
-        self._grid.startPositionChanged.connect(self._on_start_position_changed)
-        grp_start_layout.addWidget(self._grid, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-        left_layout.addWidget(self._grp_start)
-
-        # Watermark group
-        self._grp_watermark = QGroupBox(t("group_watermark"))
-        grp_wm_layout = QVBoxLayout(self._grp_watermark)
-        self._lbl_watermark = QLabel(t("lbl_watermark_none"))
-        self._lbl_watermark.setWordWrap(True)
-        grp_wm_layout.addWidget(self._lbl_watermark)
-        wm_btn_row = QHBoxLayout()
-        self._btn_watermark = QPushButton(t("btn_watermark"))
-        self._btn_watermark.setToolTip(t("tooltip_watermark"))
-        self._btn_watermark.clicked.connect(self._on_select_watermark)
-        self._btn_watermark_clear = QPushButton(t("btn_watermark_clear"))
-        self._btn_watermark_clear.setToolTip(t("tooltip_watermark_clear"))
-        self._btn_watermark_clear.clicked.connect(self._on_clear_watermark)
-        wm_btn_row.addWidget(self._btn_watermark)
-        wm_btn_row.addWidget(self._btn_watermark_clear)
-        grp_wm_layout.addLayout(wm_btn_row)
-        left_layout.addWidget(self._grp_watermark)
-
-        # Action buttons
-        self._btn_generate = QPushButton(t("btn_generate"))
-        self._btn_generate.clicked.connect(self._on_generate_pdf)
-        left_layout.addWidget(self._btn_generate)
-
-        self._btn_print = QPushButton(t("btn_print"))
-        self._btn_print.setEnabled(False)
-        self._btn_print.clicked.connect(self._on_print)
-        left_layout.addWidget(self._btn_print)
-
-        left_layout.addStretch()
-
-        # ── Right panel (preview) ─────────────────────────────────────────────
+        # Preview
         self._preview = PreviewWidget()
         self._preview.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
 
-        # ── Splitter ──────────────────────────────────────────────────────────
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(left_widget)
-        splitter.addWidget(self._preview)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([260, 640])
+        # Footer
+        self._footer = FooterWidget()
+        self._footer.update_mode(self._mode)
 
-        self.setCentralWidget(splitter)
+        # Main content (sidebar + preview side by side)
+        content = QWidget()
+        content_layout = QHBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self._sidebar)
+        content_layout.addWidget(self._preview, 1)
 
-        # ── Status bar ────────────────────────────────────────────────────────
-        self._status = QStatusBar()
-        self.setStatusBar(self._status)
+        # Root layout (content + footer stacked vertically)
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        root_layout.addWidget(content, 1)
+        root_layout.addWidget(self._footer)
 
-    # ── Menu bar ──────────────────────────────────────────────────────────────
+        self.setCentralWidget(root)
 
-    def _init_menu(self) -> None:
-        self._menu_settings   = self.menuBar().addMenu(t("menu_settings"))
-        self._menu_appearance = self._menu_settings.addMenu(t("menu_appearance"))
+        # Wire sidebar signals
+        self._sidebar.load_data_clicked.connect(self.on_load_data)
+        self._sidebar.queue_clicked.connect(self.on_open_queue)
+        self._sidebar.start_position_clicked.connect(self.on_pick_start_pos)
+        self._sidebar.create_pdf_clicked.connect(self.on_create_pdf)
+        self._sidebar.print_clicked.connect(self.on_print)
 
-        theme_group = QActionGroup(self)
-        theme_group.setExclusive(True)
-        current_theme = get_theme()
-        self._theme_actions: list[tuple[str, QAction]] = []
-        for key, value in [
-            ("theme_auto",  "auto"),
-            ("theme_light", "light"),
-            ("theme_dark",  "dark"),
-        ]:
-            action = QAction(t(key), self, checkable=True)
-            action.setChecked(current_theme == value)
-            action.setData(value)
-            theme_group.addAction(action)
-            self._menu_appearance.addAction(action)
-            self._theme_actions.append((key, action))
-        theme_group.triggered.connect(self._on_theme_changed)
-
-        self._menu_settings.addSeparator()
-        self._menu_language = self._menu_settings.addMenu(t("menu_language"))
-
-        lang_group = QActionGroup(self)
-        lang_group.setExclusive(True)
-        current_lang = i18n.get_language()
-        self._lang_actions: list[tuple[str, QAction]] = []
-        for code in i18n.AVAILABLE_LANGUAGES:
-            action = QAction(code, self, checkable=True)
-            action.setChecked(code == current_lang)
-            action.setData(code)
-            lang_group.addAction(action)
-            self._menu_language.addAction(action)
-            self._lang_actions.append((code, action))
-        lang_group.triggered.connect(
-            lambda a: self._on_language_changed(a.data())
-        )
-
-    def _on_theme_changed(self, action: QAction) -> None:
-        from PyQt6.QtWidgets import QApplication
-        new_theme = action.data()
-        if new_theme == get_theme():
-            return
-        set_theme(new_theme)
-        app = QApplication.instance()
-        resolved = new_theme
-        if new_theme == "auto":
-            resolved = "dark" if app.styleHints().colorScheme() == Qt.ColorScheme.Dark else "light"
-        app.setStyleSheet(qdarktheme.load_stylesheet(resolved))
-        app.setPalette(qdarktheme.load_palette(resolved))
-        QMessageBox.information(
-            self,
-            t("theme_changed_title"),
-            t("theme_changed_msg"),
-        )
+        # Wire footer signals
+        self._footer.settings_clicked.connect(self.on_open_settings)
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def _load_queue(self) -> None:
-        """Load the Print sheet from disk and update the grid."""
+        """Load the Print sheet from disk and update the sidebar queue count."""
         try:
             self._records = load_print_queue(self._db_path)
         except Exception as exc:
@@ -271,149 +134,160 @@ class MainWindow(QMainWindow):
                 self, t("app_title"), t("err_excel", detail=str(exc))
             )
             self._records = []
+        self._sidebar.set_queue_count(len(self._records))
 
-        self._grid.set_total_records(len(self._records))
+    # ── Main action handlers ──────────────────────────────────────────────────
 
-        if self._records:
-            self._lbl_queue_count.setText(t("status_loaded", n=len(self._records)))
+    def on_load_data(self) -> None:
+        """Load data button: reload Excel (LOCAL) or open Discogs dialog (DISCOGS)."""
+        if self._mode == DataSourceMode.DISCOGS:
+            dlg = DiscogsDialog(self._db_path, parent=self)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self._load_queue()
+                self._update_footer_status()
         else:
-            self._lbl_queue_count.setText(t("status_no_records"))
-        self._update_status_bar()
+            self._load_queue()
 
-    # ── Data source mode ──────────────────────────────────────────────────────
-
-    def _on_source_changed(self, _checked: bool) -> None:
-        if self._switching_source:
-            return
-        new_mode = (
-            DataSourceMode.DISCOGS
-            if self._radio_discogs.isChecked()
-            else DataSourceMode.LOCAL
-        )
-        if new_mode == self._mode:
-            return
-
-        if new_mode == DataSourceMode.DISCOGS:
-            cred_mgr = CredentialsManager()
-            if not cred_mgr.are_valid():
-                box = QMessageBox(self)
-                box.setWindowTitle(t("datasource_no_creds_title"))
-                box.setText(t("datasource_no_creds_msg"))
-                btn_setup = box.addButton(
-                    t("datasource_no_creds_btn"),
-                    QMessageBox.ButtonRole.AcceptRole,
-                )
-                box.addButton(
-                    t("btn_cancel_generic"),
-                    QMessageBox.ButtonRole.RejectRole,
-                )
-                box.exec()
-                if box.clickedButton() == btn_setup:
-                    dlg = DiscogsDialog(self._db_path, parent=self)
-                    dlg.exec()
-                if not cred_mgr.are_valid():
-                    self._revert_source()
-                    return
-
-            if self._records:
-                box = QMessageBox(self)
-                box.setWindowTitle(t("datasource_overwrite_title"))
-                box.setText(t("datasource_overwrite_msg", n=len(self._records)))
-                btn_cont = box.addButton(
-                    t("datasource_overwrite_continue"),
-                    QMessageBox.ButtonRole.AcceptRole,
-                )
-                box.addButton(
-                    t("btn_cancel_generic"),
-                    QMessageBox.ButtonRole.RejectRole,
-                )
-                box.exec()
-                if box.clickedButton() != btn_cont:
-                    self._revert_source()
-                    return
-
-        else:  # LOCAL
+    def on_open_queue(self) -> None:
+        """Queue button: open the ReviewDialog so the user can inspect / edit records."""
+        if not self._records:
             QMessageBox.information(
-                self,
-                t("datasource_switch_local_title"),
-                t("datasource_switch_local_msg"),
+                self, t("app_title"), t("status_no_records")
+            )
+            return
+        dlg = ReviewDialog(
+            [asdict(r) for r in self._records],
+            self._db_path,
+            parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._load_queue()
+
+    def on_pick_start_pos(self) -> None:
+        """Start position button: open the GridWidget in a small dialog."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(t("sidebar_start_pos"))
+        dlg.setModal(True)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        grid = GridWidget()
+        grid.set_total_records(len(self._records))
+        grid.set_start_index(self._start_index)
+        layout.addWidget(grid, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        def _on_pos(index: int) -> None:
+            self._start_index = index
+            if self._pdf_path is not None:
+                self.on_create_pdf()
+
+        grid.startPositionChanged.connect(_on_pos)
+
+        btn_ok = QPushButton("OK")
+        btn_ok.setProperty("primary", True)
+        btn_ok.clicked.connect(dlg.accept)
+        layout.addWidget(btn_ok, 0, Qt.AlignmentFlag.AlignRight)
+
+        dlg.exec()
+
+        row = self._start_index // GridWidget.COLS + 1
+        col = self._start_index % GridWidget.COLS + 1
+        self._sidebar.set_start_position(self._start_index + 1, row, col)
+
+    def on_create_pdf(self) -> None:
+        """Create PDF button: generate PDF and load it into the preview."""
+        if not self._records:
+            return
+
+        if self._watermark_path is not None and not self._watermark_path.exists():
+            QMessageBox.warning(
+                self, t("app_title"),
+                t("err_watermark_missing", path=str(self._watermark_path)),
+            )
+            return
+
+        self._sidebar.set_pdf_status("generating")
+        QApplication.processEvents()
+
+        _OUT_DIR.mkdir(parents=True, exist_ok=True)
+        self._pdf_path = _OUT_DIR / _PDF_NAME
+
+        generate_pdf(
+            records=self._records,
+            output_path=self._pdf_path,
+            format_name="4780",
+            start_position=self._start_index,
+            watermark_path=self._watermark_path,
+        )
+
+        self._preview.load_pdf(self._pdf_path)
+        self._sidebar.set_pdf_status("done")
+        self._sidebar.set_print_enabled(True)
+
+    def on_print(self) -> None:
+        """Print button: send the generated PDF to the OS print dialog."""
+        if self._pdf_path is None or not self._pdf_path.exists():
+            QMessageBox.warning(self, t("app_title"), t("err_no_pdf"))
+            return
+        try:
+            print_pdf(self._pdf_path)
+        except Exception as exc:
+            QMessageBox.critical(
+                self, t("app_title"), t("err_print", detail=str(exc))
             )
 
-        self._mode = new_mode
-        set_data_source_mode(new_mode)
-        self._apply_mode_ui()
-        self._update_status_bar()
+    def on_open_settings(self) -> None:
+        """Settings button: open SettingsDialog (singleton — reuse across calls)."""
+        from ui.settings_dialog import SettingsDialog
+        if not hasattr(self, "_settings_dialog"):
+            self._settings_dialog = SettingsDialog(self)
+            self._settings_dialog._db_path = self._db_path
+            self._settings_dialog.theme_changed.connect(self.on_theme_changed)
+            self._settings_dialog.mode_changed.connect(self.on_mode_changed)
+            self._settings_dialog.language_changed.connect(self._retranslate_ui)
+            app_inst = QApplication.instance()
+            if app_inst:
+                self._settings_dialog.setStyleSheet(app_inst.styleSheet())
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
 
-    def _revert_source(self) -> None:
-        """Restore radio buttons to match the current mode without triggering the slot."""
-        self._switching_source = True
-        self._radio_local.setChecked(self._mode == DataSourceMode.LOCAL)
-        self._radio_discogs.setChecked(self._mode == DataSourceMode.DISCOGS)
-        self._switching_source = False
+    def on_theme_changed(self, theme_name: str) -> None:
+        """Apply a new theme to the whole application."""
+        from config.themes import get_theme as _gc
+        from config.stylesheet import build_stylesheet
+        colors = _gc(theme_name)
+        app = QApplication.instance()
+        app.setStyleSheet(build_stylesheet(colors))
+        app.setProperty("theme_colors", colors)
+        self._sidebar._apply_sidebar_style()
+        self._footer._apply_style()
+        for w in app.allWidgets():
+            w.update()
 
-    def _apply_mode_ui(self) -> None:
-        """Sync all mode-dependent widget states to self._mode."""
-        is_discogs = self._mode == DataSourceMode.DISCOGS
-        self._btn_discogs.setEnabled(is_discogs)
-        self._btn_discogs.setToolTip(
-            t("tooltip_discogs") if is_discogs else t("tooltip_discogs_disabled")
-        )
-        self._grp_source.setToolTip(
-            t("datasource_discogs_hint") if is_discogs else ""
-        )
-        self._switching_source = True
-        self._radio_local.setChecked(not is_discogs)
-        self._radio_discogs.setChecked(is_discogs)
-        self._switching_source = False
+    def on_mode_changed(self, mode_str: str) -> None:
+        """React to data-source mode change from the settings dialog."""
+        self._mode = DataSourceMode(mode_str)
+        self._footer.update_mode(self._mode)
+        self._sidebar.set_active_mode(self._mode)
+        self._update_footer_status()
 
-    def _update_status_bar(self) -> None:
-        """Show a mode-aware status message in the status bar."""
-        n = len(self._records)
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _update_footer_status(self) -> None:
+        """Sync footer connection dot and mode badge with current state."""
         if self._mode == DataSourceMode.DISCOGS:
             creds = CredentialsManager().load()
             username = creds.get("discogs_username", "")
-            if n:
-                self._status.showMessage(
-                    t("status_mode_discogs", username=username, n=n)
-                )
-            else:
-                self._status.showMessage(
-                    t("status_mode_discogs_empty", username=username)
-                )
+            self._footer.update_discogs_status(bool(username), username)
         else:
-            if n:
-                self._status.showMessage(t("status_mode_local", n=n))
-            else:
-                self._status.showMessage(t("status_mode_local_empty"))
+            self._footer.update_discogs_status(False, "")
+        self._footer.update_mode(self._mode)
 
-    # ── Slots ─────────────────────────────────────────────────────────────────
-
-    def _on_open_db(self) -> None:
-        """Open a system file dialog so the user can pick a database.xlsx."""
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            t("dlg_open_db_title"),
-            str(self._db_path.parent),
-            t("dlg_open_db_filter"),
-        )
-        if not path:
-            return  # user cancelled
-        self._db_path = Path(path)
-        self._pdf_path = None
-        self._btn_print.setEnabled(False)
-        self._load_queue()
-        self._status.showMessage(
-            t("status_db_loaded", path=self._db_path.name)
-        )
-
-    def _update_watermark_label(self) -> None:
-        if self._watermark_path:
-            self._lbl_watermark.setText(self._watermark_path.name)
-        else:
-            self._lbl_watermark.setText(t("lbl_watermark_none"))
+    # ── Watermark (preserved for SettingsDialog integration) ──────────────────
 
     def _on_select_watermark(self) -> None:
-        """Open a file dialog to pick a PNG/JPG watermark image."""
         start_dir = (
             str(self._watermark_path.parent)
             if self._watermark_path else str(Path.home())
@@ -428,126 +302,24 @@ class MainWindow(QMainWindow):
             return
         self._watermark_path = Path(path)
         set_watermark_path(self._watermark_path)
-        self._lbl_watermark.setText(self._watermark_path.name)
-        self._status.showMessage(t("status_watermark_set",
-                                   name=self._watermark_path.name))
 
     def _on_clear_watermark(self) -> None:
-        """Remove the watermark selection."""
         self._watermark_path = None
         set_watermark_path(None)
-        self._lbl_watermark.setText(t("lbl_watermark_none"))
-        self._status.showMessage(t("status_watermark_cleared"))
 
-    def _on_reload(self) -> None:
-        """Re-read the print queue from the current database file."""
-        self._load_queue()
-        self._status.showMessage(
-            t("status_reloaded", n=len(self._records))
-        )
-
-    def _on_start_position_changed(self, index: int) -> None:
-        """Regenerate PDF immediately when the user picks a new start cell."""
-        if self._pdf_path is not None:
-            self._on_generate_pdf()
-
-    def _on_generate_pdf(self) -> None:
-        if not self._records:
-            self._status.showMessage(t("status_no_records"))
-            return
-
-        # Validate watermark file before generating
-        if self._watermark_path is not None and not self._watermark_path.exists():
-            QMessageBox.warning(
-                self, t("app_title"),
-                t("err_watermark_missing", path=str(self._watermark_path)),
-            )
-            return
-
-        _OUT_DIR.mkdir(parents=True, exist_ok=True)
-        self._pdf_path = _OUT_DIR / _PDF_NAME
-
-        generate_pdf(
-            records=self._records,
-            output_path=self._pdf_path,
-            format_name="4780",
-            start_position=self._grid.start_index,
-            watermark_path=self._watermark_path,
-        )
-
-        self._preview.load_pdf(self._pdf_path)
-        self._btn_print.setEnabled(True)
-        self._status.showMessage(t("status_pdf_ready"))
-
-    def _on_print(self) -> None:
-        if self._pdf_path is None or not self._pdf_path.exists():
-            QMessageBox.warning(self, t("app_title"), t("err_no_pdf"))
-            return
-        try:
-            print_pdf(self._pdf_path)
-            self._status.showMessage(t("status_printing"))
-        except Exception as exc:
-            QMessageBox.critical(
-                self, t("app_title"), t("err_print", detail=str(exc))
-            )
-
-    def _on_load_discogs(self) -> None:
-        """Open the Discogs import dialog; reload the print queue on success."""
-        if self._mode != DataSourceMode.DISCOGS:
-            return
-        dlg = DiscogsDialog(self._db_path, parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._load_queue()
-        else:
-            self._update_status_bar()
+    # ── Theme / language ──────────────────────────────────────────────────────
 
     def _on_language_changed(self, code: str) -> None:
-        """Switch the active language and retranslate all widgets."""
         try:
             i18n.set_language(code)
         except KeyError:
             return
-        for c, action in self._lang_actions:
-            action.setChecked(c == code)
         self._retranslate_ui()
 
-    # ── Retranslation ─────────────────────────────────────────────────────────
-
     def _retranslate_ui(self) -> None:
-        """Update every translatable string after a language switch."""
+        """Update all translatable strings after a language switch."""
         self.setWindowTitle(t("app_title"))
-        self._grp_source.setTitle(t("datasource_group"))
-        self._radio_local.setText(t("datasource_local"))
-        self._radio_discogs.setText(t("datasource_discogs"))
-        self._grp_queue.setTitle(t("group_queue"))
-        self._grp_start.setTitle(t("group_start"))
-        self._grid.setToolTip(t("tooltip_grid"))
-        self._menu_settings.setTitle(t("menu_settings"))
-        self._menu_appearance.setTitle(t("menu_appearance"))
-        self._menu_language.setTitle(t("menu_language"))
-        for key, action in self._theme_actions:
-            action.setText(t(key))
-        self._btn_open_db.setText(t("btn_open_db"))
-        self._btn_open_db.setToolTip(t("tooltip_open_db"))
-        self._btn_reload.setText(t("btn_reload"))
-        self._btn_reload.setToolTip(t("tooltip_reload"))
-        self._grp_watermark.setTitle(t("group_watermark"))
-        self._btn_watermark.setText(t("btn_watermark"))
-        self._btn_watermark.setToolTip(t("tooltip_watermark"))
-        self._btn_watermark_clear.setText(t("btn_watermark_clear"))
-        self._btn_watermark_clear.setToolTip(t("tooltip_watermark_clear"))
-        self._update_watermark_label()
-        self._btn_discogs.setText(t("btn_discogs"))
-        self._apply_mode_ui()  # re-applies tooltip based on mode
-        self._btn_generate.setText(t("btn_generate"))
-        self._btn_print.setText(t("btn_print"))
-
-        # Update queue count label text
-        if self._records:
-            self._lbl_queue_count.setText(t("status_loaded", n=len(self._records)))
-        else:
-            self._lbl_queue_count.setText(t("status_no_records"))
-        self._update_status_bar()
-
-        # Retranslate preview navigation buttons/label
+        self._sidebar.retranslate()
+        self._footer.retranslate()
         self._preview.retranslate()
+        self._sidebar.set_queue_count(len(self._records))
