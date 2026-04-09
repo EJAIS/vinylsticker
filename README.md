@@ -69,6 +69,7 @@ pip install -r requirements.txt
 **3. Place your Excel file**
 
 Put your `database.xlsx` at `data/database.xlsx` inside the project folder, or select it later using the **Open file …** button inside the app.
+You can find an example in the /examples folder.
 
 ### Starting the Application
 
