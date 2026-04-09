@@ -31,4 +31,4 @@ Thumbs.db
 
 # PyInstaller
 *.spec
-vinyl-label-printer/data/database.xlsx
+**/data/database.xlsx
