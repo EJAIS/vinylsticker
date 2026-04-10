@@ -12,6 +12,10 @@ from pathlib import Path
 
 import openpyxl
 
+from modules.logger import get_logger
+
+logger = get_logger()
+
 SHEET_PRINT    = "Print"
 SHEET_DATABASE = "Database"
 COLUMNS        = ("Title", "Artist", "Label", "Country", "Year", "Side")
@@ -35,10 +39,15 @@ def load_print_queue(xlsx_path: Path) -> list[LabelRecord]:
     The workbook is opened with data_only=True so formula cells resolve to
     their cached value rather than the formula string.
     """
-    wb = openpyxl.load_workbook(str(xlsx_path), data_only=True)
-    ws = wb[SHEET_PRINT]
-    records = _read_sheet(ws)
-    wb.close()
+    try:
+        wb = openpyxl.load_workbook(str(xlsx_path), data_only=True)
+        ws = wb[SHEET_PRINT]
+        records = _read_sheet(ws)
+        wb.close()
+    except Exception as e:
+        logger.error(f"Excel error loading {xlsx_path}: {e}")
+        raise
+    logger.info(f"Excel loaded: {len(records)} records from print queue")
     return records
 
 
@@ -63,10 +72,15 @@ def load_database(xlsx_path: Path) -> list[LabelRecord]:
 
     Opens the workbook in read_only mode for efficiency.
     """
-    wb = openpyxl.load_workbook(str(xlsx_path), read_only=True, data_only=True)
-    ws = wb[SHEET_DATABASE]
-    records = _read_sheet(ws)
-    wb.close()
+    try:
+        wb = openpyxl.load_workbook(str(xlsx_path), read_only=True, data_only=True)
+        ws = wb[SHEET_DATABASE]
+        records = _read_sheet(ws)
+        wb.close()
+    except Exception as e:
+        logger.error(f"Excel error loading {xlsx_path}: {e}")
+        raise
+    logger.info(f"Database loaded: {len(records)} records")
     return records
 
 

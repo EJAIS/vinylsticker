@@ -28,6 +28,9 @@ from reportlab.pdfgen import canvas
 
 from config.avery_formats import get_format, label_rect_pt, mm_to_pt
 from modules.excel_reader import LabelRecord
+from modules.logger import get_logger
+
+logger = get_logger()
 
 # Opacity of the watermark image (0 = invisible, 255 = fully opaque)
 _WATERMARK_ALPHA = 25   # ≈ 10 %
@@ -123,7 +126,14 @@ def generate_pdf(
             _draw_label(c, records[record_idx], x, y_bottom, w, h,
                         watermark_reader)
 
-    c.save()
+    try:
+        c.save()
+    except Exception as e:
+        logger.error(f"PDF generation error: {e}")
+        raise
+    logger.info(
+        f"PDF generated: {len(records)} labels, start_pos={start_position}"
+    )
     return output_path.resolve()
 
 
