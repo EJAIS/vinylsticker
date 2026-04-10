@@ -289,13 +289,17 @@ vinyl-label-printer/
 │   ├── settings.json              # Auto-created on first save
 │   ├── credentials.example.json   # Committed template — values intentionally empty
 │   └── credentials.json           # Real credentials — NOT committed (see .gitignore)
+├── logs/
+│   └── app.log                    # Rotating log file (auto-created; max 2 MB × 3 backups)
 ├── modules/
 │   ├── data_source.py             # DataSourceMode enum (LOCAL / DISCOGS)
 │   ├── excel_reader.py            # openpyxl — loads/writes Print sheet, loads Database
+│   ├── logger.py                  # Centralised rotating-file logger; debug toggle
 │   ├── pdf_generator.py           # ReportLab — renders labels to PDF, dynamic font sizing
 │   ├── printer.py                 # Cross-platform OS print dialog trigger
 │   ├── i18n.py                    # All UI strings, language switching (DE / EN)
 │   ├── discogs_client.py          # Discogs REST API client (verify, fetch, filter, tracklist)
+│   ├── version_checker.py         # GitHub release check + semantic version comparison
 │   └── credentials_manager.py     # Load/save/clear config/credentials.json
 └── ui/
     ├── app.py                     # QMainWindow — wires all components together
@@ -316,7 +320,7 @@ vinyl-label-printer/
 | openpyxl | ≥ 3.1 | Excel file reading and writing |
 | pdf2image | ≥ 1.17 | PDF → image for preview (requires Poppler system library) |
 | Pillow | ≥ 10.0 | Image loading and watermark alpha processing |
-| requests | ≥ 2.31 | Discogs REST API HTTP client |
+| requests | ≥ 2.31 | HTTP client (Discogs API + GitHub version check) |
 
 ### Avery 4780 Sheet Dimensions
 
@@ -374,6 +378,10 @@ Reads and writes `config/settings.json`. Keys:
 | `watermark_path` | `string \| null` | Absolute path to the watermark image |
 | `data_source_mode` | `"local" \| "discogs"` | Active data source; persisted across sessions |
 | `theme` | `"auto" \| "dark" \| "light"` | UI colour scheme; `"auto"` follows the OS setting |
+| `language` | `"DE" \| "EN"` | Active UI language |
+| `last_version_check` | `string` | ISO timestamp of the last GitHub version check |
+| `last_known_version` | `string` | Latest release tag fetched from GitHub (e.g. `"v0.2.0"`) |
+| `debug_logging` | `boolean` | Whether debug logging is active; persists across restarts |
 
 #### `modules/data_source.py`
 
@@ -426,6 +434,26 @@ Reads and writes `config/settings.json`. Keys:
 | `set_language(code)` | Switches the active language; raises `KeyError` for unknown codes |
 | `get_language()` | Returns the current language code |
 | `t(key, **kwargs)` | Returns the translated string, formatted with `kwargs` if supplied |
+
+#### `modules/logger.py`
+
+| Symbol | Description |
+|---|---|
+| `setup_logger(debug)` | Called once at startup; creates a `RotatingFileHandler` for `logs/app.log` (2 MB max, 3 backups) and, when `debug=True`, a `StreamHandler` for the console |
+| `get_logger()` | Returns the named logger (`"vinyl_label_printer"`) for use in any module |
+| `set_debug_mode(enabled)` | Switches the log level at runtime (WARNING ↔ DEBUG) without a restart; adds/removes the console handler accordingly; called when the user toggles the setting |
+| `LOG_FILE` | `Path` to `logs/app.log` (relative to the project root) |
+
+The toggle is exposed in **Settings → Appearance → Developer → Debug logging**. When active, a red badge appears in the footer; clicking it reopens the settings dialog on the Appearance tab.
+
+#### `modules/version_checker.py`
+
+| Symbol | Description |
+|---|---|
+| `GITHUB_API_URL` | Endpoint: `GET /repos/EJAIS/vinylsticker/releases?per_page=1` (includes pre-releases) |
+| `GITHUB_RELEASES_URL` | Fallback URL opened when `release_url` is unavailable |
+| `get_latest_version(timeout)` | Fetches the newest release; returns a dict with `success`, `latest_version`, `tag_name`, `release_url`, `error` (`"network"` / `"api"` / `"no_releases"` / `"unknown"`) |
+| `is_update_available(latest_version)` | Compares `latest_version` against the running `__version__` using tuple comparison; returns `True` if an update exists |
 
 #### `modules/printer.py`
 

@@ -1,12 +1,11 @@
 """
-Settings dialog — 5-tab panel for app configuration.
+Settings dialog — 4-tab panel for app configuration.
 
 Tabs (left nav):
   0  Appearance   — theme + language
   1  Data source  — LOCAL vs DISCOGS mode
   2  Discogs      — token management + account status
-  3  Updates      — version info + check for updates (stub)
-  4  About        — app info, license, author, GitHub link
+  3  About        — app info, license, author, version check, GitHub link
 
 Signals emitted to MainWindow:
   theme_changed(str)   — 'dark' | 'light'
@@ -16,10 +15,11 @@ Signals emitted to MainWindow:
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QThread
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -34,11 +34,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from datetime import datetime
+
 from __version__ import __version__, __status__
 import modules.i18n as i18n
 from modules.i18n import t
 from modules.data_source import DataSourceMode
 from modules.credentials_manager import CredentialsManager
+from modules.version_checker import get_latest_version, is_update_available
 from config.settings import (
     get_theme,
     set_theme,
@@ -46,7 +49,13 @@ from config.settings import (
     set_data_source_mode,
     get_language_setting,
     set_language_setting,
+    get_last_known_version,
+    set_last_known_version,
+    set_last_version_check,
+    get_debug_logging,
+    set_debug_logging,
 )
+from modules.logger import set_debug_mode
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
@@ -250,6 +259,18 @@ class _RadioCard(QWidget):
         )
 
 
+# ── Background worker thread ───────────────────────────────────────────────────
+
+class _VersionCheckThread(QThread):
+    """Fetches the latest GitHub release in a background thread."""
+
+    result_ready = pyqtSignal(dict)
+
+    def run(self) -> None:
+        result = get_latest_version()
+        self.result_ready.emit(result)
+
+
 # ── SettingsDialog ─────────────────────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
@@ -258,6 +279,7 @@ class SettingsDialog(QDialog):
     theme_changed    = pyqtSignal(str)   # 'dark' | 'light'
     mode_changed     = pyqtSignal(str)   # 'local' | 'discogs'
     language_changed = pyqtSignal()      # emitted after language switch
+    debug_mode_changed = pyqtSignal(bool)  # emitted when debug toggle changes
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -288,7 +310,6 @@ class SettingsDialog(QDialog):
         self._stack.addWidget(self._build_appearance_tab())
         self._stack.addWidget(self._build_datasource_tab())
         self._stack.addWidget(self._build_discogs_tab())
-        self._stack.addWidget(self._build_updates_tab())
         self._stack.addWidget(self._build_about_tab())
         outer.addWidget(self._stack, 1)
 
@@ -311,22 +332,23 @@ class SettingsDialog(QDialog):
         layout.setSpacing(4)
 
         # Header
-        header = QLabel(t("menu_settings"))
-        header_font = header.font()
+        self._nav_header = QLabel(t("menu_settings"))
+        header_font = self._nav_header.font()
         header_font.setBold(True)
         header_font.setPixelSize(14)
-        header.setFont(header_font)
-        header.setContentsMargins(4, 0, 4, 8)
+        self._nav_header.setFont(header_font)
+        self._nav_header.setContentsMargins(4, 0, 4, 8)
         if colors:
-            header.setStyleSheet(f"color: {colors.text_primary}; background: transparent;")
-        layout.addWidget(header)
+            self._nav_header.setStyleSheet(
+                f"color: {colors.text_primary}; background: transparent;"
+            )
+        layout.addWidget(self._nav_header)
 
         # Nav items
         tab_keys = [
             t("menu_appearance"),
             t("settings_tab_datasource"),
             t("settings_tab_discogs"),
-            t("settings_tab_updates"),
             t("settings_tab_about"),
         ]
         for i, label in enumerate(tab_keys):
@@ -426,6 +448,56 @@ class SettingsDialog(QDialog):
                 f"color: {colors.text_muted}; background: transparent;"
             )
         layout.addWidget(self._lbl_lang_info)
+
+        # ── Developer section ──────────────────────────────────────────────
+        self._lbl_sec_debug = _make_section_label(t("debug_section"))
+        layout.addWidget(self._lbl_sec_debug)
+
+        # Toggle row: [title + subtitle on left] | [checkbox on right]
+        debug_row = QWidget()
+        debug_row_layout = QHBoxLayout(debug_row)
+        debug_row_layout.setContentsMargins(0, 4, 0, 4)
+        debug_row_layout.setSpacing(8)
+
+        debug_labels = QVBoxLayout()
+        debug_labels.setSpacing(2)
+        self._lbl_debug_title = QLabel(t("debug_logging_label"))
+        title_font = self._lbl_debug_title.font()
+        title_font.setPixelSize(13)
+        self._lbl_debug_title.setFont(title_font)
+        self._lbl_debug_subtitle = QLabel(t("debug_logging_subtitle"))
+        sub_font = self._lbl_debug_subtitle.font()
+        sub_font.setPixelSize(11)
+        self._lbl_debug_subtitle.setFont(sub_font)
+        debug_labels.addWidget(self._lbl_debug_title)
+        debug_labels.addWidget(self._lbl_debug_subtitle)
+
+        self._chk_debug = QCheckBox()
+        self._chk_debug.setChecked(get_debug_logging())
+
+        debug_row_layout.addLayout(debug_labels)
+        debug_row_layout.addStretch()
+        debug_row_layout.addWidget(self._chk_debug)
+        layout.addWidget(debug_row)
+
+        self._lbl_log_path = QLabel("Log: logs/app.log")
+        log_path_font = self._lbl_log_path.font()
+        log_path_font.setPixelSize(10)
+        log_path_font.setFamily("Courier New")
+        self._lbl_log_path.setFont(log_path_font)
+        self._lbl_log_path.setVisible(get_debug_logging())
+        layout.addWidget(self._lbl_log_path)
+
+        if colors:
+            self._lbl_debug_subtitle.setStyleSheet(
+                f"color: {colors.text_muted}; background: transparent;"
+            )
+            self._lbl_log_path.setStyleSheet(
+                f"color: {colors.text_muted}; background: transparent;"
+            )
+
+        self._chk_debug.toggled.connect(self._on_debug_toggle)
+
         layout.addStretch()
 
         self._inner_appearance = inner
@@ -613,103 +685,7 @@ class SettingsDialog(QDialog):
         self._inner_discogs = inner
         return self._scrollable(inner)
 
-    # ── Tab 3: Updates ─────────────────────────────────────────────────────────
-
-    def _build_updates_tab(self) -> QWidget:
-        inner = QWidget()
-        layout = QVBoxLayout(inner)
-        layout.setContentsMargins(24, 8, 24, 24)
-        layout.setSpacing(12)
-
-        colors = _get_colors()
-
-        # Version card
-        version_card = QWidget()
-        version_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        ver_layout = QVBoxLayout(version_card)
-        ver_layout.setContentsMargins(12, 10, 12, 10)
-        ver_layout.setSpacing(2)
-
-        self._lbl_ver_caption = QLabel(t("settings_current_version"))
-        cap_font = self._lbl_ver_caption.font()
-        cap_font.setPixelSize(11)
-        self._lbl_ver_caption.setFont(cap_font)
-
-        lbl_ver_val = QLabel(f"v{__version__} {__status__}")
-        val_font = lbl_ver_val.font()
-        val_font.setPixelSize(14)
-        val_font.setBold(True)
-        lbl_ver_val.setFont(val_font)
-
-        ver_layout.addWidget(self._lbl_ver_caption)
-        ver_layout.addWidget(lbl_ver_val)
-
-        if colors:
-            version_card.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {colors.bg_sidebar};
-                    border: 1px solid {colors.border};
-                    border-radius: 6px;
-                }}
-            """)
-            self._lbl_ver_caption.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
-            lbl_ver_val.setStyleSheet(
-                f"color: {colors.text_primary}; font-weight: bold; background: transparent;"
-            )
-        layout.addWidget(version_card)
-
-        # Check for updates button (disabled — stub)
-        self._btn_check_updates = QPushButton(t("settings_check_updates"))
-        self._btn_check_updates.setFixedHeight(32)
-        self._btn_check_updates.setEnabled(False)
-        self._btn_check_updates.setCursor(Qt.CursorShape.ForbiddenCursor)
-        if colors:
-            self._btn_check_updates.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {colors.bg_card};
-                    color: {colors.text_muted};
-                    border: 1px solid {colors.border};
-                    border-radius: 6px;
-                    padding: 4px 14px;
-                    font-size: 12px;
-                }}
-            """)
-        layout.addWidget(self._btn_check_updates)
-
-        self._lbl_updates_wip = QLabel(t("settings_updates_wip"))
-        wip_font = self._lbl_updates_wip.font()
-        wip_font.setPixelSize(11)
-        self._lbl_updates_wip.setFont(wip_font)
-        if colors:
-            self._lbl_updates_wip.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
-        layout.addWidget(self._lbl_updates_wip)
-
-        # GitHub link
-        self._lbl_github_updates = QLabel(t("settings_github_link"))
-        github_font = self._lbl_github_updates.font()
-        github_font.setPixelSize(12)
-        github_font.setUnderline(True)
-        self._lbl_github_updates.setFont(github_font)
-        self._lbl_github_updates.setCursor(Qt.CursorShape.PointingHandCursor)
-        if colors:
-            self._lbl_github_updates.setStyleSheet(
-                f"color: {colors.accent_light}; background: transparent;"
-            )
-        self._lbl_github_updates.mousePressEvent = lambda _: QDesktopServices.openUrl(
-            QUrl("https://github.com/EJAIS/vinylsticker")
-        )
-        layout.addWidget(self._lbl_github_updates)
-
-        layout.addStretch()
-
-        self._inner_updates = inner
-        return self._scrollable(inner)
-
-    # ── Tab 4: About ───────────────────────────────────────────────────────────
+    # ── Tab 3: About ───────────────────────────────────────────────────────────
 
     def _build_about_tab(self) -> QWidget:
         inner = QWidget()
@@ -732,13 +708,7 @@ class SettingsDialog(QDialog):
         name_font.setPixelSize(15)
         lbl_app_name.setFont(name_font)
 
-        lbl_app_ver = QLabel(f"v{__version__} {__status__}")
-        ver_font = lbl_app_ver.font()
-        ver_font.setPixelSize(12)
-        lbl_app_ver.setFont(ver_font)
-
         app_layout.addWidget(lbl_app_name)
-        app_layout.addWidget(lbl_app_ver)
 
         if colors:
             app_card.setStyleSheet(f"""
@@ -751,23 +721,17 @@ class SettingsDialog(QDialog):
             lbl_app_name.setStyleSheet(
                 f"color: {colors.text_primary}; font-weight: bold; background: transparent;"
             )
-            lbl_app_ver.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
         layout.addWidget(app_card)
 
-        # Info rows — store key labels for retranslation
+        # Info rows (License + Author only) — store key labels for retranslation
         self._lbl_about_license_key = QLabel(t("settings_license"))
         self._lbl_about_author_key  = QLabel(t("settings_author"))
-        lbl_about_github_key        = QLabel("GitHub")  # not translated
 
         info_rows = [
-            (self._lbl_about_license_key, "GNU GPL v3.0", None),
-            (self._lbl_about_author_key,  "EJAIS",         None),
-            (lbl_about_github_key,        "EJAIS/vinylsticker",
-             "https://github.com/EJAIS/vinylsticker"),
+            (self._lbl_about_license_key, "GNU GPL v3.0"),
+            (self._lbl_about_author_key,  "EJAIS"),
         ]
-        for lbl_key, value_text, url in info_rows:
+        for lbl_key, value_text in info_rows:
             row = QWidget()
             row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             row_layout = QHBoxLayout(row)
@@ -786,22 +750,9 @@ class SettingsDialog(QDialog):
                 lbl_key.setStyleSheet(
                     f"color: {colors.text_secondary}; background: transparent;"
                 )
-                if url:
-                    val_font.setUnderline(True)
-                    lbl_val.setFont(val_font)
-                    lbl_val.setCursor(Qt.CursorShape.PointingHandCursor)
-                    lbl_val.setStyleSheet(
-                        f"color: {colors.accent_light}; background: transparent;"
-                    )
-                    _url = url  # capture
-                    lbl_val.mousePressEvent = lambda _, u=_url: QDesktopServices.openUrl(
-                        QUrl(u)
-                    )
-                else:
-                    lbl_val.setStyleSheet(
-                        f"color: {colors.text_primary}; background: transparent;"
-                    )
-
+                lbl_val.setStyleSheet(
+                    f"color: {colors.text_primary}; background: transparent;"
+                )
                 row.setStyleSheet(f"""
                     QWidget {{
                         background-color: {colors.bg_card};
@@ -814,6 +765,142 @@ class SettingsDialog(QDialog):
             row_layout.addStretch()
             row_layout.addWidget(lbl_val)
             layout.addWidget(row)
+
+        # Version check section
+        self._lbl_sec_version_check = _make_section_label(t("version_check"))
+        layout.addWidget(self._lbl_sec_version_check)
+
+        # Version rows: installed + available
+        self._lbl_about_installed_key  = QLabel(t("installed_version"))
+        self._lbl_about_available_key  = QLabel(t("available_version"))
+        self._lbl_about_available_val  = QLabel(t("not_yet_checked"))
+
+        ver_rows = [
+            (self._lbl_about_installed_key,  f"v{__version__} {__status__}",  False),
+            (self._lbl_about_available_key,  self._lbl_about_available_val,    True),
+        ]
+        for lbl_key, val_or_widget, is_widget in ver_rows:
+            row = QWidget()
+            row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(12, 8, 12, 8)
+
+            key_font = lbl_key.font()
+            key_font.setPixelSize(12)
+            lbl_key.setFont(key_font)
+
+            if is_widget:
+                lbl_val = val_or_widget
+            else:
+                lbl_val = QLabel(val_or_widget)
+            val_font = lbl_val.font()
+            val_font.setPixelSize(12)
+            lbl_val.setFont(val_font)
+
+            if colors:
+                lbl_key.setStyleSheet(
+                    f"color: {colors.text_secondary}; background: transparent;"
+                )
+                lbl_val.setStyleSheet(
+                    f"color: {colors.text_muted}; background: transparent;"
+                )
+                row.setStyleSheet(f"""
+                    QWidget {{
+                        background-color: {colors.bg_sidebar};
+                        border: 1px solid {colors.border};
+                        border-radius: 6px;
+                    }}
+                """)
+
+            row_layout.addWidget(lbl_key)
+            row_layout.addStretch()
+            row_layout.addWidget(lbl_val)
+            layout.addWidget(row)
+
+        # Check for updates button
+        self._btn_about_check_updates = QPushButton(t("check_updates"))
+        self._btn_about_check_updates.setFixedHeight(32)
+        self._btn_about_check_updates.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_about_check_updates.clicked.connect(self._check_for_updates)
+        if colors:
+            self._btn_about_check_updates.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {colors.bg_card};
+                    color: {colors.text_primary};
+                    border: 1px solid {colors.accent};
+                    border-radius: 6px;
+                    padding: 4px 14px;
+                    font-size: 12px;
+                }}
+                QPushButton:hover {{
+                    background-color: {colors.accent_bg};
+                }}
+                QPushButton:disabled {{
+                    color: {colors.text_muted};
+                    border-color: {colors.border};
+                }}
+            """)
+        layout.addWidget(self._btn_about_check_updates)
+
+        # Status label (shown after check completes)
+        self._lbl_about_update_status = QLabel("")
+        status_font = self._lbl_about_update_status.font()
+        status_font.setPixelSize(12)
+        self._lbl_about_update_status.setFont(status_font)
+        self._lbl_about_update_status.setVisible(False)
+        self._lbl_about_update_status.setStyleSheet("background: transparent;")
+        layout.addWidget(self._lbl_about_update_status)
+
+        # "Release Notes" link (shown only when an update is available)
+        self._lbl_about_release_notes = QLabel(t("release_notes"))
+        rn_font = self._lbl_about_release_notes.font()
+        rn_font.setPixelSize(12)
+        self._lbl_about_release_notes.setFont(rn_font)
+        self._lbl_about_release_notes.setVisible(False)
+        self._lbl_about_release_notes.setCursor(Qt.CursorShape.PointingHandCursor)
+        if colors:
+            self._lbl_about_release_notes.setStyleSheet(
+                f"color: {colors.accent_light}; background: transparent;"
+            )
+        self._lbl_about_release_notes.mousePressEvent = (
+            lambda _event: self._open_release_notes()
+        )
+        layout.addWidget(self._lbl_about_release_notes)
+
+        # Pre-fill available version from cache (no network call on open)
+        cached = get_last_known_version()
+        if cached:
+            self._lbl_about_available_val.setText(cached)
+
+        # Divider before GitHub section
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setFrameShadow(QFrame.Shadow.Plain)
+        divider.setFixedHeight(1)
+        if colors:
+            divider.setStyleSheet(f"background-color: {colors.border}; border: none;")
+        layout.addWidget(divider)
+
+        # GitHub button
+        self._btn_about_github = QPushButton(t("open_github"))
+        self._btn_about_github.setFixedHeight(32)
+        self._btn_about_github.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_about_github.clicked.connect(self._open_github)
+        if colors:
+            self._btn_about_github.setStyleSheet(f"""
+                QPushButton {{
+                    color: {colors.accent_light};
+                    background: transparent;
+                    border: none;
+                    font-size: 12px;
+                    text-align: left;
+                    padding: 4px 0px;
+                }}
+                QPushButton:hover {{
+                    color: {colors.accent};
+                }}
+            """)
+        layout.addWidget(self._btn_about_github)
 
         layout.addStretch()
 
@@ -828,6 +915,10 @@ class SettingsDialog(QDialog):
             item.set_active(i == index)
         if index == 2:
             self._refresh_discogs_status()
+
+    def switch_to_tab(self, index: int) -> None:
+        """Navigate to *index* (0 = Appearance, 1 = Data source, …)."""
+        self._switch_tab(index)
 
     # ── Appearance handlers ────────────────────────────────────────────────────
 
@@ -855,6 +946,12 @@ class SettingsDialog(QDialog):
         self._card_en.set_active(lang == "EN")
         self.language_changed.emit()
         self.retranslate()
+
+    def _on_debug_toggle(self, enabled: bool) -> None:
+        set_debug_logging(enabled)
+        set_debug_mode(enabled)
+        self._lbl_log_path.setVisible(enabled)
+        self.debug_mode_changed.emit(enabled)
 
     # ── Data source handlers ───────────────────────────────────────────────────
 
@@ -893,6 +990,77 @@ class SettingsDialog(QDialog):
         dlg = DiscogsDialog(db_path, parent=self)
         dlg.exec()
         self._refresh_discogs_status()
+
+    def _open_github(self) -> None:
+        url = QUrl("https://github.com/EJAIS/vinylsticker")
+        QDesktopServices.openUrl(url)
+
+    # ── Version check ──────────────────────────────────────────────────────────
+
+    def _check_for_updates(self) -> None:
+        """Start a background version check; update UI on completion."""
+        self._btn_about_check_updates.setEnabled(False)
+        self._btn_about_check_updates.setText(t("checking_version"))
+        self._lbl_about_available_val.setText("…")
+        self._lbl_about_update_status.setText("")
+        self._lbl_about_update_status.setVisible(False)
+        self._lbl_about_release_notes.setVisible(False)
+
+        self._version_thread = _VersionCheckThread(self)
+        self._version_thread.result_ready.connect(self._on_version_check_complete)
+        self._version_thread.start()
+
+    def _on_version_check_complete(self, result: dict) -> None:
+        """Handle version check result from the background thread."""
+        colors = _get_colors()
+        self._btn_about_check_updates.setEnabled(True)
+        self._btn_about_check_updates.setText(t("check_updates"))
+
+        if not result["success"]:
+            self._lbl_about_available_val.setText("—")
+            error = result["error"]
+            if error == "no_releases":
+                msg = t("no_releases_yet")
+                style_color = colors.text_muted if colors else ""
+            elif error == "network":
+                msg = t("check_failed_network")
+                style_color = colors.danger if colors else ""
+            else:
+                msg = t("check_failed_error")
+                style_color = colors.danger if colors else ""
+            self._lbl_about_update_status.setText(msg)
+            if colors:
+                self._lbl_about_update_status.setStyleSheet(
+                    f"color: {style_color}; background: transparent;"
+                )
+            self._lbl_about_update_status.setVisible(True)
+            return
+
+        self._lbl_about_available_val.setText(result["tag_name"])
+        set_last_known_version(result["tag_name"])
+        set_last_version_check(datetime.now().isoformat())
+
+        self._lbl_about_update_status.setVisible(True)
+        if is_update_available(result["latest_version"]):
+            msg = t("update_available", version=result["tag_name"])
+            self._lbl_about_update_status.setText(msg)
+            if colors:
+                self._lbl_about_update_status.setStyleSheet(
+                    f"color: {colors.accent}; background: transparent;"
+                )
+            self._release_url = result["release_url"]
+            self._lbl_about_release_notes.setVisible(True)
+        else:
+            self._lbl_about_update_status.setText(t("up_to_date"))
+            if colors:
+                self._lbl_about_update_status.setStyleSheet(
+                    f"color: {colors.success}; background: transparent;"
+                )
+
+    def _open_release_notes(self) -> None:
+        """Open the GitHub release page in the system browser."""
+        url = getattr(self, "_release_url", "https://github.com/EJAIS/vinylsticker/releases")
+        QDesktopServices.openUrl(QUrl(url))
 
     def _on_logout(self) -> None:
         CredentialsManager().clear()
@@ -967,12 +1135,13 @@ class SettingsDialog(QDialog):
         _apply_section_label_style(self._lbl_sec_lang)
         _apply_section_label_style(self._lbl_sec_mode, first=True)
         _apply_section_label_style(self._lbl_sec_token)
+        _apply_section_label_style(self._lbl_sec_version_check)
 
         # Re-apply inner tab widget backgrounds
         bg_qss = f"QWidget {{ background-color: {colors.bg_main}; }}"
         for inner in (
             self._inner_appearance, self._inner_datasource,
-            self._inner_discogs, self._inner_updates, self._inner_about,
+            self._inner_discogs, self._inner_about,
         ):
             inner.setStyleSheet(bg_qss)
 
@@ -1010,13 +1179,13 @@ class SettingsDialog(QDialog):
     def retranslate(self) -> None:
         """Update all translatable strings after a language switch."""
         self.setWindowTitle(t("menu_settings"))
+        self._nav_header.setText(t("menu_settings"))
 
         # Nav items
         tab_keys = [
             t("menu_appearance"),
             t("settings_tab_datasource"),
             t("settings_tab_discogs"),
-            t("settings_tab_updates"),
             t("settings_tab_about"),
         ]
         for item, label in zip(self._nav_items, tab_keys):
@@ -1031,6 +1200,9 @@ class SettingsDialog(QDialog):
         self._restart_notice_lbl.setText(t("restart_required"))
         self._lbl_sec_lang.setText(t("menu_language").upper())
         self._lbl_lang_info.setText(t("settings_lang_change_info"))
+        self._lbl_sec_debug.setText(t("debug_section").upper())
+        self._lbl_debug_title.setText(t("debug_logging_label"))
+        self._lbl_debug_subtitle.setText(t("debug_logging_subtitle"))
 
         # Data source tab
         self._lbl_sec_mode.setText(t("settings_active_mode").upper())
@@ -1046,12 +1218,12 @@ class SettingsDialog(QDialog):
         self._btn_logout.setText(t("discogs_btn_logout"))
         self._refresh_discogs_status()
 
-        # Updates tab
-        self._lbl_ver_caption.setText(t("settings_current_version"))
-        self._btn_check_updates.setText(t("settings_check_updates"))
-        self._lbl_updates_wip.setText(t("settings_updates_wip"))
-        self._lbl_github_updates.setText(t("settings_github_link"))
-
-        # About tab — only translatable keys
+        # About tab
         self._lbl_about_license_key.setText(t("settings_license"))
         self._lbl_about_author_key.setText(t("settings_author"))
+        self._lbl_sec_version_check.setText(t("version_check").upper())
+        self._lbl_about_installed_key.setText(t("installed_version"))
+        self._lbl_about_available_key.setText(t("available_version"))
+        self._btn_about_check_updates.setText(t("check_updates"))
+        self._lbl_about_release_notes.setText(t("release_notes"))
+        self._btn_about_github.setText(t("open_github"))

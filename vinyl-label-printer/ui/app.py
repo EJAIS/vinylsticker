@@ -32,6 +32,9 @@ from PyQt6.QtWidgets import (
 
 import modules.i18n as i18n
 from modules.i18n import t
+from modules.logger import get_logger
+
+logger = get_logger()
 from modules.excel_reader import LabelRecord, load_print_queue
 from modules.pdf_generator import generate_pdf
 from modules.printer import print_pdf
@@ -41,6 +44,7 @@ from config.settings import (
     get_watermark_path, set_watermark_path,
     get_data_source_mode, set_data_source_mode,
     get_theme,
+    get_debug_logging,
 )
 from ui.grid_widget import GridWidget
 from ui.preview_widget import PreviewWidget
@@ -71,6 +75,8 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._load_queue()
         self._update_footer_status()
+        self._footer.update_debug_mode(get_debug_logging())
+        logger.info("Main window started")
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -122,6 +128,7 @@ class MainWindow(QMainWindow):
 
         # Wire footer signals
         self._footer.settings_clicked.connect(self.on_open_settings)
+        self._footer.debug_badge_clicked.connect(self._on_debug_badge_clicked)
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
@@ -247,11 +254,19 @@ class MainWindow(QMainWindow):
             self._settings_dialog.theme_changed.connect(self.on_theme_changed)
             self._settings_dialog.mode_changed.connect(self.on_mode_changed)
             self._settings_dialog.language_changed.connect(self._retranslate_ui)
+            self._settings_dialog.debug_mode_changed.connect(
+                self._footer.update_debug_mode
+            )
             app_inst = QApplication.instance()
             if app_inst:
                 self._settings_dialog.setStyleSheet(app_inst.styleSheet())
         self._settings_dialog.show()
         self._settings_dialog.raise_()
+
+    def _on_debug_badge_clicked(self) -> None:
+        """Open Settings dialog and navigate to the Appearance tab."""
+        self.on_open_settings()
+        self._settings_dialog.switch_to_tab(0)
 
     def on_theme_changed(self, theme_name: str) -> None:
         """Apply a new theme to the whole application."""
@@ -269,6 +284,7 @@ class MainWindow(QMainWindow):
     def on_mode_changed(self, mode_str: str) -> None:
         """React to data-source mode change from the settings dialog."""
         self._mode = DataSourceMode(mode_str)
+        logger.debug(f"Mode changed: {mode_str}")
         self._footer.update_mode(self._mode)
         self._sidebar.set_active_mode(self._mode)
         self._update_footer_status()
