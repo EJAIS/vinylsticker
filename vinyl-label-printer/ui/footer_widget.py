@@ -25,6 +25,7 @@ class FooterWidget(QWidget):
     """48 px tall footer with settings button and connection/mode status."""
 
     settings_clicked = pyqtSignal()
+    debug_badge_clicked = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -44,6 +45,14 @@ class FooterWidget(QWidget):
         self._btn_settings.setFixedHeight(30)
         self._btn_settings.clicked.connect(self.settings_clicked)
         layout.addWidget(self._btn_settings)
+
+        # Debug badge (hidden by default, shown when debug logging is active)
+        self._debug_badge = QPushButton(t("debug_mode_active"))
+        self._debug_badge.setFixedHeight(30)
+        self._debug_badge.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._debug_badge.clicked.connect(self.debug_badge_clicked)
+        self._debug_badge.setVisible(False)
+        layout.addWidget(self._debug_badge)
 
         layout.addStretch()
 
@@ -130,6 +139,22 @@ class FooterWidget(QWidget):
             }}
         """)
 
+        self._debug_badge.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {colors.danger};
+                color: #ffffff;
+                border: none;
+                border-radius: 20px;
+                padding: 3px 10px;
+                font-size: 11px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {colors.danger};
+                opacity: 0.85;
+            }}
+        """)
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def update_discogs_status(self, connected: bool, username: str) -> None:
@@ -157,8 +182,12 @@ class FooterWidget(QWidget):
         else:
             self._lbl_mode.setText(t("sidebar_local_mode"))
 
+    def update_debug_mode(self, active: bool) -> None:
+        self._debug_badge.setVisible(active)
+
     def retranslate(self) -> None:
         self._btn_settings.setText(f"⚙  {t('menu_settings')}")
+        self._debug_badge.setText(t("debug_mode_active"))
         self.update_mode(self._mode)
         if not self._connected:
             self._lbl_username.setText(t("sidebar_not_connected"))

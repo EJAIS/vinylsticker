@@ -267,6 +267,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_theme_light_name":    "Light Teal",
         "settings_theme_light_desc":    "Helles Theme mit Teal-Akzent",
         "settings_lang_change_info":    "Sprachänderung wird sofort übernommen.",
+        "debug_section":                "ENTWICKLER",
+        "debug_logging_label":          "Debug-Logging",
+        "debug_logging_subtitle":       "Detaillierte Logs in logs/app.log speichern",
+        "debug_mode_active":            "⚠ Debug-Modus aktiv",
 
         # Settings dialog — data source tab
         "settings_active_mode":         "Aktiver Modus",
@@ -290,7 +294,21 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_updates_wip":         "Wird implementiert...",
         "settings_github_link":         "Projekt auf GitHub öffnen",
 
-        # Settings dialog — about tab
+        # Settings dialog — about tab (version check + github section)
+        "version_check":               "Versionsprüfung",
+        "installed_version":           "Installierte Version",
+        "available_version":           "Verfügbare Version (GitHub)",
+        "not_yet_checked":             "—",
+        "check_updates":               "Auf Updates prüfen",
+        "will_be_implemented":         "Wird in einer zukünftigen Version implementiert.",
+        "checking_version":            "Prüfe auf Updates…",
+        "up_to_date":                  "✓ Du nutzt die aktuellste Version.",
+        "update_available":            "↑ Update verfügbar: {version}",
+        "check_failed_network":        "Keine Verbindung zu GitHub.",
+        "check_failed_error":          "Prüfung fehlgeschlagen.",
+        "no_releases_yet":             "Noch kein Release auf GitHub verfügbar.",
+        "release_notes":               "Release Notes anzeigen →",
+        "open_github":                 "Projekt auf GitHub öffnen →",
         "settings_license":             "Lizenz",
         "settings_author":              "Autor",
 
@@ -561,6 +579,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_theme_light_name":    "Light Teal",
         "settings_theme_light_desc":    "Light theme with teal accent",
         "settings_lang_change_info":    "Language change is applied immediately.",
+        "debug_section":                "DEVELOPER",
+        "debug_logging_label":          "Debug logging",
+        "debug_logging_subtitle":       "Save detailed logs to logs/app.log",
+        "debug_mode_active":            "⚠ Debug mode active",
 
         # Settings dialog — data source tab
         "settings_active_mode":         "Active mode",
@@ -583,7 +605,21 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_updates_wip":         "Will be implemented...",
         "settings_github_link":         "Open project on GitHub",
 
-        # Settings dialog — about tab
+        # Settings dialog — about tab (version check + github section)
+        "version_check":               "Version check",
+        "installed_version":           "Installed version",
+        "available_version":           "Available version (GitHub)",
+        "not_yet_checked":             "—",
+        "check_updates":               "Check for updates",
+        "will_be_implemented":         "Will be implemented in a future version.",
+        "checking_version":            "Checking for updates…",
+        "up_to_date":                  "✓ You are using the latest version.",
+        "update_available":            "↑ Update available: {version}",
+        "check_failed_network":        "Could not connect to GitHub.",
+        "check_failed_error":          "Version check failed.",
+        "no_releases_yet":             "No release published on GitHub yet.",
+        "release_notes":               "Show release notes →",
+        "open_github":                 "Open project on GitHub →",
         "settings_license":             "License",
         "settings_author":              "Author",
 

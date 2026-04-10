@@ -32,3 +32,7 @@ Thumbs.db
 # PyInstaller
 *.spec
 **/data/database.xlsx
+
+# Logs
+**/logs/*.log
+**/logs/*.log.*

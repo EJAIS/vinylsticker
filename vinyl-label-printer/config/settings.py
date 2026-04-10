@@ -86,3 +86,39 @@ def set_language_setting(code: str) -> None:
     data = _load()
     data["language"] = code
     _save(data)
+
+
+def get_last_version_check() -> str:
+    """Return ISO timestamp of the last version check, or empty string."""
+    return _load().get("last_version_check", "")
+
+
+def set_last_version_check(timestamp: str) -> None:
+    """Persist *timestamp* as the time of the last version check."""
+    data = _load()
+    data["last_version_check"] = timestamp
+    _save(data)
+
+
+def get_last_known_version() -> str:
+    """Return the last fetched GitHub release tag, or empty string."""
+    return _load().get("last_known_version", "")
+
+
+def set_last_known_version(tag: str) -> None:
+    """Persist *tag* as the last known GitHub release tag."""
+    data = _load()
+    data["last_known_version"] = tag
+    _save(data)
+
+
+def get_debug_logging() -> bool:
+    """Return whether debug logging is enabled, defaulting to False."""
+    return bool(_load().get("debug_logging", False))
+
+
+def set_debug_logging(enabled: bool) -> None:
+    """Persist debug logging enabled state."""
+    data = _load()
+    data["debug_logging"] = enabled
+    _save(data)

@@ -13,6 +13,10 @@ from typing import Callable
 
 import requests
 
+from modules.logger import get_logger
+
+logger = get_logger()
+
 _ARTIST_NUM_RE = re.compile(r"\s*\(\d+\)$")
 
 
@@ -75,6 +79,9 @@ class DiscogsClient:
         total_pages  = 1  # updated after first response
 
         while url:
+            logger.debug(
+                f"Discogs API — GET collection page {current_page + 1}/{total_pages}"
+            )
             resp = self.session.get(url, params=params, timeout=30)
             resp.raise_for_status()
             body = resp.json()
@@ -82,8 +89,13 @@ class DiscogsClient:
             pagination  = body.get("pagination", {})
             total_pages = pagination.get("pages", total_pages)
             current_page += 1
+            page_releases = body.get("releases", [])
+            releases.extend(page_releases)
 
-            releases.extend(body.get("releases", []))
+            logger.debug(
+                f"Discogs API — page {current_page}/{total_pages}: "
+                f"{resp.status_code}, {len(page_releases)} releases"
+            )
 
             if progress_callback:
                 progress_callback(current_page, total_pages)
@@ -155,6 +167,7 @@ class DiscogsClient:
           'tracks'  — list[dict] with 'position' (str) and 'title' (str)
           'country' — str, top-level country field from the release response
         """
+        logger.debug(f"Fetching tracklist for release_id={release_id}")
         resp = self.session.get(
             f"{self.BASE_URL}/releases/{release_id}", timeout=15
         )
@@ -179,6 +192,9 @@ class DiscogsClient:
             for trk in ab_tracks:
                 trk["position"] = trk["position"][0].upper()  # 'A1' → 'A'
 
+        logger.debug(
+            f"Tracklist fetched: {len(ab_tracks)} tracks for release_id={release_id}"
+        )
         time.sleep(1.0)
         return {"tracks": ab_tracks, "country": country}
 
