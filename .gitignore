@@ -32,3 +32,4 @@ Thumbs.db
 # PyInstaller
 *.spec
 **/data/database.xlsx
+**/vinyl-label-printer/logs/app.log
