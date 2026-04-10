@@ -23,7 +23,7 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 1. [User Manual](#user-manual)
    - [Requirements](#requirements)
    - [Installation](#installation)
-   - [Starting the Application](#starting-the-application)
+   - [Quick Start](#quick-start)
    - [Workflow](#workflow)
    - [Interface Overview](#interface-overview)
    - [Discogs Import](#discogs-import)
@@ -50,33 +50,155 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 
 ### Installation
 
-**1. Install Python dependencies**
+---
 
-```bash
-cd vinyl-label-printer
+#### Installation — Windows
+
+##### Prerequisites (Windows)
+
++ Python 3.10+ — <https://www.python.org/downloads/>
+  Important: check "Add Python to PATH" during installation!
++ Git — <https://git-scm.com>
+
+##### Setup (Windows)
+
+```powershell
+git clone https://github.com/EJAIS/vinylsticker.git
+cd vinylsticker/vinyl-label-printer
+
+python -m venv venv
+venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-**2. Install Poppler** (required for the PDF preview panel)
+If `Activate.ps1` fails:
 
-- **Linux (Debian/Ubuntu/Mint):**
-  ```bash
-  sudo apt install poppler-utils
-  ```
-- **Windows:**
-  Download the pre-built binaries from [github.com/oschwartz10612/poppler-windows](https://github.com/oschwartz10612/poppler-windows), extract the archive, and add the `Library/bin` folder to your `PATH` environment variable.
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+venv\Scripts\Activate.ps1
+```
 
-**3. Place your Excel file**
+##### Install Poppler (Windows)
 
-Put your `database.xlsx` at `data/database.xlsx` inside the project folder, or select it later using the **Open file …** button inside the app.
-You can find an example in the /examples folder.
+Required for PDF preview.
 
-### Starting the Application
+1. Download: <https://github.com/oschwartz10612/poppler-windows/releases>
+2. Extract to: `C:\poppler`
+3. Add to PATH: Search → "Environment Variables" → Path → New: `C:\poppler\Library\bin`
 
-```bash
-cd vinyl-label-printer
+##### Start the app (Windows)
+
+```powershell
+venv\Scripts\Activate.ps1
 python main.py
 ```
+
+Or double-click: `start.bat`
+
+---
+
+#### Installation — Linux (Ubuntu/Debian/Mint)
+
+##### Prerequisites (Linux)
+
+```bash
+sudo apt install python3 python3-venv python3-pip
+sudo apt install poppler-utils libxcb-cursor0
+```
+
+##### Setup (Linux)
+
+```bash
+git clone https://github.com/EJAIS/vinylsticker.git
+cd vinylsticker/vinyl-label-printer
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+##### Start the app (Linux)
+
+```bash
+source venv/bin/activate
+python3 main.py
+```
+
+Or: `./start.sh`
+
+---
+
+> **Note on `pip`:** Always activate the venv first — then `pip` works identically on both
+> platforms. On Linux without a venv, use `pip3` instead.
+
+#### Place your Excel file
+
+Put your `database.xlsx` at `data/database.xlsx` inside the project folder, or select it later using the **Open file …** button inside the app.
+You can find an example in the `/examples` folder.
+
+### Quick Start
+
+#### Windows — start.bat
+
+Create a file `start.bat` in the `vinyl-label-printer/` folder with the following content:
+
+```bat
+@echo off
+cd /d "%~dp0"
+call venv\Scripts\activate.bat
+python main.py
+echo.
+echo === App closed. Press any key to exit ===
+pause
+```
+
+Run: double-click `start.bat`
+
+#### Linux — start.sh
+
+Create a file `start.sh` in the `vinyl-label-printer/` folder with the following content:
+
+```bash
+#!/bin/bash
+cd "$(dirname "$0")"
+source venv/bin/activate
+python3 main.py
+echo ""
+echo "=== App closed. Press Enter to exit ==="
+read
+```
+
+Make executable:
+
+```bash
+chmod +x start.sh
+```
+
+Run: `./start.sh` — or double-click in the file manager.
+
+#### Linux Desktop Shortcut (optional)
+
+For an entry in the application menu, create
+`~/.local/share/applications/vinyl-label-printer.desktop`:
+
+```ini
+[Desktop Entry]
+Name=Vinyl Label Printer
+Comment=Print 7" vinyl record labels
+Exec=/bin/bash -c "cd /PATH/TO/vinyl-label-printer && source venv/bin/activate && python3 main.py"
+Icon=printer
+Terminal=false
+Type=Application
+Categories=Utility;
+```
+
+Replace `/PATH/TO` with the actual path, e.g.:
+`/home/alexander/Coding_Local/vinylsticker/vinyl-label-printer`
+
+> **Note:** `start.bat` and `start.sh` are **not** included in the repository. Please create
+> them manually after cloning.
+
+---
 
 ### Workflow
 
