@@ -5,8 +5,8 @@ A desktop application for printing 7" vinyl record labels on **Avery Zweckform 4
 Made with :heart: and ClaudeCode - by a Collector for Collectors.
 
 + Local database (Excel) or Discogs integration.
-+ Discogs integration reads your 7" collection and also pulls A/B sides and more.
-+ Watermark option available.
++ Discogs integration reads your 7" collection, pulls A/B sides automatically, and caches data locally (SQLite, 6-hour expiry per Discogs API ToU).
++ Watermark option available (main window and **Settings → Appearance**).
 + Dark / Light / Auto theme via **Settings → Appearance** (follows OS setting by default).
 
 ![Picture of an example label](https://github.com/EJAIS/vinylsticker/blob/main/examples/label_with_watermark.png)
@@ -343,7 +343,7 @@ After a successful verification the dialog switches automatically to the collect
 
 Click **Load 7" Singles**. The app fetches all releases from your Discogs collection (all pages) and filters automatically for 7" format singles. A progress indicator shows the current page being loaded.
 
-> The collection list is **cached for the duration of the session**. Closing and reopening the dialog does not trigger a new API call as long as you are logged in with the same account. Use **Load 7" Singles** again to force a refresh.
+> The collection list is **cached locally in a SQLite database** (`data/discogs_cache.db`, not committed to version control). Re-opening the dialog reuses the cached data as long as it is less than 6 hours old — no API call is made. Once the cache expires, the status bar shows a warning and a **Aktualisieren / Reload** button appears. This behaviour is required by the Discogs API Terms of Use.
 
 Use the search bar to filter the list by artist or title.
 
@@ -387,9 +387,10 @@ A **Review dialog** opens showing all expanded rows before anything is written t
 #### Privacy & security
 
 - The token is stored exclusively in `config/credentials.json` on your local machine.
-- The file is listed in `.gitignore` and is never committed to version control.
+- The credentials file is listed in `.gitignore` and is never committed to version control.
 - On Linux/macOS file permissions are set to `600` (owner read/write only) automatically.
-- Click **Log out** in the collection panel to delete the stored credentials immediately and return to the setup panel. This also clears the session cache.
+- The Discogs collection cache (`data/discogs_cache.db`) is also gitignored and stays local.
+- Click **Log out** in the collection panel to delete the stored credentials immediately and return to the setup panel.
 
 ---
 
@@ -402,7 +403,8 @@ vinyl-label-printer/
 ├── main.py                        # Entry point — creates QApplication and MainWindow
 ├── requirements.txt               # pip dependencies
 ├── data/
-│   └── database.xlsx              # Excel workbook (user-supplied)
+│   ├── database.xlsx              # Excel workbook (user-supplied)
+│   └── discogs_cache.db           # SQLite Discogs cache (auto-created; gitignored)
 ├── output/
 │   └── labels.pdf                 # Generated PDF (created on first run)
 ├── config/
@@ -421,6 +423,8 @@ vinyl-label-printer/
 │   ├── printer.py                 # Cross-platform OS print dialog trigger
 │   ├── i18n.py                    # All UI strings, language switching (DE / EN)
 │   ├── discogs_client.py          # Discogs REST API client (verify, fetch, filter, tracklist)
+│   ├── discogs_cache.py           # SQLite persistent cache for Discogs collection data (6 h ToU)
+│   ├── tracklist_loader.py        # Background QThread — lazy tracklist prefetch with cancellation
 │   ├── version_checker.py         # GitHub release check + semantic version comparison
 │   └── credentials_manager.py     # Load/save/clear config/credentials.json
 └── ui/
@@ -535,8 +539,34 @@ Reads and writes `config/settings.json`. Keys:
 | `DiscogsClient(username, token)` | Initialises a `requests.Session` with Discogs auth headers |
 | `verify_token()` | `GET /oauth/identity` — returns `True` if valid, `False` if 401, raises `ConnectionError` on network failure |
 | `fetch_collection(progress_callback)` | Paginates through all collection pages (sort: newest first); calls `progress_callback(page, total_pages)` between pages |
-| `filter_7inch(releases)` | Returns only releases that have `'7"'` in their format descriptions; strips disambiguation suffixes from artist names |
-| `fetch_tracklist(release_id)` | `GET /releases/{id}` — returns `{"tracks": list[dict], "country": str}`; normalises `A1`/`B1` positions to `A`/`B` for simple singles |
+| `filter_7inch(releases)` | Returns only 7" releases (format description matching); strips disambiguation suffixes from artist names; includes catno in label field |
+| `normalize_for_cache(releases)` | Normalises ALL releases for SQLite storage: sets `is_7inch`, `formats_json`, `date_added`; label name only (no catno) |
+| `fetch_tracklist(release_id)` | `GET /releases/{id}` — returns `{"tracks": list[dict], "country": str}`; normalises `A1`/`B1` positions to `A`/`B` for simple singles; sleeps 1 s for rate limiting |
+
+#### `modules/discogs_cache.py`
+
+SQLite-based persistent cache for Discogs collection data. Enforces the Discogs API Terms of Use: data older than 6 hours is treated as expired and must not be displayed.
+
+| Symbol | Description |
+|---|---|
+| `DiscogsCache()` | Opens (or creates) `data/discogs_cache.db`; runs schema migrations on first call |
+| `get_cache_status()` | Returns `has_cache`, `is_valid`, `cached_at`, `age_hours`, `total_items`, `items_7inch`, `username` |
+| `get_7inch_releases()` | Returns all 7" releases ordered by `date_added DESC`; raises `RuntimeError` if cache is expired |
+| `get_pending_tracklist_ids()` | Returns `discogs_id` list of 7" releases whose tracklist has not been fetched yet |
+| `sync_releases(releases, username)` | Three-way diff: INSERT new, UPDATE changed (preserves existing tracklist data), DELETE removed; returns `{"added", "updated", "removed", "unchanged"}` |
+| `update_tracklist(discogs_id, tracklist)` | Persists a fetched tracklist; verifies the write with a follow-up SELECT |
+| `is_date_added_populated()` | Returns `True` if any release has a `date_added` value (migration guard) |
+| `clear()` | Wipes all cached releases and metadata |
+
+#### `modules/tracklist_loader.py`
+
+| Symbol | Description |
+|---|---|
+| `TracklistLoaderThread(client, cache, pending_ids)` | `QThread` subclass; iterates `pending_ids` after collection load |
+| `cancel()` | Sets a cancellation flag; the thread stops after finishing its current fetch (max 1 s delay) |
+| Signals | `progress(int, int)` — current/total; `tracklist_ready(int, list)` — id + tracks; `finished()`; `error(str)` non-fatal per-item error |
+
+The thread performs a pre-flight cache check before each API call and skips releases already stored. `fetch_tracklist()` internally sleeps 1 s for rate limiting — no additional sleep is added.
 
 #### `modules/credentials_manager.py`
 
@@ -605,7 +635,7 @@ Shared stylesheet constants and helpers used by both `discogs_dialog.py` and `re
 | Setup      | No valid credentials saved                                     |
 | Collection | Valid credentials found or after successful token verification |
 
-Session cache: the filtered 7" release list is held in class-level variables (`_cached_releases`, `_cache_username`) and reused across dialog instances within the same application session. The cache is keyed by username and cleared on logout.
+On open the dialog checks the SQLite cache via `DiscogsCache`: if valid (< 6 h) it populates the table instantly; if expired it shows a warning and blocks the table; if empty it shows a first-load prompt. A full API pull syncs the cache and shows a brief sync report.
 
 Background workers:
 
@@ -613,7 +643,8 @@ Background workers:
 |---|---|---|
 | `_VerifyWorker` | `success`, `failure(str)` | Calls `verify_token()` off the UI thread |
 | `_FetchWorker` | `progress(int,int)`, `finished(list)`, `error(int,str)` | Paginates `fetch_collection()`; handles 429 rate-limit with a 60 s countdown + auto-retry |
-| `_TracklistWorker` | `progress(int,int)`, `finished(list,list)` | Calls `fetch_tracklist()` per selected release; expands into per-side rows |
+| `TracklistLoaderThread` | `progress(int,int)`, `tracklist_ready(int,list)`, `finished()`, `error(str)` | Lazy-prefetches tracklists for all 7" releases after collection load; cache-first, API fallback; cancellable |
+| `_TracklistWorker` | `progress(int,int)`, `finished(list,list)` | Calls `fetch_tracklist()` per selected release at import time; cache-first; expands into per-side rows |
 
 #### `ui/review_widget.py`
 

@@ -32,6 +32,9 @@ Thumbs.db
 # PyInstaller
 *.spec
 **/data/database.xlsx
+**/data/discogs_cache.db
+**/data/discogs_cache.db-shm
+**/data/discogs_cache.db-wal
 
 # Logs
 **/app.log

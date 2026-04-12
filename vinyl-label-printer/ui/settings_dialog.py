@@ -54,6 +54,7 @@ from config.settings import (
     set_last_version_check,
     get_debug_logging,
     set_debug_logging,
+    get_watermark_path,
 )
 from modules.logger import set_debug_mode
 
@@ -448,6 +449,49 @@ class SettingsDialog(QDialog):
                 f"color: {colors.text_muted}; background: transparent;"
             )
         layout.addWidget(self._lbl_lang_info)
+
+        # ── Watermark section ──────────────────────────────────────────────
+        self._lbl_sec_watermark = _make_section_label(t("watermark_section"))
+        layout.addWidget(self._lbl_sec_watermark)
+
+        # Status card
+        wm_card = QWidget()
+        wm_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        wm_card_layout = QHBoxLayout(wm_card)
+        wm_card_layout.setContentsMargins(12, 8, 12, 8)
+        self._lbl_watermark_status = QLabel("")
+        wm_status_font = self._lbl_watermark_status.font()
+        wm_status_font.setPixelSize(12)
+        self._lbl_watermark_status.setFont(wm_status_font)
+        self._lbl_watermark_status.setWordWrap(True)
+        wm_card_layout.addWidget(self._lbl_watermark_status)
+        if colors:
+            wm_card.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {colors.bg_sidebar};
+                    border: 1px solid {colors.border};
+                    border-radius: 6px;
+                }}
+            """)
+        layout.addWidget(wm_card)
+
+        # Buttons row
+        wm_btn_row = QHBoxLayout()
+        self._btn_watermark_select = QPushButton(t("watermark_select"))
+        self._btn_watermark_select.setFixedHeight(30)
+        self._btn_watermark_select.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_watermark_select.clicked.connect(self._on_select_watermark)
+        self._btn_watermark_clear = QPushButton(t("watermark_clear"))
+        self._btn_watermark_clear.setFixedHeight(30)
+        self._btn_watermark_clear.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_watermark_clear.clicked.connect(self._on_clear_watermark)
+        wm_btn_row.addWidget(self._btn_watermark_select)
+        wm_btn_row.addWidget(self._btn_watermark_clear)
+        wm_btn_row.addStretch()
+        layout.addLayout(wm_btn_row)
+
+        # Populate initial status
+        self._refresh_watermark_status()
 
         # ── Developer section ──────────────────────────────────────────────
         self._lbl_sec_debug = _make_section_label(t("debug_section"))
@@ -902,6 +946,62 @@ class SettingsDialog(QDialog):
             """)
         layout.addWidget(self._btn_about_github)
 
+        # Discogs attribution section — legal requirement per Discogs API ToU
+        self._lbl_discogs_attribution_label = QLabel(t("discogs_attribution_label"))
+        attr_lbl_font = self._lbl_discogs_attribution_label.font()
+        attr_lbl_font.setPixelSize(10)
+        attr_lbl_font.setBold(True)
+        self._lbl_discogs_attribution_label.setFont(attr_lbl_font)
+        if colors:
+            self._lbl_discogs_attribution_label.setStyleSheet(
+                f"color: {colors.text_secondary}; background: transparent;"
+                " padding-top: 12px;"
+            )
+        layout.addWidget(self._lbl_discogs_attribution_label)
+
+        attr_box = QWidget()
+        attr_box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        if colors:
+            attr_box.setStyleSheet(f"""
+                QWidget {{
+                    background: {colors.bg_sidebar};
+                    border: 1px solid {colors.border};
+                    border-radius: 6px;
+                }}
+            """)
+        attr_layout = QVBoxLayout(attr_box)
+        attr_layout.setContentsMargins(14, 10, 14, 10)
+
+        # This text must NOT be translated — it must appear verbatim per Discogs API ToU
+        _lbl_attr_text = QLabel(
+            "This application uses Discogs\u2019 API but is not affiliated "
+            "with, sponsored or endorsed by Discogs."
+        )
+        _lbl_attr_text.setWordWrap(True)
+        attr_text_font = _lbl_attr_text.font()
+        attr_text_font.setPixelSize(11)
+        _lbl_attr_text.setFont(attr_text_font)
+        if colors:
+            _lbl_attr_text.setStyleSheet(
+                f"color: {colors.text_muted}; font-style: italic; background: transparent;"
+            )
+        attr_layout.addWidget(_lbl_attr_text)
+
+        # Cache policy notice — translatable
+        self._lbl_discogs_cache_notice = QLabel(t("discogs_cache_notice"))
+        self._lbl_discogs_cache_notice.setWordWrap(True)
+        cache_notice_font = self._lbl_discogs_cache_notice.font()
+        cache_notice_font.setPixelSize(11)
+        self._lbl_discogs_cache_notice.setFont(cache_notice_font)
+        if colors:
+            self._lbl_discogs_cache_notice.setStyleSheet(
+                f"color: {colors.text_muted}; font-style: italic;"
+                " background: transparent; margin-top: 8px;"
+            )
+        attr_layout.addWidget(self._lbl_discogs_cache_notice)
+
+        layout.addWidget(attr_box)
+
         layout.addStretch()
 
         self._inner_about = inner
@@ -952,6 +1052,41 @@ class SettingsDialog(QDialog):
         set_debug_mode(enabled)
         self._lbl_log_path.setVisible(enabled)
         self.debug_mode_changed.emit(enabled)
+
+    # ── Watermark handlers ─────────────────────────────────────────────────────
+
+    def _on_select_watermark(self) -> None:
+        main = self.parent()
+        if hasattr(main, "_on_select_watermark"):
+            main._on_select_watermark()
+            self._refresh_watermark_status()
+
+    def _on_clear_watermark(self) -> None:
+        main = self.parent()
+        if hasattr(main, "_on_clear_watermark"):
+            main._on_clear_watermark()
+            self._refresh_watermark_status()
+
+    def _refresh_watermark_status(self) -> None:
+        """Update the watermark status card to reflect current settings."""
+        colors = _get_colors()
+        path   = get_watermark_path()
+        if path and path.exists():
+            self._lbl_watermark_status.setText(
+                t("watermark_active", filename=path.name)
+            )
+            if colors:
+                self._lbl_watermark_status.setStyleSheet(
+                    f"color: {colors.success}; background: transparent;"
+                )
+            self._btn_watermark_clear.setEnabled(True)
+        else:
+            self._lbl_watermark_status.setText(t("watermark_none"))
+            if colors:
+                self._lbl_watermark_status.setStyleSheet(
+                    f"color: {colors.text_muted}; background: transparent;"
+                )
+            self._btn_watermark_clear.setEnabled(False)
 
     # ── Data source handlers ───────────────────────────────────────────────────
 
@@ -1200,6 +1335,10 @@ class SettingsDialog(QDialog):
         self._restart_notice_lbl.setText(t("restart_required"))
         self._lbl_sec_lang.setText(t("menu_language").upper())
         self._lbl_lang_info.setText(t("settings_lang_change_info"))
+        self._lbl_sec_watermark.setText(t("watermark_section").upper())
+        self._btn_watermark_select.setText(t("watermark_select"))
+        self._btn_watermark_clear.setText(t("watermark_clear"))
+        self._refresh_watermark_status()
         self._lbl_sec_debug.setText(t("debug_section").upper())
         self._lbl_debug_title.setText(t("debug_logging_label"))
         self._lbl_debug_subtitle.setText(t("debug_logging_subtitle"))
@@ -1227,3 +1366,5 @@ class SettingsDialog(QDialog):
         self._btn_about_check_updates.setText(t("check_updates"))
         self._lbl_about_release_notes.setText(t("release_notes"))
         self._btn_about_github.setText(t("open_github"))
+        self._lbl_discogs_attribution_label.setText(t("discogs_attribution_label"))
+        self._lbl_discogs_cache_notice.setText(t("discogs_cache_notice"))
