@@ -7,6 +7,7 @@ Token is passed in the Authorization header — no OAuth flow required.
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Callable
@@ -147,6 +148,61 @@ class DiscogsClient:
                     "discogs_id": release.get("id", 0),
                 }
             )
+        return result
+
+    # Accepted description strings that identify a 7" single.
+    # Covers the ASCII straight double-quote (most common in Discogs API),
+    # the Unicode right double quotation mark variant, and the double-single-quote
+    # variant occasionally seen in user-submitted entries.
+    _7INCH_STRINGS: frozenset[str] = frozenset(['7"', "7\u201d", "7''"])
+
+    def normalize_for_cache(self, releases: list[dict]) -> list[dict]:
+        """Normalize ALL raw API releases for SQLite cache storage.
+
+        Unlike filter_7inch(), this includes every release (no format filter)
+        and adds is_7inch / formats_json fields.  The label field stores name
+        only — catalog number is intentionally omitted for cache schema clarity.
+        """
+        result: list[dict] = []
+        for release in releases:
+            info    = release.get("basic_information", {})
+            formats = info.get("formats") or []
+            rid     = release.get("id", 0)
+
+            artists     = info.get("artists") or []
+            artist_name = _ARTIST_NUM_RE.sub("", artists[0]["name"]) if artists else ""
+
+            labels     = info.get("labels") or []
+            label_name = labels[0].get("name", "") if labels else ""
+
+            # Robust 7" detection: check every description string with strip()
+            # to handle whitespace variants and multiple quote encodings.
+            descriptions = [
+                d for fmt in formats
+                for d in (fmt.get("descriptions") or [])
+            ]
+            is_7inch = any(
+                d.strip() in self._7INCH_STRINGS
+                for d in descriptions
+            )
+
+            logger.debug(
+                f"Release {rid}: "
+                f"descriptions={descriptions}, "
+                f"is_7inch={is_7inch}"
+            )
+
+            result.append({
+                "discogs_id":   rid,
+                "title":        info.get("title", ""),
+                "artist":       artist_name.strip(),
+                "label":        label_name.strip(),
+                "country":      info.get("country", ""),
+                "year":         int(info.get("year") or 0),
+                "formats_json": json.dumps(formats),
+                "is_7inch":     is_7inch,
+                "date_added":   release.get("date_added", ""),
+            })
         return result
 
     def fetch_tracklist(self, release_id: int) -> list[dict]:

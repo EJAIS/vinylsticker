@@ -184,6 +184,29 @@ _STRINGS: dict[str, dict[str, str]] = {
         "discogs_imported_msg":  "{n} Singles in Druckwarteschlange übernommen.",
         "discogs_err_title":     "Fehler",
 
+        # Cache status / attribution
+        "discogs_attribution_label":   "Rechtlicher Hinweis / Legal notice",
+        "cache_last_pull":             "Letzter Discogs-Pull: {datetime} (vor {hours} Stunden)",
+        "cache_expired":               "⚠ Cache veraltet (vor {hours} Stunden) — bitte neu laden.",
+        "cache_no_data":               "Noch keine Sammlung geladen.",
+        "cache_reload":                "Aktualisieren",
+        "cache_load_now":              "Jetzt laden",
+        "cache_singles_count":         "{total} Singles · {count} × 7\"",
+        "cache_summary":               "Gesamt-Sammlung: {total} · davon 7\": {count}",
+        "cache_sync_report":           "✓ Synchronisiert: +{added} neu, ~{updated} aktualisiert, -{removed} entfernt",
+        "cache_tracklist_loading":     "Lade Tracklists im Hintergrund... ({current} von {total} abgeschlossen)",
+        "cache_tracklist_done":        "✓ Alle Tracklists geladen",
+        "dialog_title_with_count":     "Aus Discogs laden — {count} × 7\" Singles",
+        "tracklists_all_cached":       "✓ Alle Tracklists im Cache vorhanden",
+        "cache_expired_reason":        (
+            "ℹ Gemäss Discogs API-Nutzungsbedingungen dürfen Daten nicht länger als "
+            "6 Stunden ohne Aktualisierung angezeigt werden."
+        ),
+        "discogs_cache_notice":        (
+            "Diese Anwendung cached Discogs-Daten lokal für maximal 6 Stunden gemäss "
+            "den API-Nutzungsbedingungen. Nach Ablauf ist ein erneuter Datenabruf erforderlich."
+        ),
+
         # Tracklist fetch progress / errors
         "discogs_tracklist_progress":  "Lade Tracklist {n} von {total}…",
         "discogs_tracklist_warn_title": "Hinweis",
@@ -267,6 +290,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_theme_light_name":    "Light Teal",
         "settings_theme_light_desc":    "Helles Theme mit Teal-Akzent",
         "settings_lang_change_info":    "Sprachänderung wird sofort übernommen.",
+        "watermark_section":            "WASSERZEICHEN",
+        "watermark_active":             "Aktiv: {filename}",
+        "watermark_none":               "Kein Wasserzeichen gesetzt",
+        "watermark_select":             "Datei auswählen...",
+        "watermark_clear":              "Entfernen",
         "debug_section":                "ENTWICKLER",
         "debug_logging_label":          "Debug-Logging",
         "debug_logging_subtitle":       "Detaillierte Logs in logs/app.log speichern",
@@ -497,6 +525,29 @@ _STRINGS: dict[str, dict[str, str]] = {
         "discogs_imported_msg":  "{n} singles added to print queue.",
         "discogs_err_title":     "Error",
 
+        # Cache status / attribution
+        "discogs_attribution_label":   "Legal notice",
+        "cache_last_pull":             "Last Discogs pull: {datetime} ({hours} hours ago)",
+        "cache_expired":               "⚠ Cache expired ({hours} hours ago) — please reload.",
+        "cache_no_data":               "No collection loaded yet.",
+        "cache_reload":                "Reload",
+        "cache_load_now":              "Load now",
+        "cache_singles_count":         "{total} singles · {count} × 7\"",
+        "cache_summary":               "Total collection: {total} · thereof 7\": {count}",
+        "cache_sync_report":           "✓ Synced: +{added} new, ~{updated} updated, -{removed} removed",
+        "cache_tracklist_loading":     "Loading tracklists in background... ({current} of {total} done)",
+        "cache_tracklist_done":        "✓ All tracklists loaded",
+        "dialog_title_with_count":     "Load from Discogs — {count} × 7\" singles",
+        "tracklists_all_cached":       "✓ All tracklists loaded from cache",
+        "cache_expired_reason":        (
+            "ℹ According to Discogs API Terms of Use, data may not be displayed "
+            "for more than 6 hours without being refreshed."
+        ),
+        "discogs_cache_notice":        (
+            "This application caches Discogs data locally for a maximum of 6 hours "
+            "as per the API Terms of Use. A refresh is required after expiry."
+        ),
+
         # Tracklist fetch progress / errors
         "discogs_tracklist_progress":  "Loading tracklist {n} of {total}…",
         "discogs_tracklist_warn_title": "Note",
@@ -579,6 +630,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_theme_light_name":    "Light Teal",
         "settings_theme_light_desc":    "Light theme with teal accent",
         "settings_lang_change_info":    "Language change is applied immediately.",
+        "watermark_section":            "WATERMARK",
+        "watermark_active":             "Active: {filename}",
+        "watermark_none":               "No watermark set",
+        "watermark_select":             "Select file...",
+        "watermark_clear":              "Remove",
         "debug_section":                "DEVELOPER",
         "debug_logging_label":          "Debug logging",
         "debug_logging_subtitle":       "Save detailed logs to logs/app.log",
