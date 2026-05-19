@@ -26,7 +26,7 @@ from PIL import Image as PILImage
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-from config.avery_formats import get_format, label_rect_pt, mm_to_pt
+from config.avery_formats import MM_PER_PT, get_format, label_rect_pt, mm_to_pt
 from modules.excel_reader import LabelRecord
 from modules.logger import get_logger
 
@@ -84,6 +84,41 @@ def generate_pdf(
     fmt = get_format(format_name)
     labels_per_sheet: int = fmt["cols"] * fmt["rows"]
 
+    logger.debug("=== Avery %s Format ===", format_name)
+    logger.debug("Label:    %s × %s mm", fmt["label_width_mm"], fmt["label_height_mm"])
+    logger.debug("Grid:     %s × %s", fmt["cols"], fmt["rows"])
+    logger.debug("Margin:   left=%s mm  top=%s mm",
+                 fmt["margin_left_mm"], fmt["margin_top_mm"])
+    logger.debug("Gap:      col=%s mm  row=%s mm",
+                 fmt["col_gap_mm"], fmt["row_gap_mm"])
+    logger.debug("Calibration: x=%s mm  y=%s mm",
+                 fmt["calibration_x_mm"], fmt["calibration_y_mm"])
+    logger.debug("========================")
+
+    total_w = (fmt["margin_left_mm"]
+               + fmt["cols"] * fmt["label_width_mm"]
+               + (fmt["cols"] - 1) * fmt["col_gap_mm"]
+               + fmt["margin_left_mm"])
+    total_h = (fmt["margin_top_mm"]
+               + fmt["rows"] * fmt["label_height_mm"]
+               + (fmt["rows"] - 1) * fmt["row_gap_mm"]
+               + fmt["margin_top_mm"])
+    logger.debug("Total width:  %.1f mm (should be %s)", total_w, fmt["page_width_mm"])
+    logger.debug("Total height: %.1f mm (should be %s)", total_h, fmt["page_height_mm"])
+    if abs(total_w - fmt["page_width_mm"]) > 0.1:
+        logger.error("FORMAT ERROR: width mismatch %.1f ≠ %s mm!",
+                     total_w, fmt["page_width_mm"])
+    if abs(total_h - fmt["page_height_mm"]) > 0.1:
+        logger.error("FORMAT ERROR: height mismatch %.1f ≠ %s mm!",
+                     total_h, fmt["page_height_mm"])
+
+    x0_pt, y0_pt, w0_pt, h0_pt = label_rect_pt(fmt, 0, 0)
+    logger.debug(
+        "Label [0,0] position: x=%.2f mm  y_bottom=%.2f mm  w=%.2f mm  h=%.2f mm",
+        x0_pt * MM_PER_PT, y0_pt * MM_PER_PT,
+        w0_pt * MM_PER_PT, h0_pt * MM_PER_PT,
+    )
+
     page_w = mm_to_pt(fmt["page_width_mm"])
     page_h = mm_to_pt(fmt["page_height_mm"])
 
@@ -133,6 +168,10 @@ def generate_pdf(
         raise
     logger.info(
         f"PDF generated: {len(records)} labels, start_pos={start_position}"
+    )
+    logger.info(
+        "IMPORTANT when printing: select 'Actual Size' / 'Tatsaechliche Groesse' (100%). "
+        "NO scaling, NO 'Fit to page'!"
     )
     return output_path.resolve()
 
@@ -287,3 +326,115 @@ def _draw_debug_frame(
     c.setLineWidth(0.3)
     c.rect(x, y_bottom, w, h)
     c.restoreState()
+
+
+# ── Calibration PDF ───────────────────────────────────────────────────────────
+
+def generate_calibration_pdf(output_path: Path, fmt: dict) -> Path:
+    """Generate a diagnostic calibration sheet for measuring per-row printer offset.
+
+    Each label cell shows its row/column index and expected X/Y range in mm so
+    the printed sheet can be held against a physical Avery 4780 sheet to measure
+    any misalignment precisely.  Print at 100 % (actual size) on plain paper.
+    """
+    from reportlab.lib import colors as rl_colors
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    page_w = mm_to_pt(fmt["page_width_mm"])
+    page_h = mm_to_pt(fmt["page_height_mm"])
+    c = canvas.Canvas(str(output_path), pagesize=(page_w, page_h))
+
+    for row in range(fmt["rows"]):
+        for col in range(fmt["cols"]):
+            x, y_bottom, w, h = label_rect_pt(fmt, col, row)
+            cx = x + w / 2
+            cy = y_bottom + h / 2
+
+            # Label border
+            c.saveState()
+            c.setStrokeColor(rl_colors.black)
+            c.setLineWidth(0.5)
+            c.rect(x, y_bottom, w, h, fill=0)
+
+            # Crosshair at label centre
+            c.setLineWidth(0.3)
+            c.line(cx - mm_to_pt(3), cy, cx + mm_to_pt(3), cy)
+            c.line(cx, cy - mm_to_pt(2), cx, cy + mm_to_pt(2))
+
+            # Corner marks (top-left, top-right)
+            c.setLineWidth(0.5)
+            mark = mm_to_pt(3)
+            c.line(x,           y_bottom + h,        x + mark,    y_bottom + h)
+            c.line(x,           y_bottom + h,        x,           y_bottom + h - mark)
+            c.line(x + w,       y_bottom + h,        x + w - mark, y_bottom + h)
+            c.line(x + w,       y_bottom + h,        x + w,       y_bottom + h - mark)
+
+            # Row/col identifier
+            c.setFont("Helvetica-Bold", 7)
+            c.setFillColor(rl_colors.black)
+            c.drawCentredString(cx, cy + mm_to_pt(4), f"R{row + 1} / C{col + 1}")
+
+            # Expected Y range
+            y_start = fmt["margin_top_mm"] + row * fmt["label_height_mm"]
+            y_end   = y_start + fmt["label_height_mm"]
+            c.setFont("Helvetica", 6)
+            c.drawCentredString(
+                cx, cy + mm_to_pt(1),
+                f"Y: {y_start:.1f}–{y_end:.1f} mm",
+            )
+
+            # Expected X range
+            x_start = fmt["margin_left_mm"] + col * (fmt["label_width_mm"] + fmt["col_gap_mm"])
+            x_end   = x_start + fmt["label_width_mm"]
+            c.drawCentredString(
+                cx, cy - mm_to_pt(2),
+                f"X: {x_start:.1f}–{x_end:.1f} mm",
+            )
+            c.restoreState()
+
+    # Left-margin ruler (mm marks, top-to-bottom)
+    c.saveState()
+    c.setFont("Helvetica", 4)
+    c.setStrokeColor(rl_colors.grey)
+    c.setFillColor(rl_colors.grey)
+    for mm in range(0, int(fmt["page_height_mm"]), 5):
+        y        = page_h - mm_to_pt(mm)
+        tick_w   = mm_to_pt(3) if mm % 10 == 0 else mm_to_pt(1.5)
+        c.setLineWidth(0.3)
+        c.line(mm_to_pt(1), y, mm_to_pt(1) + tick_w, y)
+        if mm % 10 == 0:
+            c.drawString(mm_to_pt(1) + tick_w + mm_to_pt(0.5), y - mm_to_pt(1), str(mm))
+
+    # Top-margin ruler (mm marks, left-to-right)
+    for mm in range(0, int(fmt["page_width_mm"]), 5):
+        x      = mm_to_pt(mm)
+        tick_h = mm_to_pt(3) if mm % 10 == 0 else mm_to_pt(1.5)
+        c.setLineWidth(0.3)
+        c.line(x, page_h - mm_to_pt(1), x, page_h - mm_to_pt(1) - tick_h)
+        if mm % 10 == 0:
+            c.drawString(x + mm_to_pt(0.5),
+                         page_h - mm_to_pt(1) - tick_h - mm_to_pt(2), str(mm))
+    c.restoreState()
+
+    # Footer instructions
+    c.saveState()
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(rl_colors.black)
+    c.drawString(
+        mm_to_pt(fmt["margin_left_mm"]),
+        mm_to_pt(10),
+        "Kalibrierungsbogen — auf Normalpapier drucken (100 %, keine Skalierung)",
+    )
+    c.setFont("Helvetica", 7)
+    c.drawString(
+        mm_to_pt(fmt["margin_left_mm"]),
+        mm_to_pt(6),
+        "Gegen Avery 4780 Bogen halten → Versatz pro Reihe messen und notieren",
+    )
+    c.restoreState()
+
+    c.save()
+    logger.info("Calibration PDF generated: %s", output_path)
+    return output_path.resolve()

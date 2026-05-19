@@ -122,3 +122,39 @@ def set_debug_logging(enabled: bool) -> None:
     data = _load()
     data["debug_logging"] = enabled
     _save(data)
+
+
+def get_calibration_x() -> float:
+    """Return the saved horizontal calibration offset in mm, defaulting to 0.0."""
+    return float(_load().get("calibration_x_mm", 0.0))
+
+
+def set_calibration_x(value: float) -> None:
+    """Persist horizontal calibration offset in mm."""
+    data = _load()
+    data["calibration_x_mm"] = value
+    _save(data)
+
+
+def get_calibration_y() -> float:
+    """Return the saved vertical calibration offset in mm, defaulting to 0.0."""
+    return float(_load().get("calibration_y_mm", 0.0))
+
+
+def set_calibration_y(value: float) -> None:
+    """Persist vertical calibration offset in mm."""
+    data = _load()
+    data["calibration_y_mm"] = value
+    _save(data)
+
+
+def get_show_print_hint() -> bool:
+    """Return whether the print-settings hint dialog should be shown, defaulting to True."""
+    return bool(_load().get("show_print_hint", True))
+
+
+def set_show_print_hint(value: bool) -> None:
+    """Persist whether to show the print-settings hint dialog."""
+    data = _load()
+    data["show_print_hint"] = value
+    _save(data)

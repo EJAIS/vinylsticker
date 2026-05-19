@@ -45,6 +45,8 @@ from config.settings import (
     get_data_source_mode, set_data_source_mode,
     get_theme,
     get_debug_logging,
+    get_calibration_x,
+    get_calibration_y,
 )
 from ui.grid_widget import GridWidget
 from ui.preview_widget import PreviewWidget
@@ -71,6 +73,11 @@ class MainWindow(QMainWindow):
         self._watermark_path: Path | None = get_watermark_path()
         self._mode:           DataSourceMode = get_data_source_mode()
         self._start_index:    int = 0
+
+        # Apply persisted calibration to the active format dict
+        from config.avery_formats import AVERY_FORMATS
+        AVERY_FORMATS["4780"]["calibration_x_mm"] = get_calibration_x()
+        AVERY_FORMATS["4780"]["calibration_y_mm"] = get_calibration_y()
 
         self._init_ui()
         self._load_queue()

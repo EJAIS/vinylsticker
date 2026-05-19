@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
+    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -55,6 +56,10 @@ from config.settings import (
     get_debug_logging,
     set_debug_logging,
     get_watermark_path,
+    get_calibration_x,
+    set_calibration_x,
+    get_calibration_y,
+    set_calibration_y,
 )
 from modules.logger import set_debug_mode
 
@@ -492,6 +497,81 @@ class SettingsDialog(QDialog):
 
         # Populate initial status
         self._refresh_watermark_status()
+
+        # ── Printer calibration section ────────────────────────────────────
+        self._lbl_sec_calibration = _make_section_label(t("print_calibration"))
+        layout.addWidget(self._lbl_sec_calibration)
+
+        self._lbl_calibration_info = QLabel(t("calibration_info"))
+        self._lbl_calibration_info.setWordWrap(True)
+        cal_info_font = self._lbl_calibration_info.font()
+        cal_info_font.setPixelSize(11)
+        self._lbl_calibration_info.setFont(cal_info_font)
+        if colors:
+            self._lbl_calibration_info.setStyleSheet(
+                f"color: {colors.text_muted}; background: transparent;"
+            )
+        layout.addWidget(self._lbl_calibration_info)
+
+        def _make_spin(value: float) -> QDoubleSpinBox:
+            spin = QDoubleSpinBox()
+            spin.setRange(-5.0, 5.0)
+            spin.setSingleStep(0.5)
+            spin.setDecimals(1)
+            spin.setValue(value)
+            spin.setSuffix(" mm")
+            spin.setFixedWidth(100)
+            if colors:
+                spin.setStyleSheet(f"""
+                    QDoubleSpinBox {{
+                        background-color: {colors.bg_input};
+                        color: {colors.text_primary};
+                        border: 1px solid {colors.border};
+                        border-radius: 6px;
+                        padding: 4px 6px;
+                    }}
+                """)
+            return spin
+
+        cal_x_row = QHBoxLayout()
+        self._lbl_cal_x = QLabel(t("calibration_x"))
+        cal_x_font = self._lbl_cal_x.font()
+        cal_x_font.setPixelSize(12)
+        self._lbl_cal_x.setFont(cal_x_font)
+        self._spin_cal_x = _make_spin(get_calibration_x())
+        cal_x_row.addWidget(self._lbl_cal_x)
+        cal_x_row.addStretch()
+        cal_x_row.addWidget(self._spin_cal_x)
+        layout.addLayout(cal_x_row)
+
+        cal_y_row = QHBoxLayout()
+        self._lbl_cal_y = QLabel(t("calibration_y"))
+        cal_y_font = self._lbl_cal_y.font()
+        cal_y_font.setPixelSize(12)
+        self._lbl_cal_y.setFont(cal_y_font)
+        self._spin_cal_y = _make_spin(get_calibration_y())
+        cal_y_row.addWidget(self._lbl_cal_y)
+        cal_y_row.addStretch()
+        cal_y_row.addWidget(self._spin_cal_y)
+        layout.addLayout(cal_y_row)
+
+        cal_btn_row = QHBoxLayout()
+        self._btn_cal_reset = QPushButton(t("calibration_reset"))
+        self._btn_cal_reset.setFixedHeight(30)
+        self._btn_cal_reset.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_cal_reset.clicked.connect(self._on_calibration_reset)
+        cal_btn_row.addWidget(self._btn_cal_reset)
+
+        self._btn_cal_pdf = QPushButton(t("generate_calibration_pdf"))
+        self._btn_cal_pdf.setFixedHeight(30)
+        self._btn_cal_pdf.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_cal_pdf.clicked.connect(self._on_generate_calibration_pdf)
+        cal_btn_row.addWidget(self._btn_cal_pdf)
+        cal_btn_row.addStretch()
+        layout.addLayout(cal_btn_row)
+
+        self._spin_cal_x.valueChanged.connect(self._on_calibration_x_changed)
+        self._spin_cal_y.valueChanged.connect(self._on_calibration_y_changed)
 
         # ── Developer section ──────────────────────────────────────────────
         self._lbl_sec_debug = _make_section_label(t("debug_section"))
@@ -1053,6 +1133,46 @@ class SettingsDialog(QDialog):
         self._lbl_log_path.setVisible(enabled)
         self.debug_mode_changed.emit(enabled)
 
+    # ── Calibration handlers ───────────────────────────────────────────────────
+
+    def _on_calibration_x_changed(self, value: float) -> None:
+        from config.avery_formats import AVERY_FORMATS
+        AVERY_FORMATS["4780"]["calibration_x_mm"] = value
+        set_calibration_x(value)
+
+    def _on_calibration_y_changed(self, value: float) -> None:
+        from config.avery_formats import AVERY_FORMATS
+        AVERY_FORMATS["4780"]["calibration_y_mm"] = value
+        set_calibration_y(value)
+
+    def _on_calibration_reset(self) -> None:
+        self._spin_cal_x.setValue(0.0)
+        self._spin_cal_y.setValue(0.0)
+
+    def _on_generate_calibration_pdf(self) -> None:
+        import os
+        import sys
+        import subprocess
+        from pathlib import Path
+        from config.avery_formats import get_format
+        from modules.pdf_generator import generate_calibration_pdf
+
+        base_dir = Path(__file__).parent.parent
+        out_path = base_dir / "output" / "calibration_avery4780.pdf"
+        fmt = get_format("4780")
+        try:
+            pdf = generate_calibration_pdf(out_path, fmt)
+        except Exception as exc:
+            QMessageBox.critical(self, t("err_print"), str(exc))
+            return
+
+        if sys.platform == "win32":
+            os.startfile(str(pdf))
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(pdf)])
+        else:
+            subprocess.Popen(["xdg-open", str(pdf)])
+
     # ── Watermark handlers ─────────────────────────────────────────────────────
 
     def _on_select_watermark(self) -> None:
@@ -1268,6 +1388,9 @@ class SettingsDialog(QDialog):
         # Re-style all stored section labels
         _apply_section_label_style(self._lbl_sec_theme, first=True)
         _apply_section_label_style(self._lbl_sec_lang)
+        _apply_section_label_style(self._lbl_sec_watermark)
+        _apply_section_label_style(self._lbl_sec_calibration)
+        _apply_section_label_style(self._lbl_sec_debug)
         _apply_section_label_style(self._lbl_sec_mode, first=True)
         _apply_section_label_style(self._lbl_sec_token)
         _apply_section_label_style(self._lbl_sec_version_check)
@@ -1339,6 +1462,12 @@ class SettingsDialog(QDialog):
         self._btn_watermark_select.setText(t("watermark_select"))
         self._btn_watermark_clear.setText(t("watermark_clear"))
         self._refresh_watermark_status()
+        self._lbl_sec_calibration.setText(t("print_calibration").upper())
+        self._lbl_calibration_info.setText(t("calibration_info"))
+        self._lbl_cal_x.setText(t("calibration_x"))
+        self._lbl_cal_y.setText(t("calibration_y"))
+        self._btn_cal_reset.setText(t("calibration_reset"))
+        self._btn_cal_pdf.setText(t("generate_calibration_pdf"))
         self._lbl_sec_debug.setText(t("debug_section").upper())
         self._lbl_debug_title.setText(t("debug_logging_label"))
         self._lbl_debug_subtitle.setText(t("debug_logging_subtitle"))
