@@ -340,6 +340,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_license":             "Lizenz",
         "settings_author":              "Autor",
 
+        # Discogs dialog — selection counter
+        "selection_count":           "{count} ausgewählt",
+        "selection_with_hidden":     "{total} ausgewählt ({visible} sichtbar)",
+
         # Sidebar / footer
         "sidebar_load_data":        "Daten laden",
         "sidebar_queue":            "Warteschlange",
@@ -678,6 +682,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "open_github":                 "Open project on GitHub →",
         "settings_license":             "License",
         "settings_author":              "Author",
+
+        # Discogs dialog — selection counter
+        "selection_count":           "{count} selected",
+        "selection_with_hidden":     "{total} selected ({visible} visible)",
 
         # Sidebar / footer
         "sidebar_load_data":        "Load data",
