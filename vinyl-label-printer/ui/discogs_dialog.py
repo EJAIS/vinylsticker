@@ -257,6 +257,7 @@ class DiscogsDialog(QDialog):
         self._tracklist_worker:    Optional[_TracklistWorker]      = None
         self._tracklist_loader:    Optional[TracklistLoaderThread] = None
         self._cache:               DiscogsCache                    = DiscogsCache()
+        self._selected_ids:        set[int]                        = set()
 
         self.setWindowTitle(t("dlg_discogs_title"))
         self.setWindowFlags(
@@ -427,6 +428,7 @@ class DiscogsDialog(QDialog):
         )
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
+        self._table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self._table)
 
         # Tracklist lazy-loading progress (shown below table while background fetch runs)
@@ -434,7 +436,7 @@ class DiscogsDialog(QDialog):
         self._lbl_tracklist_progress.setVisible(False)
         layout.addWidget(self._lbl_tracklist_progress)
 
-        # Select all / deselect all
+        # Select all / deselect all + selection counter
         select_row = QHBoxLayout()
         btn_all = QPushButton(t("discogs_btn_all"))
         btn_all.clicked.connect(lambda: self._set_all_checked(True))
@@ -443,6 +445,8 @@ class DiscogsDialog(QDialog):
         select_row.addWidget(btn_all)
         select_row.addWidget(btn_none)
         select_row.addStretch()
+        self._lbl_selection = QLabel("")
+        select_row.addWidget(self._lbl_selection)
         layout.addLayout(select_row)
 
         # Accept / cancel
@@ -505,8 +509,9 @@ class DiscogsDialog(QDialog):
 
     def _on_logout(self) -> None:
         self._cred_mgr.clear()
-        self._releases  = []
-        self._displayed = []
+        self._releases    = []
+        self._displayed   = []
+        self._selected_ids.clear()
         DiscogsDialog._cached_releases = []
         DiscogsDialog._cache_username  = ""
         self._table.setRowCount(0)
@@ -608,6 +613,7 @@ class DiscogsDialog(QDialog):
             return
 
         self._populate_table(self._displayed)
+        self._update_selection_counter()
         self._btn_import.setEnabled(True)
 
     def _on_fetch_error(self, code: int, message: str) -> None:
@@ -665,43 +671,102 @@ class DiscogsDialog(QDialog):
             f"(nach 7\" Filter)"
         )
         self._populate_table(self._displayed)
+        self._update_selection_counter()
 
     # ── Table helpers ─────────────────────────────────────────────────────────
 
     def _populate_table(self, releases: list[dict]) -> None:
-        self._table.setRowCount(0)
-        for rec in releases:
-            row = self._table.rowCount()
-            self._table.insertRow(row)
+        self._table.blockSignals(True)
+        try:
+            self._table.setRowCount(0)
+            for rec in releases:
+                row = self._table.rowCount()
+                self._table.insertRow(row)
 
-            chk = QTableWidgetItem()
-            chk.setFlags(
-                Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
-            )
-            chk.setCheckState(Qt.CheckState.Unchecked)
-            self._table.setItem(row, _COL_CHECK, chk)
+                did = int(rec["discogs_id"])
+                chk = QTableWidgetItem()
+                chk.setFlags(
+                    Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
+                )
+                chk.setCheckState(
+                    Qt.CheckState.Checked
+                    if did in self._selected_ids
+                    else Qt.CheckState.Unchecked
+                )
+                self._table.setItem(row, _COL_CHECK, chk)
 
-            self._table.setItem(row, _COL_TITLE,  QTableWidgetItem(rec["title"]))
-            self._table.setItem(row, _COL_ARTIST, QTableWidgetItem(rec["artist"]))
-            self._table.setItem(row, _COL_LABEL,  QTableWidgetItem(rec["label"]))
-            year_str = str(rec["year"]) if rec["year"] else ""
-            self._table.setItem(row, _COL_YEAR,   QTableWidgetItem(year_str))
+                title_item = QTableWidgetItem(rec["title"])
+                title_item.setData(Qt.ItemDataRole.UserRole, did)
+                self._table.setItem(row, _COL_TITLE,  title_item)
+                self._table.setItem(row, _COL_ARTIST, QTableWidgetItem(rec["artist"]))
+                self._table.setItem(row, _COL_LABEL,  QTableWidgetItem(rec["label"]))
+                year_str = str(rec["year"]) if rec["year"] else ""
+                self._table.setItem(row, _COL_YEAR,   QTableWidgetItem(year_str))
+        finally:
+            self._table.blockSignals(False)
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() != _COL_CHECK:
+            return
+        id_item = self._table.item(item.row(), _COL_TITLE)
+        if not id_item:
+            return
+        did = id_item.data(Qt.ItemDataRole.UserRole)
+        if did is None:
+            return
+        if item.checkState() == Qt.CheckState.Checked:
+            self._selected_ids.add(int(did))
+        else:
+            self._selected_ids.discard(int(did))
+        self._update_selection_counter()
 
     def _set_all_checked(self, checked: bool) -> None:
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
         for row in range(self._table.rowCount()):
-            item = self._table.item(row, _COL_CHECK)
-            if item:
-                item.setCheckState(state)
+            id_item = self._table.item(row, _COL_TITLE)
+            if id_item:
+                did = id_item.data(Qt.ItemDataRole.UserRole)
+                if did is not None:
+                    if checked:
+                        self._selected_ids.add(int(did))
+                    else:
+                        self._selected_ids.discard(int(did))
+        self._populate_table(self._displayed)
+        self._update_selection_counter()
+
+    def _update_selection_counter(self) -> None:
+        colors = _get_colors()
+        total_selected   = len(self._selected_ids)
+        visible_selected = sum(
+            1 for row in range(self._table.rowCount())
+            if self._table.item(row, _COL_CHECK) and
+            self._table.item(row, _COL_CHECK).checkState() == Qt.CheckState.Checked
+        )
+        if total_selected > visible_selected:
+            self._lbl_selection.setText(
+                t("selection_with_hidden",
+                  total=total_selected,
+                  visible=visible_selected)
+            )
+            if colors:
+                self._lbl_selection.setStyleSheet(
+                    f"color: {colors.accent_light}; font-weight: bold;"
+                )
+        else:
+            self._lbl_selection.setText(
+                t("selection_count", count=total_selected) if total_selected else ""
+            )
+            if colors:
+                self._lbl_selection.setStyleSheet(
+                    f"color: {colors.text_secondary};"
+                )
 
     # ── Slot: import → fetch tracklists ──────────────────────────────────────
 
     def _on_import(self) -> None:
-        selected_releases: list[dict] = []
-        for row in range(self._table.rowCount()):
-            chk = self._table.item(row, _COL_CHECK)
-            if chk and chk.checkState() == Qt.CheckState.Checked:
-                selected_releases.append(self._displayed[row])
+        selected_releases = [
+            r for r in self._releases
+            if int(r["discogs_id"]) in self._selected_ids
+        ]
 
         if not selected_releases:
             QMessageBox.information(
@@ -860,6 +925,7 @@ class DiscogsDialog(QDialog):
                 f"(nach 7\" Filter)"
             )
             self._populate_table(self._displayed)
+            self._update_selection_counter()
             self._btn_import.setEnabled(True)
 
         # Detailed tracklist status diagnostic (visible only in debug mode)
@@ -970,6 +1036,7 @@ class DiscogsDialog(QDialog):
         )
 
     def closeEvent(self, event) -> None:
+        self._selected_ids.clear()
         if self._tracklist_loader and self._tracklist_loader.isRunning():
             logger.debug("DiscogsDialog: cancelling tracklist loader on close")
             self._tracklist_loader.cancel()

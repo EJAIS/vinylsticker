@@ -350,6 +350,9 @@ Use the search bar to filter the list by artist or title.
 #### Step 4 — Select singles and import
 
 1. Tick the checkbox next to each single you want to import. Use **Select all** / **Deselect all** for bulk selection.
+   - **Selections persist across searches.** You can search for "country", tick a few results, then search for "reggae" and tick more — all ticked entries are remembered regardless of which search is currently active.
+   - A **selection counter** appears to the right of the Select all / Deselect all buttons: e.g. `2 selected`. When the current search filter hides some of your selections, the counter shows both totals: `3 selected (1 visible)` in a highlighted colour so you know there are picks outside the current view.
+   - **Deselect all** only removes the checkmarks for the releases currently visible in the table. Selections from other search terms remain intact. Clear the search bar to see (and deselect) everything at once.
 2. Click **Add to print queue**.
    The app fetches the tracklist for each selected release from the Discogs release endpoint and resolves A- and B-sides:
    - **Simple single (exactly 1 A-side + 1 B-side):** two rows are created, one for each side, with the individual track title.
@@ -636,6 +639,8 @@ Shared stylesheet constants and helpers used by both `discogs_dialog.py` and `re
 | Collection | Valid credentials found or after successful token verification |
 
 On open the dialog checks the SQLite cache via `DiscogsCache`: if valid (< 6 h) it populates the table instantly; if expired it shows a warning and blocks the table; if empty it shows a first-load prompt. A full API pull syncs the cache and shows a brief sync report.
+
+Selections persist across live-search queries via an internal `_selected_ids: set[int]` keyed on `discogs_id`. The table's `itemChanged` signal is blocked during repopulation to prevent recursive updates. **Select all** / **Deselect all** operate only on currently visible rows; hidden selections are preserved. A counter label shows `N selected` or `N selected (M visible)` when filtered results hide part of the selection. **Add to print queue** always reads from `_selected_ids` rather than from visible table rows.
 
 Background workers:
 
