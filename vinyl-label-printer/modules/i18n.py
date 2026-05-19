@@ -360,6 +360,28 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_local":            "Lokal",
         "sidebar_section_data":     "Daten",
         "sidebar_section_print":    "Druck",
+
+        # Printer calibration (settings dialog)
+        "print_calibration":            "DRUCKERKALIBRIERUNG",
+        "calibration_x":                "Horizontal (X) in mm",
+        "calibration_y":                "Vertikal (Y) in mm",
+        "calibration_reset":            "Zurücksetzen",
+        "generate_calibration_pdf":     "Kalibrierungs-PDF erstellen",
+        "calibration_info": (
+            "Falls die Labels leicht versetzt gedruckt werden, "
+            "passe hier die Feinkorrektur an. Positiver Wert verschiebt nach rechts/unten."
+        ),
+
+        # Print hint dialog
+        "print_hint_title":         "Druckeinstellungen",
+        "print_hint_text": (
+            "Bitte stelle sicher, dass im Druckdialog folgendes eingestellt ist:\n\n"
+            "✓ Skalierung: 'Tatsächliche Größe' (100 %)\n"
+            "✓ KEIN 'An Seite anpassen'\n"
+            "✓ Seitenränder: Keine / Keine Anpassung\n\n"
+            "Falsche Skalierung verschiebt alle Labels!"
+        ),
+        "dont_show_again":          "Nicht mehr anzeigen",
     },
 
     "EN": {
@@ -703,6 +725,28 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_local":            "Local",
         "sidebar_section_data":     "Data",
         "sidebar_section_print":    "Print",
+
+        # Printer calibration (settings dialog)
+        "print_calibration":            "PRINTER CALIBRATION",
+        "calibration_x":                "Horizontal (X) in mm",
+        "calibration_y":                "Vertical (Y) in mm",
+        "calibration_reset":            "Reset",
+        "generate_calibration_pdf":     "Generate calibration PDF",
+        "calibration_info": (
+            "If labels print slightly offset, adjust the fine-tuning here. "
+            "Positive value shifts right/down."
+        ),
+
+        # Print hint dialog
+        "print_hint_title":         "Print settings",
+        "print_hint_text": (
+            "Please ensure the following in the print dialog:\n\n"
+            "✓ Scale: 'Actual size' (100 %)\n"
+            "✓ NO 'Fit to page'\n"
+            "✓ Margins: None / No adjustment\n\n"
+            "Wrong scaling will misalign all labels!"
+        ),
+        "dont_show_again":          "Don't show again",
     },
 }
 

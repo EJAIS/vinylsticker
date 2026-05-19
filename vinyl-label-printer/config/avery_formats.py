@@ -13,13 +13,13 @@ PT_PER_MM = 72.0 / 25.4   # points per mm
 
 AVERY_FORMATS: dict[str, dict] = {
     "4780": {
-        "description":      "Avery Zweckform 4780 – 48.5×25.4 mm – 4×10 – A4",
+        "description":      "Avery Zweckform 4780 — 48.5×25.4 mm — 4×10 — A4",
         "page_width_mm":    210.0,
         "page_height_mm":   297.0,
         "label_width_mm":    48.5,
         "label_height_mm":   25.4,
-        "margin_left_mm":     8.0,   # (210 - 4×48.5) / 2 = 8.0
-        "margin_top_mm":     21.5,   # (297 - 10×25.4) / 2 = 21.5
+        "margin_left_mm":     8.0,   # (210 − 4×48.5) / 2 = 8.0
+        "margin_top_mm":     21.5,   # (297 − 10×25.4) / 2 = 21.5
         "col_gap_mm":         0.0,   # labels are edge-to-edge
         "row_gap_mm":         0.0,
         "cols":               4,

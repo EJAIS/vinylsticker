@@ -11,6 +11,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from PyQt6.QtWidgets import QCheckBox, QMessageBox
+
+from config.settings import get_show_print_hint, set_show_print_hint
+from modules.i18n import t
+
 
 def print_pdf(pdf_path: Path) -> None:
     """Open the OS print dialog for *pdf_path*.
@@ -35,12 +40,34 @@ def print_pdf(pdf_path: Path) -> None:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
+    if get_show_print_hint():
+        _show_print_hint()
+
     if sys.platform == "win32":
         _print_windows(pdf_path)
     elif sys.platform == "darwin":
         _print_macos(pdf_path)
     else:
         _print_linux(pdf_path)
+
+
+# ── Print hint dialog ─────────────────────────────────────────────────────────
+
+def _show_print_hint() -> None:
+    """Show a one-time reminder to use 'Actual Size' (100 %) in the print dialog."""
+    msg = QMessageBox()
+    msg.setWindowTitle(t("print_hint_title"))
+    msg.setText(t("print_hint_text"))
+    msg.setIcon(QMessageBox.Icon.Information)
+    msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+
+    chk = QCheckBox(t("dont_show_again"))
+    msg.setCheckBox(chk)
+
+    msg.exec()
+
+    if chk.isChecked():
+        set_show_print_hint(False)
 
 
 # ── Platform implementations ──────────────────────────────────────────────────

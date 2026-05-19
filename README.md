@@ -8,6 +8,7 @@ Made with :heart: and ClaudeCode - by a Collector for Collectors.
 + Discogs integration reads your 7" collection, pulls A/B sides automatically, and caches data locally (SQLite, 6-hour expiry per Discogs API ToU).
 + Watermark option available (main window and **Settings → Appearance**).
 + Dark / Light / Auto theme via **Settings → Appearance** (follows OS setting by default).
++ Printer calibration with X/Y fine-tuning and a built-in calibration PDF generator (**Settings → Appearance → Printer Calibration**).
 
 ![Picture of an example label](https://github.com/EJAIS/vinylsticker/blob/main/examples/label_with_watermark.png)
 
@@ -27,13 +28,19 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
    - [Workflow](#workflow)
    - [Interface Overview](#interface-overview)
    - [Discogs Import](#discogs-import)
-2. [Technical Reference](#technical-reference)
+2. [Troubleshooting](#troubleshooting)
+   - [Labels are misaligned](#labels-are-misaligned)
+   - [PDF preview is blank or missing](#pdf-preview-is-blank-or-missing)
+   - [Print dialog does not open](#print-dialog-does-not-open)
+   - [Discogs import fails or stalls](#discogs-import-fails-or-stalls)
+3. [Technical Reference](#technical-reference)
    - [Project Structure](#project-structure)
    - [Dependencies](#dependencies)
    - [Avery 4780 Sheet Dimensions](#avery-4780-sheet-dimensions)
    - [Label Layout](#label-layout)
    - [Module Reference](#module-reference)
    - [Printer Calibration](#printer-calibration)
+   - [Calibration PDF](#calibration-pdf)
    - [Adding a Language](#adding-a-language)
 
 ---
@@ -284,6 +291,7 @@ Changing the start position after a PDF has been generated automatically regener
 
 Click **Print** to send the PDF to your printer.
 
+- On first use a reminder dialog appears listing the required print settings. Tick **Don't show again** to suppress it in future.
 - On Windows the application tries to open the OS print dialog directly. If your default PDF viewer does not support that (e.g. Microsoft Edge on Windows 11), the PDF is opened in the viewer instead — use **Ctrl + P** from there.
 - Make sure to select **actual size** (100 %) in the print dialog — do not scale to fit.
 - Select the correct paper tray if your printer has multiple trays.
@@ -397,6 +405,80 @@ A **Review dialog** opens showing all expanded rows before anything is written t
 
 ---
 
+## Troubleshooting
+
+### Labels are misaligned
+
+Printed labels do not line up with the physical Avery 4780 sheet.
+
+**1. Verify print scaling — this is the most common cause.**
+
+In your print dialog, make sure:
+
+| Setting | Required value |
+|---|---|
+| Scale / Size | **Actual size** (100 %) |
+| Fit to page / Shrink to fit | **Off** |
+| Margins | None / No adjustment |
+| Paper size | A4 |
+| Borderless printing | **Off** |
+
+> On Windows with Microsoft Edge as the default PDF viewer, the "print" verb may open Edge's built-in print dialog, which defaults to "Fit to page". Switch to Adobe Acrobat Reader or another viewer that respects actual size, or use **Ctrl + P** and set the scale manually.
+
+**2. Use the calibration workflow.**
+
+If scaling is already correct but labels are still offset by a consistent amount in every row:
+
+1. Open **Settings → Appearance → Printer Calibration**.
+2. Click **Generate calibration PDF** — the sheet opens automatically.
+3. Print the calibration sheet at **100 %** on plain paper.
+4. Hold the printout against a physical Avery 4780 sheet in front of a light source.
+5. Measure the vertical offset for several rows and note whether it is consistent.
+6. If the offset is the same for all rows, increase or decrease **Vertical (Y) in mm** by that amount in 0.5 mm steps.
+7. If the offset varies per row the printer has a non-linear feed — use the average measured offset as a starting point.
+8. Repeat for the horizontal axis using **Horizontal (X) in mm** if needed.
+
+**3. Check for non-uniform misalignment.**
+
+If some rows are correct but others are not, the issue is mechanical (paper feed or roller wear) and cannot be fully corrected by a single offset value. In this case use the calibration PDF to identify which rows are affected and report the measurements to help characterise the problem.
+
+---
+
+### PDF preview is blank or missing
+
+The preview panel requires **Poppler** to convert PDF pages to images.
+
+| Platform | Fix |
+|---|---|
+| Linux | `sudo apt install poppler-utils` |
+| Windows | Download from [github.com/oschwartz10612/poppler-windows](https://github.com/oschwartz10612/poppler-windows/releases), extract to `C:\poppler`, and add `C:\poppler\Library\bin` to the system PATH. |
+
+Restart the application after installing Poppler. If the preview still does not appear, enable **Debug logging** under **Settings → Appearance → Developer** and check `logs/app.log` for a Poppler-related error.
+
+---
+
+### Print dialog does not open
+
+| Platform | Symptom | Fix |
+|---|---|---|
+| Windows | Nothing happens after clicking Print | Your default PDF viewer does not register the "print" shell verb. The app falls back to opening the file — press **Ctrl + P** in the viewer. |
+| Linux | `lp: error` or no dialog | Install CUPS: `sudo apt install cups`. The app falls back to `xdg-open` if `lp` is unavailable. |
+| Linux | File opens in viewer but no print dialog | Click **File → Print** or press **Ctrl + P** inside the viewer. |
+
+---
+
+### Discogs import fails or stalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "Token invalid" | Token revoked or entered incorrectly | Regenerate at [discogs.com/settings/developers](https://www.discogs.com/settings/developers) and re-enter via **Settings → Discogs account → Change token**. |
+| "No connection to Discogs" | Network or firewall issue | Check internet connectivity; verify that `api.discogs.com` is reachable. |
+| Import stalls during collection load | Discogs rate limit (60 requests/min) | The app shows a countdown and retries automatically — wait for the timer. |
+| "Cache expired" warning in collection dialog | Cache is older than 6 hours | Click **Reload** to fetch a fresh copy. This is required by the Discogs API Terms of Use. |
+| Tracklist shows empty Side field | Track data unavailable for that release | Edit the Side field manually in the Review dialog before confirming the import. |
+
+---
+
 ## Technical Reference
 
 ### Project Structure
@@ -409,7 +491,8 @@ vinyl-label-printer/
 │   ├── database.xlsx              # Excel workbook (user-supplied)
 │   └── discogs_cache.db           # SQLite Discogs cache (auto-created; gitignored)
 ├── output/
-│   └── labels.pdf                 # Generated PDF (created on first run)
+│   ├── labels.pdf                 # Generated PDF (created on first run)
+│   └── calibration_avery4780.pdf  # Calibration sheet (generated on demand)
 ├── config/
 │   ├── avery_formats.py           # Avery sheet dimensions and coordinate helpers
 │   ├── settings.py                # Persistent JSON settings (watermark path, data source mode)
@@ -461,10 +544,10 @@ All values in millimetres. Defined in `config/avery_formats.py`.
 | Page height | 297.0 | A4 |
 | Label width | 48.5 | |
 | Label height | 25.4 | |
-| Left margin | 8.0 | (210 − 4 × 48.5) / 2 |
-| Top margin | 21.5 | (297 − 10 × 25.4) / 2 |
-| Column gap | 0.0 | Labels are edge-to-edge |
-| Row gap | 0.0 | Labels are edge-to-edge |
+| Left margin | 8.0 | (210 − 4 × 48.5) / 2 — symmetric |
+| Top margin | 21.5 | (297 − 10 × 25.4) / 2 — symmetric |
+| Column gap | 0.0 | labels are edge-to-edge |
+| Row gap | 0.0 | labels are edge-to-edge |
 | Labels per sheet | 40 | 4 columns × 10 rows |
 
 ReportLab uses points (1 pt = 25.4 / 72 mm). All mm values are converted internally via `mm_to_pt()` in `config/avery_formats.py`. The coordinate origin is at the **bottom-left** of the page; y increases upward.
@@ -511,6 +594,9 @@ Reads and writes `config/settings.json`. Keys:
 | `last_version_check` | `string` | ISO timestamp of the last GitHub version check |
 | `last_known_version` | `string` | Latest release tag fetched from GitHub (e.g. `"v0.2.0"`) |
 | `debug_logging` | `boolean` | Whether debug logging is active; persists across restarts |
+| `calibration_x_mm` | `number` | Horizontal label offset in mm applied at PDF generation; default `0.0` |
+| `calibration_y_mm` | `number` | Vertical label offset in mm applied at PDF generation; default `0.0` |
+| `show_print_hint` | `boolean` | Whether to show the print-settings reminder before printing; default `true` |
 
 #### `modules/data_source.py`
 
@@ -532,6 +618,7 @@ Reads and writes `config/settings.json`. Keys:
 | Symbol | Description |
 |---|---|
 | `generate_pdf(records, output_path, format_name, start_position, watermark_path, debug_frames)` | Renders all records to a multi-page PDF; returns the resolved output path |
+| `generate_calibration_pdf(output_path, fmt)` | Renders a diagnostic calibration sheet with row/column indices, expected X/Y ranges, crosshairs, corner marks, and mm rulers; saved to `output/calibration_avery4780.pdf` |
 | `fit_text_to_width(c, text, max_width, font_name, size_max, size_min, step)` | Returns the largest font size ≤ `size_max` at which `text` fits within `max_width`; floors at `size_min` |
 | `_WATERMARK_ALPHA` | Module constant (default `25`, range 0–255) — controls watermark opacity |
 
@@ -612,6 +699,8 @@ The toggle is exposed in **Settings → Appearance → Developer → Debug loggi
 
 #### `modules/printer.py`
 
+Before opening the OS print dialog, `print_pdf()` shows a one-time `QMessageBox` reminding the user to select **Actual Size (100 %)** and disable **Fit to page**. The dialog includes a **Don't show again** checkbox; if checked, `show_print_hint` is set to `false` in `settings.json` and the dialog is suppressed on all subsequent prints.
+
 | Platform | Mechanism |
 |---|---|
 | Windows | `os.startfile(path, "print")`; falls back to `os.startfile(path)` if no "print" verb is registered (e.g. Microsoft Edge as default viewer) |
@@ -666,14 +755,41 @@ Background workers:
 
 ### Printer Calibration
 
-If printed labels are slightly offset from the physical sheet, adjust the calibration offsets in `config/avery_formats.py`:
+If printed labels are slightly offset from the physical sheet, open **Settings → Appearance → Printer Calibration**:
 
-```python
-"calibration_x_mm": 0.0,   # positive → shift all labels right
-"calibration_y_mm": 0.0,   # positive → shift all labels up
-```
+| Control | Effect |
+|---|---|
+| **Horizontal (X) in mm** | Shifts all labels left (negative) or right (positive). Range: −5.0 to +5.0 mm, step 0.5 mm. |
+| **Vertical (Y) in mm** | Shifts all labels up (positive) or down (negative). Range: −5.0 to +5.0 mm, step 0.5 mm. |
+| **Reset** | Sets both values back to 0.0. |
+| **Generate calibration PDF** | Creates `output/calibration_avery4780.pdf` and opens it immediately (see below). |
 
-Use `debug_frames=True` in `generate_pdf()` (from a Python script or temporary code change) to render thin red rectangles around each label cell, which makes alignment errors clearly visible.
+Values are applied to every generated PDF in real time and persisted to `settings.json` as `calibration_x_mm` and `calibration_y_mm`.
+
+Use `debug_frames=True` in `generate_pdf()` (from a Python script or temporary code change) to render thin red rectangles around each label cell, which makes alignment errors clearly visible. When debug logging is enabled (**Settings → Appearance → Developer**), each PDF generation also logs all format values and a width/height consistency check to `logs/app.log`.
+
+### Calibration PDF
+
+Click **Generate calibration PDF** in the Printer Calibration section to produce a diagnostic sheet (`output/calibration_avery4780.pdf`). The PDF opens automatically in the system viewer after generation.
+
+Each of the 40 label cells contains:
+
+- Row/column identifier (`R1 / C1` … `R10 / C4`)
+- Expected Y range from the top of the sheet (e.g. `Y: 21.5–46.9 mm`)
+- Expected X range from the left edge (e.g. `X: 8.0–56.5 mm`)
+- A crosshair at the label centre
+- Corner marks at the two top corners
+
+Left-margin and top-margin mm rulers are printed along the page edges.
+
+**How to use:**
+
+1. Print the calibration PDF at **100 % (Actual Size)** on plain paper — no scaling.
+2. Hold the printout against a physical Avery 4780 sheet in front of a light source.
+3. For each row note the vertical offset between the printed crosshair and the physical label centre.
+4. If all rows are equally offset → adjust `calibration_y_mm` by that amount.
+5. If offsets differ per row → the printer has a non-linear feed error; use the per-row measurements to determine the best average correction.
+6. Repeat for the horizontal axis using `calibration_x_mm`.
 
 ### Adding a Language
 
