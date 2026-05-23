@@ -712,7 +712,7 @@ Reads and writes `config/settings.json`. Keys:
 | `theme` | `"auto" \| "dark" \| "light"` | UI colour scheme; `"auto"` follows the OS setting |
 | `language` | `"DE" \| "EN"` | Active UI language |
 | `last_version_check` | `string` | ISO timestamp of the last GitHub version check |
-| `last_known_version` | `string` | Latest release tag fetched from GitHub (e.g. `"v0.2.0"`) |
+| `last_known_version` | `string` | Latest release tag fetched from GitHub (e.g. `"v0.3.0"`) |
 | `debug_logging` | `boolean` | Whether debug logging is active; persists across restarts |
 | `calibration_x_mm` | `number` | Horizontal label offset in mm applied at PDF generation; default `0.0` |
 | `calibration_y_mm` | `number` | Vertical label offset in mm applied at PDF generation; default `0.0` |
