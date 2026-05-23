@@ -45,6 +45,80 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 
 ---
 
+## Installation (Linux)
+
+### Schnellinstallation / Quick install
+
+```bash
+curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash
+```
+
+### Update
+
+```bash
+curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash
+```
+
+Das Skript erkennt automatisch ob eine bestehende
+Installation vorhanden ist und führt entsprechend
+eine Neu- oder Aktualisierungsinstallation durch.
+Ihre Benutzerdaten (Datenbank, Einstellungen,
+Discogs-Token) werden dabei automatisch gesichert
+und wiederhergestellt.
+
+### Deinstallation
+
+```bash
+bash install.sh --uninstall
+```
+
+### Voraussetzungen / Prerequisites
+
+- Linux Mint, Ubuntu 22.04+ oder Debian 12+
+- Python 3.10+
+- Internetverbindung (für Download)
+- sudo-Rechte (nur für System-Pakete)
+
+### Manual installation (Windows / other Linux)
+
+See the [User Manual → Installation](#installation) section below.
+
+---
+
+## Installation (Windows)
+
+### Schnellinstallation / Quick install
+
+PowerShell öffnen, dann:
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1"
+```
+
+### Update
+
+Denselben Befehl nochmals ausführen — das Skript
+erkennt automatisch die bestehende Installation.
+
+### Deinstallation
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\vinyl-label-printer\install.ps1" -Uninstall
+```
+
+### Voraussetzungen / Prerequisites
+
+- Windows 10 oder Windows 11
+- Python 3.10+ (<https://www.python.org/downloads/>)
+  → Bei Installation "Add Python to PATH" aktivieren!
+- PowerShell 5.1+ (bereits vorinstalliert)
+- Internetverbindung
+
+Poppler für die PDF-Vorschau wird automatisch
+heruntergeladen und eingerichtet.
+
+---
+
 ## User Manual
 
 ### Requirements
