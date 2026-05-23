@@ -384,6 +384,13 @@ uninstall() {
     echo ""
     echo -e "${YELLOW}User data (database, settings) will be preserved.${NC}"
     echo ""
+    if [ ! -t 0 ]; then
+        error "Uninstall cannot run non-interactively."
+        error "Please download the script first:"
+        error "  curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh -o /tmp/install.sh"
+        error "  bash /tmp/install.sh --uninstall"
+        exit 1
+    fi
     read -rp "Really uninstall? [y/N] " confirm
     [[ "$confirm" =~ ^[yYjJ]$ ]] || { info "Cancelled."; exit 0; }
 
@@ -405,6 +412,12 @@ main() {
     echo -e "${BOLD}║    Vinyl Label Printer Installer   ║${NC}"
     echo -e "${BOLD}╚════════════════════════════════════╝${NC}"
     echo ""
+
+    # Detect if running interactively or via pipe (curl | bash)
+    IS_PIPE=false
+    if [ ! -t 0 ]; then
+        IS_PIPE=true
+    fi
 
     # Handle --uninstall flag
     if [[ "${1:-}" == "--uninstall" ]]; then
@@ -438,10 +451,13 @@ main() {
        [ -n "$LATEST_VERSION" ] && \
        [ "$INSTALLED_VERSION" = "$LATEST_VERSION" ]; then
         echo ""
-        success "Already up to date (v$INSTALLED_VERSION) — no update needed."
-        echo ""
-        info "Start the app with: vinyl-label-printer"
-        info "or:                 $INSTALL_DIR/start.sh"
+        success "Already up to date (v$INSTALLED_VERSION) — nothing to do."
+        if [ "$IS_PIPE" = false ]; then
+            echo ""
+            info "Start the app:"
+            echo "   vinyl-label-printer"
+            echo "   $INSTALL_DIR/start.sh"
+        fi
         exit 0
     fi
 
@@ -451,11 +467,20 @@ main() {
         if [ -n "$LATEST_VERSION" ]; then
             echo -e "${YELLOW}Update: v$INSTALLED_VERSION → v$LATEST_VERSION${NC}"
         else
-            echo -e "${YELLOW}Update existing installation${NC}"
+            echo -e "${YELLOW}Updating existing installation${NC}"
         fi
-        read -rp "Continue? [Y/n] " confirm
-        confirm="${confirm:-Y}"
-        [[ "$confirm" =~ ^[yYjJ]$ ]] || { info "Cancelled."; exit 0; }
+
+        if [ "$IS_PIPE" = true ]; then
+            info "Running non-interactively — update will proceed automatically."
+            info "Run 'bash install.sh --uninstall' to remove the app."
+        else
+            read -rp "Continue? [Y/n] " confirm
+            confirm="${confirm:-Y}"
+            if [[ "$confirm" =~ ^[nN]$ ]]; then
+                info "Cancelled."
+                exit 0
+            fi
+        fi
     fi
 
     # Run installation / update steps
