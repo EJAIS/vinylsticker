@@ -143,6 +143,12 @@ class MainWindow(QMainWindow):
         """Load the Print sheet from disk and update the sidebar queue count."""
         try:
             self._records = load_print_queue(self._db_path)
+        except FileNotFoundError:
+            QMessageBox.critical(
+                self, t("app_title"),
+                t("err_db_missing", path=str(self._db_path))
+            )
+            self._records = []
         except Exception as exc:
             QMessageBox.critical(
                 self, t("app_title"), t("err_excel", detail=str(exc))

@@ -32,7 +32,7 @@ NC='\033[0m'
 # ── Helper functions ──────────────────────────────────────────
 info()    { echo -e "${BLUE}ℹ${NC}  $*"; }
 success() { echo -e "${GREEN}✓${NC}  $*"; }
-warning() { echo -e "${YELLOW}⚠${NC}  $*"; }
+warning() { echo -e "${YELLOW}⚠${NC}  $*" >&2; }
 error()   { echo -e "${RED}✗${NC}  $*" >&2; }
 header()  { echo -e "\n${BOLD}$*${NC}"; }
 die()     { error "$*"; exit 1; }
@@ -68,11 +68,11 @@ except Exception:
 
 # ── Dependency check ──────────────────────────────────────────
 check_dependencies() {
-    header "🔍 Prüfe Systemvoraussetzungen..."
+    header "🔍 Checking system requirements..."
 
     # Python 3.10+
     if ! command -v python3 &>/dev/null; then
-        die "Python 3 nicht gefunden. Bitte installieren: sudo apt install python3"
+        die "Python 3 not found. Install with: sudo apt install python3"
     fi
 
     PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
@@ -80,26 +80,26 @@ check_dependencies() {
     PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
 
     if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
-        die "Python 3.10+ erforderlich (gefunden: $PY_VERSION)"
+        die "Python 3.10+ required (found: $PY_VERSION)"
     fi
     success "Python $PY_VERSION ✓"
 
     # curl
     if ! command -v curl &>/dev/null; then
-        die "curl nicht gefunden. Bitte installieren: sudo apt install curl"
+        die "curl not found. Install with: sudo apt install curl"
     fi
     success "curl ✓"
 
     # unzip
     if ! command -v unzip &>/dev/null; then
-        die "unzip nicht gefunden. Bitte installieren: sudo apt install unzip"
+        die "unzip not found. Install with: sudo apt install unzip"
     fi
     success "unzip ✓"
 }
 
 # ── System packages ───────────────────────────────────────────
 install_system_packages() {
-    header "📦 Installiere System-Pakete..."
+    header "📦 Installing system packages..."
 
     local packages=(
         "python3-venv"
@@ -124,46 +124,42 @@ install_system_packages() {
     done
 
     if [ ${#missing[@]} -eq 0 ]; then
-        success "Alle System-Pakete bereits installiert"
+        success "All system packages already installed"
         return
     fi
 
-    info "Folgende Pakete werden installiert: ${missing[*]}"
+    info "Installing packages: ${missing[*]}"
     sudo apt-get update -qq
     sudo apt-get install -y -qq "${missing[@]}"
-    success "System-Pakete installiert"
+    success "System packages installed"
 }
 
 # ── Backup user data ──────────────────────────────────────────
 backup_user_data() {
-    header "💾 Sichere Benutzerdaten..."
+    header "💾 Backing up user data..."
 
     mkdir -p "$BACKUP_DIR"
 
     local backed_up=0
 
-    # Datenbank.xlsx
-    if [ -f "$INSTALL_DIR/data/Datenbank.xlsx" ]; then
-        cp "$INSTALL_DIR/data/Datenbank.xlsx" \
-           "$BACKUP_DIR/Datenbank.xlsx"
+    if [ -f "$INSTALL_DIR/data/database.xlsx" ]; then
+        cp "$INSTALL_DIR/data/database.xlsx" \
+           "$BACKUP_DIR/database.xlsx"
         backed_up=$((backed_up + 1))
     fi
 
-    # settings.json
     if [ -f "$INSTALL_DIR/config/settings.json" ]; then
         cp "$INSTALL_DIR/config/settings.json" \
            "$BACKUP_DIR/settings.json"
         backed_up=$((backed_up + 1))
     fi
 
-    # credentials.json
     if [ -f "$INSTALL_DIR/config/credentials.json" ]; then
         cp "$INSTALL_DIR/config/credentials.json" \
            "$BACKUP_DIR/credentials.json"
         backed_up=$((backed_up + 1))
     fi
 
-    # discogs_cache.db (optional — large file)
     if [ -f "$INSTALL_DIR/data/discogs_cache.db" ]; then
         cp "$INSTALL_DIR/data/discogs_cache.db" \
            "$BACKUP_DIR/discogs_cache.db"
@@ -171,9 +167,9 @@ backup_user_data() {
     fi
 
     if [ $backed_up -gt 0 ]; then
-        success "$backed_up Datei(en) gesichert nach: $BACKUP_DIR"
+        success "$backed_up file(s) backed up to: $BACKUP_DIR"
     else
-        info "Keine Benutzerdaten zum Sichern gefunden"
+        info "No user data found to back up"
     fi
 }
 
@@ -183,16 +179,16 @@ restore_user_data() {
         return
     fi
 
-    header "♻️  Stelle Benutzerdaten wieder her..."
+    header "♻️  Restoring user data..."
 
     mkdir -p "$INSTALL_DIR/data"
     mkdir -p "$INSTALL_DIR/config"
 
     local restored=0
 
-    if [ -f "$BACKUP_DIR/Datenbank.xlsx" ]; then
-        cp "$BACKUP_DIR/Datenbank.xlsx" \
-           "$INSTALL_DIR/data/Datenbank.xlsx"
+    if [ -f "$BACKUP_DIR/database.xlsx" ]; then
+        cp "$BACKUP_DIR/database.xlsx" \
+           "$INSTALL_DIR/data/database.xlsx"
         restored=$((restored + 1))
     fi
 
@@ -216,11 +212,10 @@ restore_user_data() {
     fi
 
     if [ $restored -gt 0 ]; then
-        success "$restored Datei(en) wiederhergestellt"
+        success "$restored file(s) restored"
     fi
 
-    # Keep backup for safety — inform user
-    info "Backup bleibt erhalten unter: $BACKUP_DIR"
+    info "Backup kept at: $BACKUP_DIR"
 }
 
 # ── Download app ──────────────────────────────────────────────
@@ -234,18 +229,18 @@ download_app() {
         zip_url="${REPO_URL}/archive/refs/heads/main.zip"
     fi
 
-    header "⬇️  Lade App herunter..."
+    header "⬇️  Downloading app..."
     info "URL: $zip_url"
 
     local tmp_zip="/tmp/vinyl-label-printer-$$.zip"
     local tmp_dir="/tmp/vinyl-label-printer-$$"
 
     curl -L --progress-bar "$zip_url" -o "$tmp_zip" \
-        || die "Download fehlgeschlagen"
+        || die "Download failed"
 
     mkdir -p "$tmp_dir"
     unzip -q "$tmp_zip" -d "$tmp_dir" \
-        || die "Entpacken fehlgeschlagen"
+        || die "Extraction failed"
 
     # Find extracted folder (name varies by branch/tag)
     local extracted
@@ -253,28 +248,33 @@ download_app() {
         -type d | head -1)
 
     [ -d "$extracted/$APP_SUBDIR" ] \
-        || die "App-Verzeichnis nicht gefunden in: $extracted"
+        || die "App directory not found in: $extracted"
 
-    # Install to INSTALL_DIR
+    # Install app code
     mkdir -p "$INSTALL_DIR"
     cp -r "$extracted/$APP_SUBDIR/." "$INSTALL_DIR/"
+
+    # Copy examples/ alongside app (used for first-run database setup)
+    if [ -d "$extracted/examples" ]; then
+        cp -r "$extracted/examples" "$INSTALL_DIR/examples"
+    fi
 
     # Cleanup
     rm -f "$tmp_zip"
     rm -rf "$tmp_dir"
 
-    success "App heruntergeladen und entpackt"
+    success "App downloaded and extracted"
 }
 
 # ── Setup Python venv ─────────────────────────────────────────
 setup_venv() {
-    header "🐍 Richte Python-Umgebung ein..."
+    header "🐍 Setting up Python environment..."
 
     if [ ! -d "$INSTALL_DIR/venv" ]; then
         python3 -m venv "$INSTALL_DIR/venv"
-        success "Virtual Environment erstellt"
+        success "Virtual environment created"
     else
-        info "Virtual Environment bereits vorhanden — aktualisiere..."
+        info "Virtual environment already exists — updating..."
     fi
 
     "$INSTALL_DIR/venv/bin/pip" install --upgrade pip -q
@@ -282,12 +282,12 @@ setup_venv() {
         -r "$INSTALL_DIR/requirements.txt" \
         --upgrade -q
 
-    success "Python-Pakete installiert"
+    success "Python packages installed"
 }
 
 # ── Create launcher ───────────────────────────────────────────
 create_launcher() {
-    header "🚀 Erstelle Starter..."
+    header "🚀 Creating launcher..."
 
     mkdir -p "$BIN_DIR"
 
@@ -299,14 +299,14 @@ source venv/bin/activate
 exec python3 main.py "\$@"
 EOF
     chmod +x "$BIN_DIR/vinyl-label-printer"
-    success "Starter erstellt: $BIN_DIR/vinyl-label-printer"
+    success "Launcher created: $BIN_DIR/vinyl-label-printer"
 
     # Add ~/.local/bin to PATH if not already there
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-        warning "~/.local/bin ist nicht im PATH."
-        info "Füge folgende Zeile zu ~/.bashrc hinzu:"
+        warning "~/.local/bin is not in PATH."
+        info "Add this line to ~/.bashrc:"
         info '  export PATH="$HOME/.local/bin:$PATH"'
-        info "Oder starte die App mit: ~/vinyl-label-printer/start.sh"
+        info "Or start the app with: $INSTALL_DIR/start.sh"
     fi
 }
 
@@ -318,16 +318,16 @@ cd "\$(dirname "\$0")"
 source venv/bin/activate
 python3 main.py "\$@"
 echo ""
-echo "=== App beendet. Drücke Enter zum Schließen ==="
+echo "=== App closed. Press Enter to exit ==="
 read
 EOF
     chmod +x "$INSTALL_DIR/start.sh"
-    success "start.sh erstellt: $INSTALL_DIR/start.sh"
+    success "start.sh created: $INSTALL_DIR/start.sh"
 }
 
 # ── Create desktop entry ──────────────────────────────────────
 create_desktop_entry() {
-    header "🖥️  Erstelle Menü-Eintrag..."
+    header "🖥️  Creating menu entry..."
 
     mkdir -p "$DESKTOP_DIR"
 
@@ -335,13 +335,13 @@ create_desktop_entry() {
 [Desktop Entry]
 Name=Vinyl Label Printer
 GenericName=Vinyl Label Printer
-Comment=7" Vinyl Labels auf Avery 4780 drucken
+Comment=Print 7" vinyl labels on Avery 4780
 Exec=$BIN_DIR/vinyl-label-printer
 Icon=printer
 Terminal=false
 Type=Application
 Categories=Utility;Office;
-Keywords=vinyl;label;druck;avery;discogs;
+Keywords=vinyl;label;print;avery;discogs;
 StartupNotify=true
 EOF
 
@@ -350,39 +350,42 @@ EOF
         update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
     fi
 
-    success "Menü-Eintrag erstellt"
+    success "Menu entry created"
 }
 
 # ── Copy example database ─────────────────────────────────────
 setup_example_database() {
-    local db_path="$INSTALL_DIR/data/Datenbank.xlsx"
+    local db_path="$INSTALL_DIR/data/database.xlsx"
 
     if [ ! -f "$db_path" ]; then
         mkdir -p "$INSTALL_DIR/data"
         local example="$INSTALL_DIR/examples/database.xlsx"
         if [ -f "$example" ]; then
             cp "$example" "$db_path"
-            success "Beispiel-Datenbank erstellt: $db_path"
+            success "Example database copied to: $db_path"
         else
-            warning "Keine Beispiel-Datenbank gefunden."
-            info "Bitte Datenbank.xlsx manuell nach $db_path kopieren."
+            warning "Example database not found."
+            warning "Please copy the file manually:"
+            warning "  Source: examples/database.xlsx (GitHub repository)"
+            warning "  Target: $db_path"
+            info "Download: https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx"
         fi
     fi
 }
 
 # ── Uninstall ─────────────────────────────────────────────────
 uninstall() {
-    header "🗑️  Deinstalliere Vinyl Label Printer..."
+    header "🗑️  Uninstalling Vinyl Label Printer..."
 
-    echo -e "${YELLOW}Folgendes wird gelöscht:${NC}"
+    echo -e "${YELLOW}The following will be deleted:${NC}"
     echo "  $INSTALL_DIR"
     echo "  $BIN_DIR/vinyl-label-printer"
     echo "  $DESKTOP_DIR/vinyl-label-printer.desktop"
     echo ""
-    echo -e "${YELLOW}Benutzerdaten (Datenbank, Einstellungen) bleiben erhalten.${NC}"
+    echo -e "${YELLOW}User data (database, settings) will be preserved.${NC}"
     echo ""
-    read -rp "Wirklich deinstallieren? [j/N] " confirm
-    [[ "$confirm" =~ ^[jJyY]$ ]] || { info "Abgebrochen."; exit 0; }
+    read -rp "Really uninstall? [y/N] " confirm
+    [[ "$confirm" =~ ^[yYjJ]$ ]] || { info "Cancelled."; exit 0; }
 
     # Backup user data before uninstall
     backup_user_data
@@ -391,8 +394,8 @@ uninstall() {
     rm -f "$BIN_DIR/vinyl-label-printer"
     rm -f "$DESKTOP_DIR/vinyl-label-printer.desktop"
 
-    success "Deinstallation abgeschlossen."
-    info "Ihre Daten wurden gesichert nach: $BACKUP_DIR"
+    success "Uninstall complete."
+    info "Your data was backed up to: $BACKUP_DIR"
 }
 
 # ── Main ──────────────────────────────────────────────────────
@@ -415,19 +418,19 @@ main() {
 
     if [ -n "$INSTALLED_VERSION" ]; then
         IS_UPDATE=true
-        info "Bestehende Installation gefunden: v$INSTALLED_VERSION"
+        info "Existing installation found: v$INSTALLED_VERSION"
     else
-        info "Keine bestehende Installation gefunden — Neuinstallation"
+        info "No existing installation found — fresh install"
     fi
 
     # Get latest available version
-    info "Prüfe verfügbare Version..."
+    info "Checking available version..."
     LATEST_VERSION=$(get_latest_version)
 
     if [ -n "$LATEST_VERSION" ]; then
-        info "Verfügbare Version: v$LATEST_VERSION"
+        info "Available version: v$LATEST_VERSION"
     else
-        warning "Konnte Version nicht von GitHub abrufen — installiere main branch"
+        warning "Could not fetch version from GitHub — installing main branch"
     fi
 
     # Skip update if already up to date
@@ -435,10 +438,10 @@ main() {
        [ -n "$LATEST_VERSION" ] && \
        [ "$INSTALLED_VERSION" = "$LATEST_VERSION" ]; then
         echo ""
-        success "Bereits aktuell (v$INSTALLED_VERSION) — kein Update nötig."
+        success "Already up to date (v$INSTALLED_VERSION) — no update needed."
         echo ""
-        info "Starte die App mit: vinyl-label-printer"
-        info "oder:               $INSTALL_DIR/start.sh"
+        info "Start the app with: vinyl-label-printer"
+        info "or:                 $INSTALL_DIR/start.sh"
         exit 0
     fi
 
@@ -448,11 +451,11 @@ main() {
         if [ -n "$LATEST_VERSION" ]; then
             echo -e "${YELLOW}Update: v$INSTALLED_VERSION → v$LATEST_VERSION${NC}"
         else
-            echo -e "${YELLOW}Update der bestehenden Installation${NC}"
+            echo -e "${YELLOW}Update existing installation${NC}"
         fi
-        read -rp "Fortfahren? [J/n] " confirm
-        confirm="${confirm:-J}"
-        [[ "$confirm" =~ ^[jJyY]$ ]] || { info "Abgebrochen."; exit 0; }
+        read -rp "Continue? [Y/n] " confirm
+        confirm="${confirm:-Y}"
+        [[ "$confirm" =~ ^[yYjJ]$ ]] || { info "Cancelled."; exit 0; }
     fi
 
     # Run installation / update steps
@@ -479,25 +482,29 @@ main() {
     echo ""
     echo -e "${BOLD}${GREEN}╔════════════════════════════════════╗${NC}"
     if [ "$IS_UPDATE" = true ]; then
-        echo -e "${BOLD}${GREEN}║   Update erfolgreich abgeschlossen! ║${NC}"
+        echo -e "${BOLD}${GREEN}║       Update complete!             ║${NC}"
     else
-        echo -e "${BOLD}${GREEN}║  Installation erfolgreich! Viel Spaß ║${NC}"
+        echo -e "${BOLD}${GREEN}║   Installation complete! Enjoy!    ║${NC}"
     fi
     echo -e "${BOLD}${GREEN}╚════════════════════════════════════╝${NC}"
     echo ""
 
     if [ "$IS_UPDATE" = true ] && [ -d "$BACKUP_DIR" ]; then
-        info "Backup Ihrer Daten: $BACKUP_DIR"
+        info "Data backup location: $BACKUP_DIR"
     fi
 
     echo ""
-    info "App starten:"
-    echo "   vinyl-label-printer    (falls ~/.local/bin im PATH)"
+    info "Start the app:"
+    echo "   vinyl-label-printer    (if ~/.local/bin is in PATH)"
     echo "   $INSTALL_DIR/start.sh"
-    echo "   oder über das Anwendungsmenü"
+    echo "   or via the application menu"
     echo ""
-    info "Deinstallieren:"
+    info "Uninstall (if install.sh is local):"
     echo "   bash install.sh --uninstall"
+    echo ""
+    info "Uninstall (via curl):"
+    echo "   curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \\"
+    echo "        -o /tmp/install.sh && bash /tmp/install.sh --uninstall"
     echo ""
 }
 

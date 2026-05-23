@@ -53,6 +53,16 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Windows: poppler-DLLs in PATH eintragen"
         ),
         "err_excel":         "Excel-Datei konnte nicht geladen werden:\n{detail}",
+        "err_db_missing":    (
+            "Datenbankdatei nicht gefunden:\n{path}\n\n"
+            "Bitte manuell kopieren:\n"
+            "  Quelle:  examples/database.xlsx (GitHub-Repository)\n"
+            "  Ziel:    {path}\n\n"
+            "Download:\n"
+            "  https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx\n\n"
+            "Oder Installationsskript erneut ausführen:\n"
+            "  curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash"
+        ),
         "err_print":         "Druckfehler:\n{detail}",
 
         # Tooltips
@@ -424,6 +434,16 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Windows: add poppler DLLs folder to PATH"
         ),
         "err_excel":         "Could not load Excel file:\n{detail}",
+        "err_db_missing":    (
+            "Database file not found:\n{path}\n\n"
+            "Please copy it manually:\n"
+            "  Source: examples/database.xlsx (GitHub repository)\n"
+            "  Target: {path}\n\n"
+            "Download:\n"
+            "  https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx\n\n"
+            "Or re-run the install script:\n"
+            "  curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash"
+        ),
         "err_print":         "Print error:\n{detail}",
 
         # Tooltips
