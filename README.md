@@ -66,11 +66,23 @@ Ihre Benutzerdaten (Datenbank, Einstellungen,
 Discogs-Token) werden dabei automatisch gesichert
 und wiederhergestellt.
 
-### Deinstallation
+### Uninstall
+
+If you have `install.sh` saved locally:
 
 ```bash
 bash install.sh --uninstall
 ```
+
+Via curl (recommended):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \
+     -o /tmp/install.sh && bash /tmp/install.sh --uninstall
+```
+
+> Your user data (database.xlsx, settings, Discogs token) is automatically
+> backed up before uninstalling. The backup location is shown at the end.
 
 ### Voraussetzungen / Prerequisites
 
@@ -78,6 +90,18 @@ bash install.sh --uninstall
 - Python 3.10+
 - Internetverbindung (für Download)
 - sudo-Rechte (nur für System-Pakete)
+
+### Database
+
+The app ships with an example database that is copied automatically on first install.
+
+If the database is missing, copy it manually:
+
+```bash
+mkdir -p ~/vinyl-label-printer/data
+curl -L https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx \
+     -o ~/vinyl-label-printer/data/database.xlsx
+```
 
 ### Manual installation (Windows / other Linux)
 
@@ -89,7 +113,7 @@ See the [User Manual → Installation](#installation) section below.
 
 ### Schnellinstallation / Quick install
 
-PowerShell öffnen, dann:
+Open PowerShell, then run:
 
 ```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1"
@@ -97,25 +121,47 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/mai
 
 ### Update
 
-Denselben Befehl nochmals ausführen — das Skript
-erkennt automatisch die bestehende Installation.
+Run the same command again — the script automatically detects the existing installation.
 
-### Deinstallation
+### Uninstall
+
+If you have `install.ps1` saved locally:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\vinyl-label-printer\install.ps1" -Uninstall
+powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
 ```
+
+Via web (recommended):
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1" -Uninstall
+```
+
+> Your user data (database.xlsx, settings, Discogs token) is automatically
+> backed up before uninstalling. The backup location is shown at the end.
 
 ### Voraussetzungen / Prerequisites
 
 - Windows 10 oder Windows 11
 - Python 3.10+ (<https://www.python.org/downloads/>)
-  → Bei Installation "Add Python to PATH" aktivieren!
-- PowerShell 5.1+ (bereits vorinstalliert)
+  → Check "Add Python to PATH" during installation!
+- PowerShell 5.1+ (pre-installed)
 - Internetverbindung
 
-Poppler für die PDF-Vorschau wird automatisch
-heruntergeladen und eingerichtet.
+Poppler for the PDF preview is downloaded and configured automatically.
+
+### Database
+
+The app ships with an example database that is copied automatically on first install.
+
+If the database is missing, copy it manually:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\vinyl-label-printer\data"
+Invoke-WebRequest `
+    -Uri "https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx" `
+    -OutFile "$env:LOCALAPPDATA\vinyl-label-printer\data\database.xlsx"
+```
 
 ---
 

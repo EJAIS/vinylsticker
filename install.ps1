@@ -5,7 +5,7 @@
 .DESCRIPTION
     Installs or updates Vinyl Label Printer on Windows 10/11.
     Handles fresh installation and updates automatically.
-    User data (Datenbank.xlsx, settings, credentials) is
+    User data (database.xlsx, settings, credentials) is
     preserved during updates.
 .PARAMETER Uninstall
     Remove the application (keeps user data backup)
@@ -62,14 +62,14 @@ function Get-LatestVersion {
             return $releases[0].tag_name.TrimStart('v')
         }
     } catch {
-        Write-Warn "Konnte Version nicht von GitHub abrufen."
+        Write-Warn "Could not fetch version from GitHub."
     }
     return ""
 }
 
 # ── Check Python ───────────────────────────────────────────────
 function Test-Python {
-    Write-Header "Pruefe Systemvoraussetzungen..."
+    Write-Header "Checking system requirements..."
 
     $python = $null
     foreach ($cmd in @("python", "python3", "py")) {
@@ -80,21 +80,21 @@ function Test-Python {
                 $minor = [int]$Matches[2]
                 if ($major -ge 3 -and $minor -ge 10) {
                     $python = $cmd
-                    Write-Success "Python $major.$minor gefunden ($cmd)"
+                    Write-Success "Python $major.$minor found ($cmd)"
                     break
                 } else {
-                    Write-Warn "Python $major.$minor zu alt (3.10+ erforderlich)"
+                    Write-Warn "Python $major.$minor too old (3.10+ required)"
                 }
             }
         } catch { continue }
     }
 
     if (-not $python) {
-        Write-Err "Python 3.10+ nicht gefunden."
-        Write-Info "Bitte installieren von: https://www.python.org/downloads/"
-        Write-Info "Wichtig: 'Add Python to PATH' bei der Installation aktivieren!"
+        Write-Err "Python 3.10+ not found."
+        Write-Info "Download from: https://www.python.org/downloads/"
+        Write-Info "Important: check 'Add Python to PATH' during installation!"
         Start-Process "https://www.python.org/downloads/"
-        Stop-Install "Python 3.10+ wird benoetigt."
+        Stop-Install "Python 3.10+ is required."
     }
 
     return $python
@@ -102,17 +102,17 @@ function Test-Python {
 
 # ── Check/Install Poppler ──────────────────────────────────────
 function Install-Poppler {
-    Write-Header "Pruefe Poppler (PDF-Vorschau)..."
+    Write-Header "Checking Poppler (PDF preview)..."
 
     $popplerDir = Join-Path $InstallDir "poppler"
     $popplerBin = Join-Path $popplerDir "Library\bin"
 
     if (Test-Path (Join-Path $popplerBin "pdftoppm.exe")) {
-        Write-Success "Poppler bereits installiert"
+        Write-Success "Poppler already installed"
         return $popplerBin
     }
 
-    Write-Info "Lade Poppler fuer Windows herunter..."
+    Write-Info "Downloading Poppler for Windows..."
 
     try {
         $popplerApi = "https://api.github.com/repos/oschwartz10612/poppler-windows/releases/latest"
@@ -122,13 +122,13 @@ function Install-Poppler {
                  Select-Object -First 1
 
         if (-not $asset) {
-            Stop-Install "Konnte Poppler-Download nicht finden."
+            Stop-Install "Could not find Poppler download asset."
         }
 
         $popplerZip = Join-Path $env:TEMP "poppler.zip"
         $popplerTmp = Join-Path $env:TEMP "poppler-extract"
 
-        Write-Info "Lade herunter: $($asset.name)"
+        Write-Info "Downloading: $($asset.name)"
         Invoke-WebRequest -Uri $asset.browser_download_url `
             -OutFile $popplerZip -UseBasicParsing
 
@@ -147,28 +147,28 @@ function Install-Poppler {
         Remove-Item $popplerZip -Force -ErrorAction SilentlyContinue
         Remove-Item $popplerTmp -Recurse -Force -ErrorAction SilentlyContinue
 
-        Write-Success "Poppler installiert: $popplerBin"
+        Write-Success "Poppler installed: $popplerBin"
         return $popplerBin
 
     } catch {
-        Write-Warn "Poppler-Download fehlgeschlagen: $_"
-        Write-Info "Bitte manuell installieren:"
+        Write-Warn "Poppler download failed: $_"
+        Write-Info "Please install manually:"
         Write-Info "https://github.com/oschwartz10612/poppler-windows/releases"
-        Write-Info "Entpacken nach: $popplerDir"
+        Write-Info "Extract to: $popplerDir"
         return $popplerBin
     }
 }
 
 # ── Backup user data ───────────────────────────────────────────
 function Backup-UserData {
-    Write-Header "Sichere Benutzerdaten..."
+    Write-Header "Backing up user data..."
 
     New-Item -ItemType Directory -Path $BackupDir `
         -Force | Out-Null
 
     $backedUp = 0
     $files = @{
-        "data\Datenbank.xlsx"      = "Datenbank.xlsx"
+        "data\database.xlsx"       = "database.xlsx"
         "config\settings.json"     = "settings.json"
         "config\credentials.json"  = "credentials.json"
         "data\discogs_cache.db"    = "discogs_cache.db"
@@ -184,16 +184,16 @@ function Backup-UserData {
     }
 
     if ($backedUp -gt 0) {
-        Write-Success "$backedUp Datei(en) gesichert nach: $BackupDir"
+        Write-Success "$backedUp file(s) backed up to: $BackupDir"
     } else {
-        Write-Info "Keine Benutzerdaten zum Sichern gefunden"
+        Write-Info "No user data found to back up"
     }
 }
 
 # ── Restore user data ──────────────────────────────────────────
 function Restore-UserData {
     if (-not (Test-Path $BackupDir)) { return }
-    Write-Header "Stelle Benutzerdaten wieder her..."
+    Write-Header "Restoring user data..."
 
     New-Item -ItemType Directory `
         -Path (Join-Path $InstallDir "data") `
@@ -204,7 +204,7 @@ function Restore-UserData {
 
     $restored = 0
     $files = @{
-        "Datenbank.xlsx"   = "data\Datenbank.xlsx"
+        "database.xlsx"    = "data\database.xlsx"
         "settings.json"    = "config\settings.json"
         "credentials.json" = "config\credentials.json"
         "discogs_cache.db" = "data\discogs_cache.db"
@@ -220,15 +220,15 @@ function Restore-UserData {
     }
 
     if ($restored -gt 0) {
-        Write-Success "$restored Datei(en) wiederhergestellt"
+        Write-Success "$restored file(s) restored"
     }
-    Write-Info "Backup bleibt erhalten unter: $BackupDir"
+    Write-Info "Backup kept at: $BackupDir"
 }
 
 # ── Download app ───────────────────────────────────────────────
 function Get-App {
     param($Version)
-    Write-Header "Lade App herunter..."
+    Write-Header "Downloading app..."
 
     $zipUrl = if ($Version) {
         "$RepoUrl/archive/refs/tags/v$Version.zip"
@@ -245,7 +245,7 @@ function Get-App {
         Invoke-WebRequest -Uri $zipUrl `
             -OutFile $tmpZip -UseBasicParsing
     } catch {
-        Stop-Install "Download fehlgeschlagen: $_"
+        Stop-Install "Download failed: $_"
     }
 
     Expand-Archive -Path $tmpZip `
@@ -256,7 +256,7 @@ function Get-App {
     $appSource = Join-Path $extracted.FullName $AppSubDir
 
     if (-not (Test-Path $appSource)) {
-        Stop-Install "App-Verzeichnis nicht gefunden: $appSource"
+        Stop-Install "App directory not found: $appSource"
     }
 
     New-Item -ItemType Directory -Path $InstallDir `
@@ -264,16 +264,24 @@ function Get-App {
     Copy-Item "$appSource\*" -Destination $InstallDir `
         -Recurse -Force
 
+    # Copy examples/ alongside app (used for first-run database setup)
+    $examplesSource = Join-Path $extracted.FullName "examples"
+    if (Test-Path $examplesSource) {
+        Copy-Item $examplesSource `
+            -Destination (Join-Path $InstallDir "examples") `
+            -Recurse -Force
+    }
+
     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
     Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
-    Write-Success "App heruntergeladen und entpackt"
+    Write-Success "App downloaded and extracted"
 }
 
 # ── Setup venv ─────────────────────────────────────────────────
 function Initialize-Venv {
     param($PythonCmd)
-    Write-Header "Richte Python-Umgebung ein..."
+    Write-Header "Setting up Python environment..."
 
     $venvDir = Join-Path $InstallDir "venv"
     $venvPip = Join-Path $venvDir "Scripts\pip.exe"
@@ -281,21 +289,21 @@ function Initialize-Venv {
 
     if (-not (Test-Path $venvDir)) {
         & $PythonCmd -m venv $venvDir
-        Write-Success "Virtual Environment erstellt"
+        Write-Success "Virtual environment created"
     } else {
-        Write-Info "Virtual Environment bereits vorhanden — aktualisiere..."
+        Write-Info "Virtual environment already exists — updating..."
     }
 
     & $venvPip install --upgrade pip -q
     & $venvPip install -r $reqFile --upgrade -q
 
-    Write-Success "Python-Pakete installiert"
+    Write-Success "Python packages installed"
 }
 
 # ── Patch settings for Poppler path ───────────────────────────
 function Set-PopplerPath {
     param($PopplerBin)
-    Write-Header "Konfiguriere Poppler-Pfad..."
+    Write-Header "Configuring Poppler path..."
 
     $settingsFile = Join-Path $InstallDir "config\settings.json"
 
@@ -316,12 +324,12 @@ function Set-PopplerPath {
     $settings | ConvertTo-Json -Depth 10 |
         Set-Content $settingsFile -Encoding UTF8
 
-    Write-Success "Poppler-Pfad gespeichert: $PopplerBin"
+    Write-Success "Poppler path saved: $PopplerBin"
 }
 
 # ── Create start.bat ───────────────────────────────────────────
 function New-StartBat {
-    Write-Header "Erstelle start.bat..."
+    Write-Header "Creating start.bat..."
 
     $startBat = Join-Path $InstallDir "start.bat"
     @"
@@ -330,33 +338,33 @@ cd /d "%~dp0"
 call venv\Scripts\activate.bat
 python main.py
 echo.
-echo === App beendet. Druecke eine Taste zum Schliessen ===
+echo === App closed. Press any key to exit ===
 pause
 "@ | Set-Content $startBat -Encoding UTF8
 
-    Write-Success "start.bat erstellt: $startBat"
+    Write-Success "start.bat created: $startBat"
 }
 
 # ── Create Start Menu shortcut ─────────────────────────────────
 function New-StartMenuShortcut {
-    Write-Header "Erstelle Startmenue-Eintrag..."
+    Write-Header "Creating Start Menu shortcut..."
 
     $startBat = Join-Path $InstallDir "start.bat"
     $wsh = New-Object -ComObject WScript.Shell
     $shortcut = $wsh.CreateShortcut($ShortcutPath)
     $shortcut.TargetPath = $startBat
     $shortcut.WorkingDirectory = $InstallDir
-    $shortcut.Description = "7 Vinyl Labels drucken"
+    $shortcut.Description = "Print 7-inch vinyl labels"
     $shortcut.WindowStyle = 1
     $shortcut.IconLocation = "shell32.dll,17"
     $shortcut.Save()
 
-    Write-Success "Startmenue-Eintrag erstellt"
+    Write-Success "Start Menu shortcut created"
 }
 
 # ── Copy example database ──────────────────────────────────────
 function Initialize-Database {
-    $dbPath = Join-Path $InstallDir "data\Datenbank.xlsx"
+    $dbPath = Join-Path $InstallDir "data\database.xlsx"
 
     if (-not (Test-Path $dbPath)) {
         New-Item -ItemType Directory `
@@ -366,30 +374,32 @@ function Initialize-Database {
         $example = Join-Path $InstallDir "examples\database.xlsx"
         if (Test-Path $example) {
             Copy-Item $example $dbPath
-            Write-Success "Beispiel-Datenbank erstellt: $dbPath"
+            Write-Success "Example database copied to: $dbPath"
         } else {
-            Write-Warn "Keine Beispiel-Datenbank gefunden."
-            Write-Info "Bitte Datenbank.xlsx manuell kopieren nach:"
-            Write-Info "  $dbPath"
+            Write-Warn "Example database not found."
+            Write-Warn "Please copy the file manually:"
+            Write-Warn "  Source: examples\database.xlsx (GitHub repository)"
+            Write-Warn "  Target: $dbPath"
+            Write-Info "Download: https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx"
         }
     }
 }
 
 # ── Uninstall ──────────────────────────────────────────────────
 function Remove-App {
-    Write-Header "Deinstalliere Vinyl Label Printer..."
+    Write-Header "Uninstalling Vinyl Label Printer..."
 
     Write-Host ""
-    Write-Host "Folgendes wird geloescht:" -ForegroundColor Yellow
+    Write-Host "The following will be deleted:" -ForegroundColor Yellow
     Write-Host "  $InstallDir"
     Write-Host "  $ShortcutPath"
     Write-Host ""
-    Write-Host "Benutzerdaten bleiben erhalten." -ForegroundColor Yellow
+    Write-Host "User data will be preserved." -ForegroundColor Yellow
     Write-Host ""
 
-    $confirm = Read-Host "Wirklich deinstallieren? [j/N]"
-    if ($confirm -notmatch "^[jJyY]$") {
-        Write-Info "Abgebrochen."
+    $confirm = Read-Host "Really uninstall? [y/N]"
+    if ($confirm -notmatch "^[yYjJ]$") {
+        Write-Info "Cancelled."
         exit 0
     }
 
@@ -398,8 +408,8 @@ function Remove-App {
     Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item $ShortcutPath -Force -ErrorAction SilentlyContinue
 
-    Write-Success "Deinstallation abgeschlossen."
-    Write-Info "Ihre Daten wurden gesichert nach: $BackupDir"
+    Write-Success "Uninstall complete."
+    Write-Info "Your data was backed up to: $BackupDir"
 }
 
 # ── Main ───────────────────────────────────────────────────────
@@ -419,28 +429,28 @@ function Main {
     $isUpdate = $installedVersion -ne ""
 
     if ($isUpdate) {
-        Write-Info "Bestehende Installation gefunden: v$installedVersion"
+        Write-Info "Existing installation found: v$installedVersion"
     } else {
-        Write-Info "Keine bestehende Installation — Neuinstallation"
+        Write-Info "No existing installation found — fresh install"
     }
 
-    Write-Info "Pruefe verfuegbare Version..."
+    Write-Info "Checking available version..."
     $latestVersion = Get-LatestVersion
 
     if ($latestVersion) {
-        Write-Info "Verfuegbare Version: v$latestVersion"
+        Write-Info "Available version: v$latestVersion"
     } else {
-        Write-Warn "Version konnte nicht geprueft werden — installiere main branch"
+        Write-Warn "Could not check version — installing main branch"
     }
 
     if ($isUpdate -and $latestVersion -and
         $installedVersion -eq $latestVersion) {
         Write-Host ""
-        Write-Success "Bereits aktuell (v$installedVersion) — kein Update noetig."
+        Write-Success "Already up to date (v$installedVersion) — no update needed."
         Write-Host ""
-        Write-Info "Starte die App mit:"
+        Write-Info "Start the app:"
         Write-Info "  $InstallDir\start.bat"
-        Write-Info "  oder ueber das Startmenue"
+        Write-Info "  or via Start Menu"
         return
     }
 
@@ -449,12 +459,12 @@ function Main {
         $msg = if ($latestVersion) {
             "Update: v$installedVersion -> v$latestVersion"
         } else {
-            "Update der bestehenden Installation"
+            "Update existing installation"
         }
         Write-Host $msg -ForegroundColor Yellow
-        $confirm = Read-Host "Fortfahren? [J/n]"
+        $confirm = Read-Host "Continue? [Y/n]"
         if ($confirm -match "^[nN]$") {
-            Write-Info "Abgebrochen."
+            Write-Info "Cancelled."
             return
         }
     }
@@ -473,24 +483,27 @@ function Main {
     Write-Host ""
     Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Green
     if ($isUpdate) {
-        Write-Host "║   Update erfolgreich abgeschlossen!  ║" -ForegroundColor Green
+        Write-Host "║         Update complete!             ║" -ForegroundColor Green
     } else {
-        Write-Host "║   Installation erfolgreich!           ║" -ForegroundColor Green
+        Write-Host "║   Installation complete! Enjoy!      ║" -ForegroundColor Green
     }
     Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Green
     Write-Host ""
 
     if ($isUpdate -and (Test-Path $BackupDir)) {
-        Write-Info "Backup Ihrer Daten: $BackupDir"
+        Write-Info "Data backup location: $BackupDir"
     }
 
     Write-Host ""
-    Write-Info "App starten:"
-    Write-Host "  Doppelklick: $InstallDir\start.bat"
-    Write-Host "  oder ueber das Startmenue: 'Vinyl Label Printer'"
+    Write-Info "Start the app:"
+    Write-Host "  Double-click: $InstallDir\start.bat"
+    Write-Host "  or via Start Menu: 'Vinyl Label Printer'"
     Write-Host ""
-    Write-Info "Deinstallieren:"
-    Write-Host "  powershell -File install.ps1 -Uninstall"
+    Write-Info "Uninstall (if install.ps1 is local):"
+    Write-Host "  powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall"
+    Write-Host ""
+    Write-Info "Uninstall (via web):"
+    Write-Host "  Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1' -OutFile `"`$env:TEMP\install.ps1`"; powershell -ExecutionPolicy Bypass -File `"`$env:TEMP\install.ps1`" -Uninstall"
     Write-Host ""
 }
 
