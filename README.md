@@ -59,6 +59,13 @@ curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh |
 curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash
 ```
 
+> **Note:** When updating via `curl | bash`, the script runs non-interactively
+> and updates automatically without a confirmation prompt.
+> To update interactively (with confirmation prompt):
+>
+>     curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \
+>          -o /tmp/install.sh && bash /tmp/install.sh
+
 Das Skript erkennt automatisch ob eine bestehende
 Installation vorhanden ist und führt entsprechend
 eine Neu- oder Aktualisierungsinstallation durch.
@@ -122,6 +129,10 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/mai
 ### Update
 
 Run the same command again — the script automatically detects the existing installation.
+
+> **Note:** The Windows installer always runs interactively
+> and will ask for confirmation before updating.
+> There is no silent/pipe mode on Windows.
 
 ### Uninstall
 

@@ -16,7 +16,7 @@ Signals emitted to MainWindow:
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QThread
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -991,6 +991,27 @@ class SettingsDialog(QDialog):
         )
         layout.addWidget(self._lbl_about_release_notes)
 
+        # Update command box (shown only when an update is available)
+        self._lbl_about_update_cmd = QLabel()
+        self._lbl_about_update_cmd.setVisible(False)
+        self._lbl_about_update_cmd.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse |
+            Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self._lbl_about_update_cmd.setWordWrap(True)
+        self._lbl_about_update_cmd.setFont(QFont("Courier New", 9))
+        if colors:
+            self._lbl_about_update_cmd.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {colors.bg_sidebar};
+                    border: 1px solid {colors.border};
+                    border-radius: 6px;
+                    padding: 10px 12px;
+                    color: {colors.text_secondary};
+                }}
+            """)
+        layout.addWidget(self._lbl_about_update_cmd)
+
         # Pre-fill available version from cache (no network call on open)
         cached = get_last_known_version()
         if cached:
@@ -1289,6 +1310,7 @@ class SettingsDialog(QDialog):
                     f"color: {style_color}; background: transparent;"
                 )
             self._lbl_about_update_status.setVisible(True)
+            self._lbl_about_update_cmd.setVisible(False)
             return
 
         self._lbl_about_available_val.setText(result["tag_name"])
@@ -1305,12 +1327,30 @@ class SettingsDialog(QDialog):
                 )
             self._release_url = result["release_url"]
             self._lbl_about_release_notes.setVisible(True)
+            import sys
+            if sys.platform == "win32":
+                cmd = (
+                    "Invoke-WebRequest -Uri \\\n"
+                    "  'https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1' \\\n"
+                    "  -OutFile \"$env:TEMP\\install.ps1\"\n"
+                    "powershell -ExecutionPolicy Bypass \\\n"
+                    "  -File \"$env:TEMP\\install.ps1\""
+                )
+            else:
+                cmd = (
+                    "curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \\\n"
+                    "     -o /tmp/install.sh\n"
+                    "bash /tmp/install.sh"
+                )
+            self._lbl_about_update_cmd.setText(t("update_run_command") + "\n\n" + cmd)
+            self._lbl_about_update_cmd.setVisible(True)
         else:
             self._lbl_about_update_status.setText(t("up_to_date"))
             if colors:
                 self._lbl_about_update_status.setStyleSheet(
                     f"color: {colors.success}; background: transparent;"
                 )
+            self._lbl_about_update_cmd.setVisible(False)
 
     def _open_release_notes(self) -> None:
         """Open the GitHub release page in the system browser."""
