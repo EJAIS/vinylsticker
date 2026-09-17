@@ -6,34 +6,35 @@ Made with :heart: and ClaudeCode - by a Collector for Collectors.
 
 + Local database (Excel) or Discogs integration.
 + Discogs integration reads your 7" collection, pulls A/B sides automatically, and caches data locally (SQLite, 6-hour expiry per Discogs API ToU).
-+ Watermark option available (main window and **Settings → Appearance**).
-+ Dark / Light / Auto theme via **Settings → Appearance** (follows OS setting by default).
-+ Printer calibration with X/Y fine-tuning and a built-in calibration PDF generator (**Settings → Appearance → Printer Calibration**).
++ Watermark option available (main window sidebar and **⚙ Settings → Appearance**).
++ Dark / Light theme via **⚙ Settings → Appearance** — follows the OS setting until you pick one explicitly.
++ Printer calibration with X/Y fine-tuning and a built-in calibration PDF generator (**⚙ Settings → Appearance → Printer Calibration**).
 
 ![Picture of an example label](https://github.com/EJAIS/vinylsticker/blob/main/examples/label_with_watermark.png)
 
 Currently in BETA status; please get yourself familiar (if you arent already) with the needed tools. Executables are planned, but not ready yet.
 Please feel free to contact me for bugs and feature requests.
 
-The application UI is available in **German (DE)** and **English (EN)**, switchable at runtime via the Language selector. This README uses English throughout.
+The application UI is available in **German (DE)** and **English (EN)**, switchable at runtime via **⚙ Settings → Appearance**. This README uses English throughout.
 
 ---
 
 ## Table of Contents
 
-1. [User Manual](#user-manual)
+1. [Installation (Linux)](#installation-linux)
+2. [Installation (Windows)](#installation-windows)
+3. [User Manual](#user-manual)
    - [Requirements](#requirements)
-   - [Installation](#installation)
-   - [Quick Start](#quick-start)
+   - [Manual Installation](#manual-installation)
    - [Workflow](#workflow)
    - [Interface Overview](#interface-overview)
    - [Discogs Import](#discogs-import)
-2. [Troubleshooting](#troubleshooting)
+4. [Troubleshooting](#troubleshooting)
    - [Labels are misaligned](#labels-are-misaligned)
    - [PDF preview is blank or missing](#pdf-preview-is-blank-or-missing)
    - [Print dialog does not open](#print-dialog-does-not-open)
    - [Discogs import fails or stalls](#discogs-import-fails-or-stalls)
-3. [Technical Reference](#technical-reference)
+5. [Technical Reference](#technical-reference)
    - [Project Structure](#project-structure)
    - [Dependencies](#dependencies)
    - [Avery 4780 Sheet Dimensions](#avery-4780-sheet-dimensions)
@@ -66,12 +67,10 @@ curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh |
 >     curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \
 >          -o /tmp/install.sh && bash /tmp/install.sh
 
-Das Skript erkennt automatisch ob eine bestehende
-Installation vorhanden ist und führt entsprechend
-eine Neu- oder Aktualisierungsinstallation durch.
-Ihre Benutzerdaten (Datenbank, Einstellungen,
-Discogs-Token) werden dabei automatisch gesichert
-und wiederhergestellt.
+The script automatically detects whether an installation already
+exists and performs a fresh install or an update accordingly.
+Your user data (database, settings, Discogs token) is backed up
+and restored automatically in the process.
 
 ### Uninstall
 
@@ -98,6 +97,8 @@ curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \
 - Internetverbindung (für Download)
 - sudo-Rechte (nur für System-Pakete)
 
+Poppler and the required Qt system libraries are installed automatically via `apt` during setup.
+
 ### Database
 
 The app ships with an example database that is copied automatically on first install.
@@ -110,9 +111,9 @@ curl -L https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx \
      -o ~/vinyl-label-printer/data/database.xlsx
 ```
 
-### Manual installation (Windows / other Linux)
+### Manual installation (other Linux distributions)
 
-See the [User Manual → Installation](#installation) section below.
+For distributions the script doesn't target, or to run from source, see [Manual Installation](#manual-installation) below.
 
 ---
 
@@ -128,7 +129,16 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/mai
 
 ### Update
 
-Run the same command again — the script automatically detects the existing installation.
+Run the same command again:
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1"
+```
+
+The script automatically detects whether an installation already
+exists and performs a fresh install or an update accordingly.
+Your user data (database, settings, Discogs token) is backed up
+and restored automatically in the process.
 
 > **Note:** The Windows installer always runs interactively
 > and will ask for confirmation before updating.
@@ -174,6 +184,10 @@ Invoke-WebRequest `
     -OutFile "$env:LOCALAPPDATA\vinyl-label-printer\data\database.xlsx"
 ```
 
+### Manual installation (macOS / running from source)
+
+To run from source instead of using the installer, see [Manual Installation](#manual-installation) below.
+
 ---
 
 ## User Manual
@@ -182,15 +196,18 @@ Invoke-WebRequest `
 
 | Component | Details |
 |---|---|
-| Operating system | Windows 11 or Linux |
+| Operating system | Windows 10/11, or Linux Mint / Ubuntu 22.04+ / Debian 12+ |
 | Python | 3.10 or newer |
-| Poppler | Required for PDF preview (see [Installation](#installation)) |
+| Poppler | Required for PDF preview — installed automatically by the installer, or manually for [source installs](#manual-installation) |
 
-### Installation
+### Manual Installation
+
+> Most users should use the automated installer instead — see [Installation (Linux)](#installation-linux) or [Installation (Windows)](#installation-windows) above; it installs the app, creates the launcher/start script and desktop entry, and handles updates automatically.
+> Use the steps below only to run from source — for development, contributing, or a platform the installer doesn't cover (e.g. macOS or an unsupported Linux distribution).
 
 ---
 
-#### Installation — Windows
+#### Manual Installation — Windows
 
 ##### Prerequisites (Windows)
 
@@ -224,6 +241,21 @@ Required for PDF preview.
 2. Extract to: `C:\poppler`
 3. Add to PATH: Search → "Environment Variables" → Path → New: `C:\poppler\Library\bin`
 
+##### Create start.bat (Windows)
+
+`start.bat` is **not** included in the repository — create it manually. Add a file
+`start.bat` in the `vinyl-label-printer/` folder with the following content:
+
+```bat
+@echo off
+cd /d "%~dp0"
+call venv\Scripts\activate.bat
+python main.py
+echo.
+echo === App closed. Press any key to exit ===
+pause
+```
+
 ##### Start the app (Windows)
 
 ```powershell
@@ -231,11 +263,11 @@ venv\Scripts\Activate.ps1
 python main.py
 ```
 
-Or double-click: `start.bat`
+Or double-click `start.bat` (created above).
 
 ---
 
-#### Installation — Linux (Ubuntu/Debian/Mint)
+#### Manual Installation — Linux (Ubuntu/Debian/Mint)
 
 ##### Prerequisites (Linux)
 
@@ -255,46 +287,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-##### Start the app (Linux)
+##### Create start.sh (Linux)
 
-```bash
-source venv/bin/activate
-python3 main.py
-```
-
-Or: `./start.sh`
-
----
-
-> **Note on `pip`:** Always activate the venv first — then `pip` works identically on both
-> platforms. On Linux without a venv, use `pip3` instead.
-
-#### Place your Excel file
-
-Put your `database.xlsx` at `data/database.xlsx` inside the project folder, or select it later using the **Open file …** button inside the app.
-You can find an example in the `/examples` folder.
-
-### Quick Start
-
-#### Windows — start.bat
-
-Create a file `start.bat` in the `vinyl-label-printer/` folder with the following content:
-
-```bat
-@echo off
-cd /d "%~dp0"
-call venv\Scripts\activate.bat
-python main.py
-echo.
-echo === App closed. Press any key to exit ===
-pause
-```
-
-Run: double-click `start.bat`
-
-#### Linux — start.sh
-
-Create a file `start.sh` in the `vinyl-label-printer/` folder with the following content:
+`start.sh` is **not** included in the repository — create it manually. Add a file
+`start.sh` in the `vinyl-label-printer/` folder with the following content:
 
 ```bash
 #!/bin/bash
@@ -312,9 +308,16 @@ Make executable:
 chmod +x start.sh
 ```
 
-Run: `./start.sh` — or double-click in the file manager.
+##### Start the app (Linux)
 
-#### Linux Desktop Shortcut (optional)
+```bash
+source venv/bin/activate
+python3 main.py
+```
+
+Or: `./start.sh` — or double-click in the file manager.
+
+##### Linux Desktop Shortcut (optional)
 
 For an entry in the application menu, create
 `~/.local/share/applications/vinyl-label-printer.desktop`:
@@ -333,8 +336,15 @@ Categories=Utility;
 Replace `/PATH/TO` with the actual path, e.g.:
 `/home/alexander/Coding_Local/vinylsticker/vinyl-label-printer`
 
-> **Note:** `start.bat` and `start.sh` are **not** included in the repository. Please create
-> them manually after cloning.
+---
+
+> **Note on `pip`:** Always activate the venv first — then `pip` works identically on both
+> platforms. On Linux without a venv, use `pip3` instead.
+
+#### Place your Excel file
+
+Put your `database.xlsx` at `data/database.xlsx` inside the project folder, or select it later using the **Open file …** button inside the app.
+You can find an example in the `/examples` folder.
 
 ---
 
@@ -454,7 +464,9 @@ Click **Print** to send the PDF to your printer.
 │ [ Print        ]                 │                                      │
 └──────────────────────────────────┴──────────────────────────────────────┘
 
-Menu bar: **Settings → Appearance** (Auto / Light / Dark) · **Settings → Language** (DE / EN)
+Footer bar (not shown above): **⚙ Settings** button on the left opens the Settings dialog
+(**Appearance** — theme + language, **Data source**, **Discogs account**, **About**);
+the Discogs connection status and active mode badge are shown on the right.
 ```
 
 ### Discogs Import
@@ -617,17 +629,21 @@ Restart the application after installing Poppler. If the preview still does not 
 ```
 vinyl-label-printer/
 ├── main.py                        # Entry point — creates QApplication and MainWindow
-├── requirements.txt               # pip dependencies
+├── __version__.py                 # App version string — read by the installer and version_checker.py
+├── requirements.txt                # pip dependencies
+├── start.sh                       # Linux launcher (generated by install.sh; create manually for source installs)
 ├── data/
-│   ├── database.xlsx              # Excel workbook (user-supplied)
+│   ├── database.xlsx              # Excel workbook (user-supplied; a starter copy ships in examples/)
 │   └── discogs_cache.db           # SQLite Discogs cache (auto-created; gitignored)
 ├── output/
 │   ├── labels.pdf                 # Generated PDF (created on first run)
 │   └── calibration_avery4780.pdf  # Calibration sheet (generated on demand)
 ├── config/
 │   ├── avery_formats.py           # Avery sheet dimensions and coordinate helpers
-│   ├── settings.py                # Persistent JSON settings (watermark path, data source mode)
-│   ├── settings.json              # Auto-created on first save
+│   ├── settings.py                # Persistent JSON settings (watermark path, data source mode, theme, ...)
+│   ├── settings.json              # Settings store; committed with defaults, overwritten on first save
+│   ├── stylesheet.py              # Global in-house QSS stylesheet builder (dark/light theming)
+│   ├── themes.py                  # ThemeColors dataclass — dark/light color palettes
 │   ├── credentials.example.json   # Committed template — values intentionally empty
 │   └── credentials.json           # Real credentials — NOT committed (see .gitignore)
 ├── logs/
@@ -645,8 +661,11 @@ vinyl-label-printer/
 │   ├── version_checker.py         # GitHub release check + semantic version comparison
 │   └── credentials_manager.py     # Load/save/clear config/credentials.json
 └── ui/
-    ├── app.py                     # QMainWindow — wires all components together
-    ├── styles.py                  # Shared QSS stylesheet constants and helpers
+    ├── app.py                     # QMainWindow — wires all components together (no menu bar)
+    ├── styles.py                  # Table/search-field style helpers used by dialogs
+    ├── sidebar_widget.py          # QWidget — left panel: data source, print queue, start grid, watermark
+    ├── footer_widget.py           # QWidget — footer bar: ⚙ Settings button + Discogs/mode status
+    ├── settings_dialog.py         # QDialog — Settings (Appearance, Data source, Discogs account, About)
     ├── grid_widget.py             # QWidget — interactive 4×10 start-position grid
     ├── preview_widget.py          # QWidget — pdf2image + QPixmap page viewer
     ├── discogs_dialog.py          # QDialog — Discogs import (setup + collection panels)
@@ -658,12 +677,13 @@ vinyl-label-printer/
 | Package | Version | Purpose |
 |---|---|---|
 | PyQt6 | ≥ 6.4 | UI framework |
-| pyqtdarktheme | ≥ 0.1.7 | Dark / Light theme stylesheet and palette |
 | reportlab | ≥ 4.0 | PDF generation |
 | openpyxl | ≥ 3.1 | Excel file reading and writing |
 | pdf2image | ≥ 1.17 | PDF → image for preview (requires Poppler system library) |
 | Pillow | ≥ 10.0 | Image loading and watermark alpha processing |
 | requests | ≥ 2.31 | HTTP client (Discogs API + GitHub version check) |
+
+Dark / Light / Auto theming is implemented in-house (`config/themes.py`, `config/stylesheet.py`) — no external theming package is used.
 
 ### Avery 4780 Sheet Dimensions
 
@@ -823,7 +843,7 @@ The toggle is exposed in **Settings → Appearance → Developer → Debug loggi
 
 | Symbol | Description |
 |---|---|
-| `GITHUB_API_URL` | Endpoint: `GET /repos/EJAIS/vinylsticker/releases?per_page=1` (includes pre-releases) |
+| `GITHUB_API_URL` | Endpoint: `GET /repos/EJAIS/vinylsticker/releases` — called with `per_page=1` as a request parameter (includes pre-releases) |
 | `GITHUB_RELEASES_URL` | Fallback URL opened when `release_url` is unavailable |
 | `get_latest_version(timeout)` | Fetches the newest release; returns a dict with `success`, `latest_version`, `tag_name`, `release_url`, `error` (`"network"` / `"api"` / `"no_releases"` / `"unknown"`) |
 | `is_update_available(latest_version)` | Compares `latest_version` against the running `__version__` using tuple comparison; returns `True` if an update exists |
@@ -840,14 +860,20 @@ Before opening the OS print dialog, `print_pdf()` shows a one-time `QMessageBox`
 
 #### `ui/styles.py`
 
-Shared stylesheet constants and helpers used by both `discogs_dialog.py` and `review_widget.py`.
+`apply_table_style(table)` and `apply_search_style(widget)` — kept as no-op call sites in `discogs_dialog.py` and `review_widget.py` for backward compatibility. Table and search-field styling (border, grid colour, hover/selected states, focus ring) is now generated globally by `config/stylesheet.py` and applies automatically; these functions no longer do anything.
 
-| Symbol | Description |
+#### `ui/settings_dialog.py`
+
+`SettingsDialog(QDialog)` — 4-tab settings panel, opened via the **⚙ Settings** button in the footer.
+
+| Tab | Contents |
 |---|---|
-| `TABLE_STYLESHEET` | QSS string: consistent table border, grid colour, item colour, hover and selected states, header section style |
-| `SEARCH_FIELD_STYLESHEET` | QSS string: neutral border, blue focus ring, no inherited red underline |
-| `apply_table_style(table)` | Applies `TABLE_STYLESHEET` to a `QTableWidget` |
-| `apply_search_style(widget)` | Applies `SEARCH_FIELD_STYLESHEET` to a `QLineEdit` |
+| Appearance | Theme (Dark / Light), language (DE / EN), watermark select/clear, Printer Calibration, Developer (debug logging) |
+| Data source | Switch between Local database and Discogs mode |
+| Discogs account | Token setup, change token, log out |
+| About | App info, license, author, version check, GitHub link |
+
+Emits `theme_changed(str)`, `mode_changed(str)`, and `language_changed()` to `MainWindow`.
 
 #### `ui/discogs_dialog.py`
 
@@ -925,6 +951,6 @@ Left-margin and top-margin mm rulers are printed along the page edges.
 ### Adding a Language
 
 1. Open `modules/i18n.py`.
-2. Copy the `"EN"` block and paste it with a new ISO 639-1 key (e.g., `"FR"`).
+2. Copy the `"DE"` block and paste it with a new ISO 639-1 key (e.g., `"FR"`).
 3. Translate all string values.
-4. The new language will automatically appear in **Settings → Language** at next launch — no other code changes are needed.
+4. The new language will automatically appear in **⚙ Settings → Appearance** at next launch — no other code changes are needed.
