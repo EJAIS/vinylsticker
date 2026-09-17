@@ -384,7 +384,7 @@ uninstall() {
     echo ""
     echo -e "${YELLOW}User data (database, settings) will be preserved.${NC}"
     echo ""
-    if [ ! -t 0 ]; then
+    if [ "$IS_PIPE" = true ]; then
         error "Uninstall cannot run non-interactively."
         error "Please download the script first:"
         error "  curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh -o /tmp/install.sh"
@@ -472,11 +472,11 @@ main() {
 
         if [ "$IS_PIPE" = true ]; then
             info "Running non-interactively — update will proceed automatically."
-            info "Run 'bash install.sh --uninstall' to remove the app."
+            info "To remove the app: curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh -o /tmp/install.sh && bash /tmp/install.sh --uninstall"
         else
             read -rp "Continue? [Y/n] " confirm
             confirm="${confirm:-Y}"
-            if [[ "$confirm" =~ ^[nN]$ ]]; then
+            if [[ ! "$confirm" =~ ^[yYjJ] ]]; then
                 info "Cancelled."
                 exit 0
             fi

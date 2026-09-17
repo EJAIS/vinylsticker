@@ -463,7 +463,7 @@ function Main {
         }
         Write-Host $msg -ForegroundColor Yellow
         $confirm = Read-Host "Continue? [Y/n]"
-        if ($confirm -match "^[nN]$") {
+        if ($confirm -and $confirm -notmatch "^[yYjJ]") {
             Write-Info "Cancelled."
             return
         }
