@@ -6,7 +6,8 @@ Flow:
   2. No valid credentials → show Setup panel.
   3. Valid credentials → show Collection panel directly.
   4. User selects releases → "In Druckwarteschlange übernehmen"
-     → _TracklistWorker fetches A/B tracks for each release
+     → _ImportWorker loads release details (tracks, country) for each release
+       — from the cache if younger than 6 h, otherwise from the API
      → ReviewDialog opens for editing / confirmation
      → on ReviewDialog.accept(): write to Print sheet, close dialog
 
@@ -56,7 +57,6 @@ from modules.discogs_cache import CACHE_MAX_AGE_HOURS, DiscogsCache
 from modules.discogs_client import DiscogsClient, DiscogsRequestCancelled
 from modules.i18n import t
 from modules.logger import get_logger
-from modules.tracklist_loader import TracklistLoaderThread
 from ui.review_widget import ReviewDialog
 from ui.styles import apply_search_style, apply_table_style
 
@@ -145,22 +145,22 @@ class _FetchWorker(QThread):
             self.error.emit(0, str(exc))
 
 
-class _TracklistWorker(QThread):
-    """Fetch tracklists for selected releases and expand into per-side rows.
+class _ImportWorker(QThread):
+    """Load release details for selected releases and expand into per-side rows.
 
-    Cache-first: reads from SQLite cache if available, only calls the API
-    when the tracklist has not been cached yet.
+    Cache-first: uses cached details while they are younger than
+    CACHE_MAX_AGE_HOURS, otherwise fetches them from the API and stores them.
     """
 
-    progress = pyqtSignal(int, int)   # n, total
-    tracklists_done = pyqtSignal(list, list)  # (records_data: list[dict], warnings: list[str])
+    progress    = pyqtSignal(int, int)   # n, total
+    import_done = pyqtSignal(list, list) # (records_data: list[dict], warnings: list[str])
 
     def __init__(
         self,
         selected: list[dict],
         username: str,
         token: str,
-        cache,                         # DiscogsCache — avoids circular import annotation
+        cache: DiscogsCache,
         cancel_event: threading.Event,
         parent=None,
     ) -> None:
@@ -172,10 +172,7 @@ class _TracklistWorker(QThread):
         self._cancel_event = cancel_event
 
     def run(self) -> None:
-        import json as _json
-        client: DiscogsClient = DiscogsClient(
-            self._username, self._token, self._cancel_event
-        )
+        client = DiscogsClient(self._username, self._token, self._cancel_event)
         total         = len(self._selected)
         records_data: list[dict] = []
         warnings:     list[str]  = []
@@ -186,41 +183,38 @@ class _TracklistWorker(QThread):
             base = {
                 "artist":  release["artist"],
                 "label":   release["label"],
+                "catno":   release.get("catno", ""),
                 "year":    release["year"],
-                "country": release["country"],
+                "country": "",
             }
 
-            # ── Cache-first: skip API call if tracklist already stored ────────
-            cached_release = self._cache.get_release(rid)
-            if (cached_release
-                    and cached_release.get("tracklist_fetched")
-                    and cached_release.get("tracklist_json")):
-                tracks = _json.loads(cached_release["tracklist_json"])
+            details = self._cache.get_details(rid)
+            if details is not None:
                 logger.debug(
-                    f"_TracklistWorker Cache-Hit: discogs_id={rid} "
-                    f"({len(tracks)} tracks)"
+                    f"_ImportWorker cache hit: discogs_id={rid} "
+                    f"({len(details['tracks'])} tracks)"
                 )
             else:
-                # API fallback — only when not in cache
-                logger.info(
-                    f"_TracklistWorker Cache-Miss: discogs_id={rid} — API-Call"
-                )
+                logger.debug(f"_ImportWorker cache miss: discogs_id={rid} — API call")
                 try:
-                    result = client.fetch_tracklist(rid)
-                    # Overwrite country with authoritative release-endpoint value
-                    base["country"] = result["country"] or release["country"]
-                    tracks = result["tracks"]
-                    # Persist immediately so subsequent opens don't hit the API
-                    self._cache.update_tracklist(rid, tracks)
+                    details = client.fetch_release_details(rid)
+                    self._cache.save_details(rid, details["tracks"], details["country"])
                 except DiscogsRequestCancelled:
-                    logger.debug(f"_TracklistWorker stopped after {n - 1}/{total} releases")
+                    logger.debug(f"_ImportWorker stopped after {n - 1}/{total} releases")
                     return
-                except Exception:
+                except Exception as exc:
+                    logger.warning(
+                        f"Release details failed: discogs_id={rid}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
                     warnings.append(release["title"])
                     records_data.append(
                         {**base, "title": release["title"], "side": ""}
                     )
                     continue
+
+            base["country"] = details["country"]
+            tracks = details["tracks"]
 
             a_sides = [trk for trk in tracks if trk["position"] == "A"]
             b_sides = [trk for trk in tracks if trk["position"] == "B"]
@@ -245,7 +239,7 @@ class _TracklistWorker(QThread):
                     {**base, "title": release["title"], "side": ""}
                 )
 
-        self.tracklists_done.emit(records_data, warnings)
+        self.import_done.emit(records_data, warnings)
 
 
 # ── Main dialog ───────────────────────────────────────────────────────────────
@@ -277,8 +271,7 @@ class DiscogsDialog(QDialog):
         self._rate_countdown = 0
         self._fetch_worker:        Optional[_FetchWorker]          = None
         self._verify_worker:       Optional[_VerifyWorker]         = None
-        self._tracklist_worker:    Optional[_TracklistWorker]      = None
-        self._tracklist_loader:    Optional[TracklistLoaderThread] = None
+        self._import_worker:       Optional[_ImportWorker]         = None
         self._cache:               DiscogsCache                    = DiscogsCache()
         self._selected_ids:        set[int]                        = set()
         # Shared by all workers of this dialog; set on close to abort waits
@@ -457,11 +450,6 @@ class DiscogsDialog(QDialog):
         self._table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self._table)
 
-        # Tracklist lazy-loading progress (shown below table while background fetch runs)
-        self._lbl_tracklist_progress = QLabel("")
-        self._lbl_tracklist_progress.setVisible(False)
-        layout.addWidget(self._lbl_tracklist_progress)
-
         # Select all / deselect all + selection counter
         select_row = QHBoxLayout()
         btn_all = QPushButton(t("discogs_btn_all"))
@@ -549,7 +537,6 @@ class DiscogsDialog(QDialog):
         self._lbl_cache_status.setStyleSheet("")
         self._btn_cache_action.setVisible(False)
         self._lbl_cache_expired_reason.setVisible(False)
-        self._lbl_tracklist_progress.setVisible(False)
         self._stack.setCurrentIndex(_SETUP_IDX)
 
     # ── Slot: fetch collection ────────────────────────────────────────────────
@@ -805,13 +792,13 @@ class DiscogsDialog(QDialog):
         self._btn_fetch.setEnabled(False)
         self._btn_logout.setEnabled(False)
 
-        self._tracklist_worker = _TracklistWorker(
+        self._import_worker = _ImportWorker(
             selected_releases, username, token, self._cache, self._cancel_event,
             parent=self,
         )
-        self._tracklist_worker.progress.connect(self._on_tracklist_progress)
-        self._tracklist_worker.tracklists_done.connect(self._on_tracklist_done)
-        self._tracklist_worker.start()
+        self._import_worker.progress.connect(self._on_tracklist_progress)
+        self._import_worker.import_done.connect(self._on_tracklist_done)
+        self._import_worker.start()
 
     def _on_tracklist_progress(self, n: int, total: int) -> None:
         self._lbl_progress.setText(
@@ -958,80 +945,6 @@ class DiscogsDialog(QDialog):
             self._update_selection_counter()
             self._btn_import.setEnabled(True)
 
-        # Detailed tracklist status diagnostic (visible only in debug mode)
-        self._cache.debug_tracklist_status()
-
-        # Start lazy tracklist loading for releases that don't have one yet
-        pending = self._cache.get_pending_tracklist_ids()
-        if not pending:
-            logger.info(
-                "All tracklists present in cache — "
-                "no Discogs API call required"
-            )
-            self._lbl_tracklist_progress.setText(t("tracklists_all_cached"))
-            self._lbl_tracklist_progress.setVisible(True)
-            QTimer.singleShot(
-                3000,
-                lambda: self._lbl_tracklist_progress.setVisible(False)
-            )
-            self._load_tracklists_from_cache()
-        else:
-            logger.info(
-                f"Tracklist lazy loading: {len(pending)} × 7\" singles without tracklist"
-            )
-            self._start_tracklist_loader(pending)
-
-    def _load_tracklists_from_cache(self) -> None:
-        """Log tracklist data already in cache — no API call."""
-        import json as _json
-        for row_idx, release in enumerate(self._displayed):
-            discogs_id = release.get("discogs_id")
-            if not discogs_id:
-                continue
-            cached = self._cache.get_release(discogs_id)
-            if cached and cached.get("tracklist_fetched"):
-                tracks = _json.loads(cached.get("tracklist_json") or "[]")
-                sides  = [trk["position"] for trk in tracks]
-                logger.debug(
-                    f"Tracklist from cache: discogs_id={discogs_id} "
-                    f"sides={sides}"
-                )
-
-    def _start_tracklist_loader(self, pending_ids: list[int]) -> None:
-        if self._tracklist_loader and self._tracklist_loader.isRunning():
-            return
-        creds  = self._cred_mgr.load()
-        client = DiscogsClient(
-            creds.get("discogs_username", ""),
-            creds.get("discogs_token", ""),
-            self._cancel_event,
-        )
-        self._tracklist_loader = TracklistLoaderThread(
-            client, self._cache, pending_ids, parent=self
-        )
-        self._tracklist_loader.progress.connect(self._on_tracklist_loading_progress)
-        self._tracklist_loader.tracklist_ready.connect(self._on_tracklist_ready)
-        self._tracklist_loader.loading_done.connect(self._on_tracklist_loading_done)
-        self._lbl_tracklist_progress.setVisible(True)
-        self._tracklist_loader.start()
-
-    def _on_tracklist_loading_progress(self, current: int, total: int) -> None:
-        self._lbl_tracklist_progress.setText(
-            t("cache_tracklist_loading", current=current, total=total)
-        )
-
-    def _on_tracklist_ready(self, discogs_id: int, tracks: list) -> None:
-        logger.debug(
-            f"Tracklist ready: discogs_id={discogs_id}, {len(tracks)} tracks"
-        )
-
-    def _on_tracklist_loading_done(self) -> None:
-        self._lbl_tracklist_progress.setText(t("cache_tracklist_done"))
-        QTimer.singleShot(
-            3000,
-            lambda: self._lbl_tracklist_progress.setVisible(False)
-        )
-
     # ── Shutdown ──────────────────────────────────────────────────────────────
 
     def _shutdown_workers(self) -> None:
@@ -1044,12 +957,9 @@ class DiscogsDialog(QDialog):
         self._cancel_event.set()
         if self._rate_timer:
             self._rate_timer.stop()   # would otherwise restart a fetch later
-        if self._tracklist_loader:
-            self._tracklist_loader.cancel()
 
         workers = (
-            ("tracklist loader", self._tracklist_loader),
-            ("tracklist worker", self._tracklist_worker),
+            ("import worker",    self._import_worker),
             ("fetch worker",     self._fetch_worker),
             ("verify worker",    self._verify_worker),
         )

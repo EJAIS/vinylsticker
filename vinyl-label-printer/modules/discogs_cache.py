@@ -2,7 +2,17 @@
 SQLite-based local cache for Discogs collection data.
 
 Enforces Discogs API Terms of Use: cached data older than 6 hours
-must never be displayed to users.
+must never be displayed to users.  Two groups of fields with separate
+freshness are stored per release:
+
+  Collection fields — title, artist, label, catno, year, formats_json,
+                      is_7inch, date_added.  Refreshed by every full sync;
+                      validity is tracked by cache_meta.cached_at.
+  Detail fields     — country, tracklist_json, details_fetched_at.
+                      Fetched on demand from /releases/{id}; each release
+                      has its own TTL via details_fetched_at.
+
+The legacy tracklist_fetched column is kept in the table but no longer used.
 """
 
 from __future__ import annotations
@@ -20,6 +30,12 @@ logger = get_logger()
 
 DB_PATH             = Path(__file__).parent.parent / "data" / "discogs_cache.db"
 CACHE_MAX_AGE_HOURS = 6
+
+# Fields from the collection endpoint — refreshed by every full sync
+_COLLECTION_FIELDS = (
+    "title", "artist", "label", "catno", "year",
+    "formats_json", "is_7inch", "date_added",
+)
 
 
 class DiscogsCache:
@@ -67,6 +83,7 @@ class DiscogsCache:
                     title               TEXT NOT NULL,
                     artist              TEXT NOT NULL,
                     label               TEXT DEFAULT '',
+                    catno               TEXT DEFAULT '',
                     country             TEXT DEFAULT '',
                     year                INTEGER DEFAULT 0,
                     formats_json        TEXT DEFAULT '[]',
@@ -74,6 +91,7 @@ class DiscogsCache:
                     tracklist_json      TEXT DEFAULT '[]',
                     tracklist_fetched   BOOLEAN DEFAULT FALSE,
                     date_added          TEXT DEFAULT '',
+                    details_fetched_at  TEXT DEFAULT '',
                     updated_at          TEXT NOT NULL
                 );
 
@@ -87,15 +105,31 @@ class DiscogsCache:
                 CREATE INDEX IF NOT EXISTS idx_artist
                     ON releases(artist);
             """)
-            # Migration: add date_added column to existing DBs that predate this field
-            try:
-                conn.execute(
-                    "ALTER TABLE releases ADD COLUMN date_added TEXT DEFAULT ''"
-                )
-                logger.info("DB migration: added date_added column")
-            except sqlite3.OperationalError:
-                pass  # Column already exists — normal on fresh DBs and after first migration
+            # Migrations: add columns to existing DBs that predate these fields
+            self._add_column(conn, "date_added")
+            catno_added = self._add_column(conn, "catno")
+            self._add_column(conn, "details_fetched_at")
+            if catno_added:
+                # Force the "load required" state so the next sync fills catno
+                conn.execute("DELETE FROM cache_meta WHERE key='cached_at'")
+                logger.info("DB migration: cache invalidated to populate catno")
         logger.debug("Cache DB initialized — tables ready")
+
+    @staticmethod
+    def _add_column(conn: sqlite3.Connection, name: str) -> bool:
+        """Add a TEXT column with default '' — return True if it was newly added."""
+        try:
+            conn.execute(f"ALTER TABLE releases ADD COLUMN {name} TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            return False  # Column already exists — normal on fresh DBs
+        logger.info(f"DB migration: added {name} column")
+        return True
+
+    @staticmethod
+    def _parse_utc(value: str) -> datetime:
+        """Parse an ISO timestamp; naive values (older caches) are treated as UTC."""
+        dt = datetime.fromisoformat(value)
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
     # ── Meta / Status ──────────────────────────────────────────────────────────
 
@@ -107,11 +141,7 @@ class DiscogsCache:
             ).fetchone()
         if not row:
             return None
-        cached_at = datetime.fromisoformat(row["value"])
-        # Older caches stored naive UTC timestamps — make them aware
-        if cached_at.tzinfo is None:
-            cached_at = cached_at.replace(tzinfo=timezone.utc)
-        return cached_at
+        return self._parse_utc(row["value"])
 
     def get_cache_status(self) -> dict:
         """
@@ -180,15 +210,6 @@ class DiscogsCache:
                 "SELECT discogs_id, title, is_7inch, formats_json "
                 "FROM releases LIMIT 5"
             ).fetchall()
-            fetched_count = conn.execute(
-                "SELECT COUNT(*) FROM releases "
-                "WHERE tracklist_fetched = 1"
-            ).fetchone()[0]
-            not_fetched = conn.execute(
-                "SELECT COUNT(*) FROM releases "
-                "WHERE is_7inch = 1 "
-                "AND (tracklist_fetched = 0 OR tracklist_fetched IS NULL)"
-            ).fetchone()[0]
 
         for row in sample:
             logger.debug(
@@ -197,10 +218,6 @@ class DiscogsCache:
                 f"is_7inch={row['is_7inch']}, "
                 f"formats={row['formats_json'][:80]}"
             )
-        logger.debug(
-            f"Tracklist cache: {fetched_count} cached, "
-            f"{not_fetched} × 7\" pending"
-        )
 
         return status
 
@@ -241,30 +258,6 @@ class DiscogsCache:
             ).fetchone()
         return dict(row) if row else None
 
-    def get_pending_tracklist_ids(self) -> list[int]:
-        """
-        Returns discogs_ids of 7" releases without a cached tracklist.
-        Explicitly includes rows where tracklist_fetched is NULL or 0/FALSE.
-        """
-        with self._connection() as conn:
-            rows = conn.execute("""
-                SELECT discogs_id FROM releases
-                WHERE is_7inch = 1
-                AND (tracklist_fetched = 0
-                     OR tracklist_fetched IS NULL)
-            """).fetchall()
-            total_7inch = conn.execute(
-                "SELECT COUNT(*) FROM releases WHERE is_7inch = 1"
-            ).fetchone()[0]
-        ids = [int(row["discogs_id"]) for row in rows]
-        already_cached = total_7inch - len(ids)
-        logger.debug(
-            f"Pending tracklists: {len(ids)} pending, "
-            f"{already_cached} already cached "
-            f"(of {total_7inch} × 7\" total)"
-        )
-        return ids
-
     def is_date_added_populated(self) -> bool:
         """Returns True if at least one release has a non-empty date_added value.
 
@@ -282,11 +275,14 @@ class DiscogsCache:
     def sync_releases(self, releases: list[dict], username: str) -> dict:
         """
         Full sync: compare API response with local cache.
-        - Add new releases
-        - Update changed releases (title, label, country, year, artist)
+        - Add new releases (detail fields left empty)
+        - Update changed releases — any collection field differs
+          (title, artist, label, catno, year, formats_json, is_7inch,
+          date_added); only collection fields are written
         - Delete removed releases (in cache but no longer in API)
 
-        Does NOT overwrite tracklist_json / tracklist_fetched on update.
+        Never touches the detail fields (country, tracklist_json,
+        details_fetched_at) of existing releases.
 
         Returns sync report:
         {
@@ -323,8 +319,7 @@ class DiscogsCache:
 
         with self._connection() as conn:
             existing_rows = conn.execute(
-                "SELECT discogs_id, title, artist, label, country, year "
-                "FROM releases"
+                f"SELECT discogs_id, {', '.join(_COLLECTION_FIELDS)} FROM releases"
             ).fetchall()
             existing = {row["discogs_id"]: dict(row) for row in existing_rows}
             logger.debug(f"Existing cache entries: {len(existing)}")
@@ -332,64 +327,33 @@ class DiscogsCache:
             for release in releases:
                 rid = release["discogs_id"]
 
+                values = self._collection_values(release)
+
                 if rid not in existing:
-                    conn.execute("""
+                    conn.execute(f"""
                         INSERT INTO releases (
-                            discogs_id, title, artist, label,
-                            country, year, formats_json, is_7inch,
-                            tracklist_json, tracklist_fetched,
-                            date_added, updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                    """, (
-                        rid,
-                        release["title"],
-                        release["artist"],
-                        release.get("label", ""),
-                        release.get("country", ""),
-                        release.get("year", 0),
-                        release.get("formats_json", "[]"),
-                        release.get("is_7inch", False),
-                        "[]",
-                        False,
-                        release.get("date_added", ""),
-                        now_iso,
-                    ))
+                            discogs_id, {', '.join(_COLLECTION_FIELDS)},
+                            country, tracklist_json, details_fetched_at,
+                            updated_at)
+                        VALUES ({', '.join('?' * (len(_COLLECTION_FIELDS) + 5))})
+                    """, (rid, *values.values(), "", "[]", "", now_iso))
                     stats["added"] += 1
                     logger.debug(f"Cache ADD: discogs_id={rid} '{release['title']}'")
 
                 else:
                     cached = existing[rid]
-                    changed_fields = []
-                    if cached["title"]   != release["title"]:
-                        changed_fields.append("title")
-                    if cached["artist"]  != release["artist"]:
-                        changed_fields.append("artist")
-                    if cached["label"]   != release.get("label", ""):
-                        changed_fields.append("label")
-                    if cached["country"] != release.get("country", ""):
-                        changed_fields.append("country")
-                    if cached["year"]    != release.get("year", 0):
-                        changed_fields.append("year")
+                    changed_fields = [
+                        field for field, value in values.items()
+                        if cached[field] != value
+                    ]
 
                     if changed_fields:
-                        conn.execute("""
-                            UPDATE releases SET
-                                title=?, artist=?, label=?,
-                                country=?, year=?, formats_json=?,
-                                is_7inch=?, date_added=?, updated_at=?
-                            WHERE discogs_id=?
-                        """, (
-                            release["title"],
-                            release["artist"],
-                            release.get("label", ""),
-                            release.get("country", ""),
-                            release.get("year", 0),
-                            release.get("formats_json", "[]"),
-                            release.get("is_7inch", False),
-                            release.get("date_added", ""),
-                            now_iso,
-                            rid,
-                        ))
+                        assignments = ", ".join(f"{f}=?" for f in _COLLECTION_FIELDS)
+                        conn.execute(
+                            f"UPDATE releases SET {assignments}, updated_at=? "
+                            "WHERE discogs_id=?",
+                            (*values.values(), now_iso, rid),
+                        )
                         stats["updated"] += 1
                         logger.debug(
                             f"Cache UPDATE: discogs_id={rid} "
@@ -435,84 +399,65 @@ class DiscogsCache:
         )
         return stats
 
-    def update_tracklist(self, discogs_id: int, tracklist: list[dict]) -> None:
-        """Saves fetched tracklist for a release."""
+    @staticmethod
+    def _collection_values(release: dict) -> dict:
+        """Return the collection fields of a normalized release, in DB form."""
+        return {
+            "title":        release["title"],
+            "artist":       release["artist"],
+            "label":        release.get("label", ""),
+            "catno":        release.get("catno", ""),
+            "year":         release.get("year", 0),
+            "formats_json": release.get("formats_json", "[]"),
+            "is_7inch":     int(bool(release.get("is_7inch", False))),
+            "date_added":   release.get("date_added", ""),
+        }
+
+    def get_details(self, discogs_id: int) -> dict | None:
+        """Return {"tracks": list, "country": str} if fresh details are cached.
+
+        Details older than CACHE_MAX_AGE_HOURS (Discogs API ToU) or never
+        fetched yield None — the caller must fetch them from the API.
+        """
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT tracklist_json, country, details_fetched_at "
+                "FROM releases WHERE discogs_id=?",
+                (int(discogs_id),),
+            ).fetchone()
+        if not row or not row["details_fetched_at"]:
+            return None
+        age = datetime.now(timezone.utc) - self._parse_utc(row["details_fetched_at"])
+        if age >= timedelta(hours=CACHE_MAX_AGE_HOURS):
+            logger.debug(
+                f"Details expired: discogs_id={discogs_id} "
+                f"(age={age.total_seconds() / 3600:.1f}h)"
+            )
+            return None
+        return {
+            "tracks":  json.loads(row["tracklist_json"] or "[]"),
+            "country": row["country"] or "",
+        }
+
+    def save_details(self, discogs_id: int, tracks: list[dict], country: str) -> None:
+        """Store release details (tracklist + country) with the current timestamp."""
         with self._connection() as conn:
             conn.execute("""
                 UPDATE releases SET
-                    tracklist_json    = ?,
-                    tracklist_fetched = 1,
-                    updated_at        = ?
+                    tracklist_json     = ?,
+                    country            = ?,
+                    details_fetched_at = ?
                 WHERE discogs_id = ?
             """, (
-                json.dumps(tracklist, ensure_ascii=False),
+                json.dumps(tracks, ensure_ascii=False),
+                country or "",
                 datetime.now(timezone.utc).isoformat(),
                 int(discogs_id),
             ))
-            # Verify the write was applied
-            row = conn.execute(
-                "SELECT tracklist_fetched FROM releases WHERE discogs_id = ?",
-                (discogs_id,)
-            ).fetchone()
-            if row and row["tracklist_fetched"]:
-                logger.debug(
-                    f"Tracklist saved: discogs_id={discogs_id} "
-                    f"({len(tracklist)} tracks) ✓"
-                )
-            else:
-                logger.error(
-                    f"Tracklist NOT saved: discogs_id={discogs_id} "
-                    "— DB update failed!"
-                )
-
-    def debug_tracklist_status(self) -> None:
-        """Log detailed tracklist cache status. Call once after dialog opens."""
-        with self._connection() as conn:
-            fetched = conn.execute("""
-                SELECT COUNT(*) FROM releases
-                WHERE is_7inch = 1 AND tracklist_fetched = 1
-            """).fetchone()[0]
-
-            not_fetched = conn.execute("""
-                SELECT COUNT(*) FROM releases
-                WHERE is_7inch = 1
-                AND (tracklist_fetched = 0 OR tracklist_fetched IS NULL)
-            """).fetchone()[0]
-
-            sample_missing = conn.execute("""
-                SELECT discogs_id, title, tracklist_fetched
-                FROM releases
-                WHERE is_7inch = 1
-                AND (tracklist_fetched = 0 OR tracklist_fetched IS NULL)
-                LIMIT 5
-            """).fetchall()
-
-            sample_cached = conn.execute("""
-                SELECT discogs_id, title, tracklist_fetched,
-                       length(tracklist_json) as json_len
-                FROM releases
-                WHERE is_7inch = 1 AND tracklist_fetched = 1
-                LIMIT 5
-            """).fetchall()
-
-        logger.debug("=== Tracklist Cache Status ===")
-        logger.debug(f"Cached: {fetched} | Pending: {not_fetched}")
-        if sample_missing:
-            logger.debug("Sample NOT cached:")
-            for row in sample_missing:
-                logger.debug(
-                    f"  id={row['discogs_id']}, "
-                    f"title={row['title'][:40]!r}, "
-                    f"fetched={row['tracklist_fetched']}"
-                )
-        if sample_cached:
-            logger.debug("Sample cached:")
-            for row in sample_cached:
-                logger.debug(
-                    f"  id={row['discogs_id']}, "
-                    f"title={row['title'][:40]!r}, "
-                    f"json_len={row['json_len']}"
-                )
+        logger.debug(
+            f"Details saved: discogs_id={discogs_id} "
+            f"({len(tracks)} tracks, country={country!r})"
+        )
 
     def clear(self) -> None:
         """Wipes all cached data."""

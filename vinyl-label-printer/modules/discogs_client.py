@@ -146,9 +146,10 @@ class DiscogsClient:
         """Normalize ALL raw API releases for SQLite cache storage.
 
         Includes every release (no format filter) and adds is_7inch /
-        formats_json fields.  The label field stores the name only (without
-        Discogs disambiguation suffix) — catalog number is intentionally
-        omitted for cache schema clarity.
+        formats_json fields.  Only collection fields are returned — the
+        collection endpoint has no country (see fetch_release_details()).
+        The label name has its Discogs disambiguation suffix removed; the
+        catalog number is stored separately in catno ("none" → "").
         """
         result: list[dict] = []
         for release in releases:
@@ -163,6 +164,9 @@ class DiscogsClient:
             label_name = (
                 _DISAMBIG_SUFFIX_RE.sub("", labels[0].get("name", "")) if labels else ""
             )
+            catno = (labels[0].get("catno") or "").strip() if labels else ""
+            if catno.casefold() == "none":
+                catno = ""   # Discogs placeholder for "no catalog number"
 
             # Robust 7" detection: check every description string with strip()
             # to handle whitespace variants and multiple quote encodings.
@@ -186,7 +190,7 @@ class DiscogsClient:
                 "title":        info.get("title", ""),
                 "artist":       artist_name.strip(),
                 "label":        label_name.strip(),
-                "country":      info.get("country", ""),
+                "catno":        catno,
                 "year":         int(info.get("year") or 0),
                 "formats_json": json.dumps(formats),
                 "is_7inch":     is_7inch,
@@ -194,8 +198,8 @@ class DiscogsClient:
             })
         return result
 
-    def fetch_tracklist(self, release_id: int) -> list[dict]:
-        """Fetch A/B tracks for a specific release.
+    def fetch_release_details(self, release_id: int) -> dict:
+        """Fetch release details (A/B tracks and country) for a release.
 
         Calls GET /releases/{release_id} and returns the subset of tracks
         whose position starts with 'A' or 'B'.
@@ -210,7 +214,7 @@ class DiscogsClient:
           'tracks'  — list[dict] with 'position' (str) and 'title' (str)
           'country' — str, top-level country field from the release response
         """
-        logger.debug(f"Fetching tracklist for release_id={release_id}")
+        logger.debug(f"Fetching release details for release_id={release_id}")
         resp = self._request(
             f"{self.BASE_URL}/releases/{release_id}", timeout=15
         )
