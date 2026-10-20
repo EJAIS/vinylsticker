@@ -1,8 +1,10 @@
 """
 Cross-platform print trigger.
 
-Opens the OS print dialog for the generated PDF without embedding a printer
-driver — the OS / printer driver handles all scaling.
+Hands the generated PDF to the OS so the user prints it from a print dialog
+(Windows: print verb / viewer, Linux: default PDF viewer via xdg-open,
+macOS: Preview).  Nothing is sent to a printer without a dialog, so the user
+can always choose "Actual size / 100 %".
 """
 
 from __future__ import annotations
@@ -24,9 +26,9 @@ def print_pdf(pdf_path: Path) -> None:
       Windows  — os.startfile(path, "print") hands the file to the default
                  PDF application with the "print" verb, which opens the
                  system print dialog.
-      Linux    — tries ``lp`` (CUPS); falls back to ``xdg-open`` which opens
-                 the file in the default viewer (e.g. Evince) where the user
-                 can print manually.
+      Linux    — opens the file in the default PDF viewer via ``xdg-open``
+                 (e.g. Evince, Xreader); the user prints from the viewer's
+                 print dialog.  No job is sent to the printer directly.
       macOS    — opens the file in Preview via ``open -a Preview``.
 
     Args:
@@ -84,24 +86,24 @@ def _print_windows(pdf_path: Path) -> None:
 
 
 def _print_linux(pdf_path: Path) -> None:
-    """Try CUPS ``lp``; fall back to ``xdg-open`` if lp is not available."""
+    """Open *pdf_path* in the default PDF viewer via ``xdg-open``.
+
+    Direct printing via ``lp`` is intentionally not used: it gives no control
+    over scaling, and driverless IPP printers may auto-scale the full-page
+    label sheet.  Printing from the viewer's dialog matches Windows / macOS.
+    """
     try:
-        subprocess.run(
-            ["lp", str(pdf_path)],
-            check=True,
-            capture_output=True,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        # xdg-open opens the PDF viewer; the user prints from there
         result = subprocess.run(
             ["xdg-open", str(pdf_path)],
             capture_output=True,
         )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"xdg-open failed (exit {result.returncode}): "
-                f"{result.stderr.decode(errors='replace')}"
-            )
+    except FileNotFoundError as exc:
+        raise RuntimeError("xdg-open not found — cannot open the PDF viewer") from exc
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"xdg-open failed (exit {result.returncode}): "
+            f"{result.stderr.decode(errors='replace')}"
+        )
 
 
 def _print_macos(pdf_path: Path) -> None:

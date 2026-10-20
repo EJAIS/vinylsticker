@@ -49,16 +49,23 @@ get_installed_version() {
     fi
 }
 
+# Prints "<version> <tag>" of the newest stable release, e.g. "0.2.0 v.0.2.0".
+# Only plain tags (optional "v"/"v." + MAJOR.MINOR.PATCH) count — pre-release
+# tags like "v0.4.0-rc1" are skipped.  The tag is needed for the download URL.
 get_latest_version() {
     curl -sf \
         -H "Accept: application/vnd.github+json" \
         "${REPO_API}/releases" \
     | python3 -c "
-import sys, json
+import sys, json, re
 try:
     data = json.load(sys.stdin)
-    if data:
-        print(data[0]['tag_name'].lstrip('v'))
+    for release in data:
+        tag = release.get('tag_name', '')
+        m = re.match(r'^v?\.?(\d+)\.(\d+)\.(\d+)$', tag, re.IGNORECASE)
+        if m:
+            print('.'.join(m.groups()), tag)
+            break
     else:
         print('')
 except Exception:
@@ -220,11 +227,11 @@ restore_user_data() {
 
 # ── Download app ──────────────────────────────────────────────
 download_app() {
-    local version="$1"
+    local tag="$1"
     local zip_url
 
-    if [ -n "$version" ]; then
-        zip_url="${REPO_URL}/archive/refs/tags/v${version}.zip"
+    if [ -n "$tag" ]; then
+        zip_url="${REPO_URL}/archive/refs/tags/${tag}.zip"
     else
         zip_url="${REPO_URL}/archive/refs/heads/main.zip"
     fi
@@ -438,7 +445,9 @@ main() {
 
     # Get latest available version
     info "Checking available version..."
-    LATEST_VERSION=$(get_latest_version)
+    LATEST_VERSION=""
+    LATEST_TAG=""
+    read -r LATEST_VERSION LATEST_TAG <<< "$(get_latest_version)" || true
 
     if [ -n "$LATEST_VERSION" ]; then
         info "Available version: v$LATEST_VERSION"
@@ -491,7 +500,7 @@ main() {
         backup_user_data
     fi
 
-    download_app "$LATEST_VERSION"
+    download_app "$LATEST_TAG"
 
     if [ "$IS_UPDATE" = true ]; then
         restore_user_data

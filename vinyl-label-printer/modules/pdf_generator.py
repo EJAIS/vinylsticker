@@ -8,11 +8,14 @@ Label layout (centred, top → bottom):
   Line 1 — Title              Helvetica        up to 9 pt  (min 5.0 pt)
   Line 2 — Artist             Helvetica-Bold   up to 8 pt  (min 5.0 pt)
   Line 3 — "---"              Helvetica        6 pt  (fixed)
-  Line 4 — Label (Ctry, Year) Helvetica        up to 7 pt  (min 4.5 pt)
+  Line 4 — Label CatNo (Ctry, Year)
+                              Helvetica        up to 7 pt  (min 4.5 pt)
+           e.g. "Pyramid PYR 6013 (UK, 1967)" — empty parts are skipped
   Line 5 — Side A/B           Helvetica-Bold   14 pt (fixed)
 
 Each text field is independently scaled down via fit_text_to_width() so that
-it never exceeds the usable label width.  The vertical block is re-centred
+it never exceeds the usable label width; text that is still too wide at the
+minimum size is truncated with "…".  The vertical block is re-centred
 after fitting so the layout remains balanced.
 """
 
@@ -193,8 +196,8 @@ def fit_text_to_width(
     increments of *step* until ``canvas.stringWidth(text, font_name, size)``
     fits within *max_width*.
 
-    If even *font_size_min* is too wide the text will be clipped by ReportLab
-    at render time — this is an intentional last-resort fallback.
+    If even *font_size_min* is too wide, *font_size_min* is returned and the
+    caller truncates the text via _truncate_to_width().
     """
     size = font_size_max
     while size > font_size_min:
@@ -202,6 +205,17 @@ def fit_text_to_width(
             return size
         size -= step
     return font_size_min
+
+
+def _truncate_to_width(
+    c: canvas.Canvas, text: str, max_width: float, font_name: str, size: float
+) -> str:
+    """Shorten *text* with a trailing "…" until it fits *max_width* at *size*."""
+    if c.stringWidth(text, font_name, size) <= max_width:
+        return text
+    while text and c.stringWidth(text + "…", font_name, size) > max_width:
+        text = text[:-1]
+    return text.rstrip() + "…"
 
 
 def _draw_label(
@@ -226,10 +240,10 @@ def _draw_label(
     max_text_w = w - 2.0 * _H_PADDING_PT
 
     # Pass 1: determine the actual font size for every line
-    fitted: list[tuple[str, str, float]] = [
-        (text, font, fit_text_to_width(c, text, max_text_w, font, size_max, size_min))
-        for text, font, size_max, size_min in raw_lines
-    ]
+    fitted: list[tuple[str, str, float]] = []
+    for text, font, size_max, size_min in raw_lines:
+        size = fit_text_to_width(c, text, max_text_w, font, size_max, size_min)
+        fitted.append((_truncate_to_width(c, text, max_text_w, font, size), font, size))
 
     # Pass 2: compute total block height, then render top-to-bottom
     total_block_h = sum(size * _LINE_SPACING_FACTOR for _, _, size in fitted)
@@ -293,10 +307,12 @@ def _resolve_lines(record: LabelRecord) -> list[tuple[str, str, float, float]]:
     Callers are expected to pass each entry through fit_text_to_width() before
     rendering.
     """
-    _inner    = ", ".join(str(v) for v in (record.country, record.year)
+    _inner    = ", ".join(str(v).strip() for v in (record.country, record.year)
                           if v and str(v).strip())
-    _paren    = f" ({_inner})" if _inner else ""
-    info_text = f"{record.label or ''}{_paren}".strip()
+    _parts    = [str(v).strip() for v in (record.label, record.catno) if v and str(v).strip()]
+    if _inner:
+        _parts.append(f"({_inner})")
+    info_text = " ".join(_parts)
     resolved  = []
     for field, font, size_max, size_min in _LINES_SPEC:
         if field == "info":

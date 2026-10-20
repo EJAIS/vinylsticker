@@ -3,10 +3,14 @@ Excel reader module.
 
 Loads label records from the "Print" and "Database" sheets of the project
 Excel file.  The "Database" sheet is always opened read-only.
+
+Column layout (A–G): Title, Artist, Label, Country, Year, Side, CatNo.
+Files without column G (CatNo) load with an empty catalog number.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,7 +22,7 @@ logger = get_logger()
 
 SHEET_PRINT    = "Print"
 SHEET_DATABASE = "Database"
-COLUMNS        = ("Title", "Artist", "Label", "Country", "Year", "Side")
+COLUMNS        = ("Title", "Artist", "Label", "Country", "Year", "Side", "CatNo")
 
 
 @dataclass
@@ -29,6 +33,7 @@ class LabelRecord:
     country: str
     year:    str
     side:    str   # always "A" or "B" after normalisation
+    catno:   str = ""
 
 
 # ── Public helpers ────────────────────────────────────────────────────────────
@@ -62,7 +67,9 @@ def write_print_queue(xlsx_path: Path, records: list[LabelRecord]) -> None:
     ws.delete_rows(1, ws.max_row)          # clear all existing rows
     ws.append(list(COLUMNS))              # write header
     for rec in records:
-        ws.append([rec.title, rec.artist, rec.label, rec.country, rec.year, rec.side])
+        ws.append([
+            rec.title, rec.artist, rec.label, rec.country, rec.year, rec.side, rec.catno,
+        ])
     wb.save(str(xlsx_path))
     wb.close()
 
@@ -105,9 +112,9 @@ def _row_to_record(row: tuple) -> LabelRecord | None:
     Returns None for rows where the Title cell is empty/None so that blank
     rows at the bottom of the sheet are silently ignored.
     """
-    # Pad to at least 6 elements in case the row is shorter than expected
-    cells = list(row) + [None] * 6
-    title, artist, label, country, year, side = cells[:6]
+    # Pad to at least 7 elements — older files have no CatNo column (G)
+    cells = list(row) + [None] * 7
+    title, artist, label, country, year, side, catno = cells[:7]
 
     # Skip rows with no title
     if title is None or str(title).strip() == "":
@@ -119,7 +126,8 @@ def _row_to_record(row: tuple) -> LabelRecord | None:
         label=_str(label),
         country=_str(country),
         year=_str(year),
-        side=_normalise_side(side),
+        side=normalise_side(side),
+        catno=_str(catno),
     )
 
 
@@ -130,17 +138,47 @@ def _str(value: object) -> str:
     return str(value).strip()
 
 
-def _normalise_side(value: object) -> str:
-    """Normalise the Side column to a single uppercase letter 'A' or 'B'.
+_SIDE_PREFIX_RE = re.compile(r"^(?:SEITE|SIDE|[\s\-:])+")
 
-    Handles values like "A", "B", "a", "b", "Seite A", "Side B", etc.
-    Defaults to "A" if the value is empty or unrecognisable.
+
+def resolve_side(value: object) -> str | None:
+    """Return "A" or "B" for *value*, or None if it names no A/B side.
+
+    Same rules as normalise_side() but without the "A" default, e.g.
+    "C1", "D" or "3" → None.
     """
     raw = str(value).strip().upper() if value is not None else ""
+    raw = _SIDE_PREFIX_RE.sub("", raw)
     if not raw:
-        return "A"
-    # Take the last character that is A or B
+        return None
+    if raw.startswith("AA"):
+        return "B"
+    if raw[0] in ("A", "B"):
+        return raw[0]
+    # Fallback: take the last character that is A or B
     for ch in reversed(raw):
         if ch in ("A", "B"):
             return ch
-    return "A"
+    return None
+
+
+def normalise_side(value: object) -> str:
+    """Normalise a side / track position to a single uppercase 'A' or 'B'.
+
+    Rules (case-insensitive, trimmed):
+      • Prefixes "Seite", "Side", "-", ":" and whitespace are removed.
+      • "AA…" (UK double-A side) → "B".
+      • Starts with "A" → "A" (A, A1, A2); starts with "B" → "B".
+      • Otherwise the last A/B character wins; failing that, "A".
+
+    Examples::
+
+        normalise_side("A")       # → "A"
+        normalise_side("AA")      # → "B"
+        normalise_side("A2")      # → "A"
+        normalise_side("B2")      # → "B"
+        normalise_side("Seite B") # → "B"
+        normalise_side("side a")  # → "A"
+        normalise_side("")        # → "A"
+    """
+    return resolve_side(value) or "A"

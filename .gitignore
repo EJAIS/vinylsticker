@@ -1,5 +1,8 @@
 # Credentials — never commit
 **/config/credentials.json
+
+# Personal app state — created on first save
+**/config/settings.json
 *.env
 
 # Python

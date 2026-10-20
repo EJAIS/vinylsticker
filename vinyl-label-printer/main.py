@@ -68,8 +68,7 @@ def main() -> None:
     apply_theme(app, get_saved_theme())
     set_language(get_language_setting())
     app.setApplicationName("Vinyl-Label-Drucker")
-    window = MainWindow()
-    window.setWindowTitle(f"Vinyl Label Printer v{__version__}")
+    window = MainWindow()   # sets its own title incl. version
     window.show()
     sys.exit(app.exec())
 

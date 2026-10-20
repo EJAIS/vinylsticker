@@ -41,9 +41,17 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules.excel_reader import LabelRecord, write_print_queue
+from modules.excel_reader import (
+    LabelRecord,
+    load_print_queue,
+    normalise_side,
+    write_print_queue,
+)
+from modules.logger import get_logger
 from modules.i18n import t
 from ui.styles import apply_search_style, apply_table_style
+
+logger = get_logger()
 
 # ── Column indices ────────────────────────────────────────────────────────────
 
@@ -51,12 +59,15 @@ _COL_CHECK   = 0
 _COL_TITLE   = 1
 _COL_ARTIST  = 2
 _COL_LABEL   = 3
-_COL_COUNTRY = 4
-_COL_YEAR    = 5
-_COL_SIDE    = 6
-_NUM_COLS    = 7
+_COL_CATNO   = 4
+_COL_COUNTRY = 5
+_COL_YEAR    = 6
+_COL_SIDE    = 7
+_NUM_COLS    = 8
 
-_EDITABLE_COLS = (_COL_TITLE, _COL_ARTIST, _COL_LABEL, _COL_COUNTRY, _COL_YEAR, _COL_SIDE)
+_EDITABLE_COLS = (
+    _COL_TITLE, _COL_ARTIST, _COL_LABEL, _COL_CATNO, _COL_COUNTRY, _COL_YEAR, _COL_SIDE,
+)
 _REQUIRED_COLS = (_COL_TITLE, _COL_SIDE)
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -76,10 +87,15 @@ class ReviewDialog(QDialog):
         self,
         records: list[dict],
         db_path: Path,
+        import_mode: bool = False,
         parent=None,
     ) -> None:
+        """*import_mode*: rows come from an import (e.g. Discogs) — ask whether
+        to append to or replace a non-empty print queue on confirm.  When
+        False the dialog edits the queue itself and always replaces it."""
         super().__init__(parent)
         self._db_path   = db_path
+        self._import_mode = import_mode
         self._populating = False
         self._confirmed_records: list[LabelRecord] = []
         self._row_count = len(records)   # total rows at open (for title)
@@ -175,6 +191,7 @@ class ReviewDialog(QDialog):
             t("review_col_title"),
             t("review_col_artist"),
             t("review_col_label"),
+            t("review_col_catno"),
             t("review_col_country"),
             t("review_col_year"),
             t("review_col_side"),
@@ -190,6 +207,7 @@ class ReviewDialog(QDialog):
         hdr.setSectionResizeMode(_COL_TITLE,   QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(_COL_ARTIST,  QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(_COL_LABEL,   QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(_COL_CATNO,   QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(_COL_COUNTRY, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(_COL_YEAR,    QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(_COL_SIDE,    QHeaderView.ResizeMode.ResizeToContents)
@@ -260,6 +278,7 @@ class ReviewDialog(QDialog):
             str(rec.get("title",   "") or ""),
             str(rec.get("artist",  "") or ""),
             str(rec.get("label",   "") or ""),
+            str(rec.get("catno",   "") or ""),
             str(rec.get("country", "") or ""),
             str(rec.get("year",    "") or ""),
             str(rec.get("side",    "") or ""),
@@ -367,6 +386,10 @@ class ReviewDialog(QDialog):
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
         self._populating = True
         for row in range(self._table.rowCount()):
+            # Only affect what the user sees; rows hidden by the search filter
+            # keep their current check state.
+            if self._table.isRowHidden(row):
+                continue
             item = self._table.item(row, _COL_CHECK)
             if item:
                 item.setCheckState(state)
@@ -422,18 +445,19 @@ class ReviewDialog(QDialog):
     # ── Status bar ────────────────────────────────────────────────────────────
 
     def _update_status(self) -> None:
-        total      = 0
-        checked    = 0
-        incomplete = 0
+        # Counts span all rows, not just the visible ones: hidden rows that are
+        # checked are still written on confirm.
+        total          = self._table.rowCount()
+        checked        = 0
+        checked_hidden = 0
+        incomplete     = 0
 
-        for row in range(self._table.rowCount()):
-            if self._table.isRowHidden(row):
-                continue
-            total += 1
-
+        for row in range(total):
             chk = self._table.item(row, _COL_CHECK)
             if chk and chk.checkState() == Qt.CheckState.Checked:
                 checked += 1
+                if self._table.isRowHidden(row):
+                    checked_hidden += 1
 
             if any(
                 not (self._table.item(row, col) and
@@ -442,9 +466,10 @@ class ReviewDialog(QDialog):
             ):
                 incomplete += 1
 
-        self._lbl_status_counts.setText(
-            t("review_status_counts", n=total, m=checked)
-        )
+        counts_text = t("review_status_counts", n=total, m=checked)
+        if checked_hidden:
+            counts_text += f" ({t('review_status_hidden', h=checked_hidden)})"
+        self._lbl_status_counts.setText(counts_text)
 
         if incomplete:
             self._lbl_status_warning.setText(
@@ -475,10 +500,11 @@ class ReviewDialog(QDialog):
     # ── Confirm ───────────────────────────────────────────────────────────────
 
     def _on_confirm(self) -> None:
+        # Visibility is irrelevant here: write_print_queue() replaces the whole
+        # Print sheet, so checked rows hidden by the search filter must be kept.
         checked_rows = [
             row for row in range(self._table.rowCount())
-            if not self._table.isRowHidden(row)
-            and self._table.item(row, _COL_CHECK) is not None
+            if self._table.item(row, _COL_CHECK) is not None
             and self._table.item(row, _COL_CHECK).checkState() == Qt.CheckState.Checked
         ]
 
@@ -506,6 +532,15 @@ class ReviewDialog(QDialog):
 
         records = [self._row_to_labelrecord(r) for r in checked_rows]
 
+        if self._import_mode:
+            existing = self._load_existing_queue()
+            if existing:
+                choice = self._ask_append_or_replace(len(existing))
+                if choice is None:
+                    return
+                if choice == "append":
+                    records = existing + records
+
         try:
             write_print_queue(self._db_path, records)
         except Exception as exc:
@@ -519,6 +554,38 @@ class ReviewDialog(QDialog):
         self._confirmed_records = records
         self.accept()
 
+    def _load_existing_queue(self) -> list[LabelRecord]:
+        try:
+            return load_print_queue(self._db_path)
+        except Exception as exc:
+            logger.warning(f"Could not read existing print queue: {exc}")
+            return []
+
+    def _ask_append_or_replace(self, n_existing: int) -> str | None:
+        """Return "append", "replace" or None (cancel)."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle(t("review_queue_exists_title"))
+        msg.setText(t("review_queue_exists_msg", n=n_existing))
+        btn_append  = msg.addButton(
+            t("review_queue_append"), QMessageBox.ButtonRole.AcceptRole
+        )
+        btn_replace = msg.addButton(
+            t("review_queue_replace"), QMessageBox.ButtonRole.DestructiveRole
+        )
+        btn_cancel  = msg.addButton(
+            t("review_queue_cancel"), QMessageBox.ButtonRole.RejectRole
+        )
+        msg.setDefaultButton(btn_append)
+        msg.setEscapeButton(btn_cancel)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked == btn_append:
+            return "append"
+        if clicked == btn_replace:
+            return "replace"
+        return None
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _read_row(self, row: int) -> dict:
@@ -530,6 +597,7 @@ class ReviewDialog(QDialog):
             "title":   cell(_COL_TITLE),
             "artist":  cell(_COL_ARTIST),
             "label":   cell(_COL_LABEL),
+            "catno":   cell(_COL_CATNO),
             "country": cell(_COL_COUNTRY),
             "year":    cell(_COL_YEAR),
             "side":    cell(_COL_SIDE),
@@ -543,7 +611,10 @@ class ReviewDialog(QDialog):
             label   = rec["label"],
             country = rec["country"],
             year    = rec["year"],
-            side    = rec["side"],
+            # Free text like "Side b" is stored as "B"; empty stays empty
+            # (flagged by the validation in _on_confirm)
+            side    = normalise_side(rec["side"]) if rec["side"].strip() else "",
+            catno   = rec["catno"],
         )
 
     def get_records(self) -> list[LabelRecord]:

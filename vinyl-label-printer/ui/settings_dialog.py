@@ -29,7 +29,6 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -41,6 +40,7 @@ from __version__ import __version__, __status__
 import modules.i18n as i18n
 from modules.i18n import t
 from modules.data_source import DataSourceMode
+from modules.discogs_cache import DiscogsCache
 from modules.credentials_manager import CredentialsManager
 from modules.version_checker import get_latest_version, is_update_available
 from config.settings import (
@@ -1265,6 +1265,7 @@ class SettingsDialog(QDialog):
             db_path = Path(__file__).parent.parent / "data" / "database.xlsx"
         dlg = DiscogsDialog(db_path, parent=self)
         dlg.exec()
+        dlg.deleteLater()
         self._refresh_discogs_status()
 
     def _open_github(self) -> None:
@@ -1359,6 +1360,7 @@ class SettingsDialog(QDialog):
 
     def _on_logout(self) -> None:
         CredentialsManager().clear()
+        DiscogsCache().clear()
         self._refresh_discogs_status()
         if get_data_source_mode() == DataSourceMode.DISCOGS:
             set_data_source_mode(DataSourceMode.LOCAL)

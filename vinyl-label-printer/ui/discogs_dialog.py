@@ -6,7 +6,8 @@ Flow:
   2. No valid credentials → show Setup panel.
   3. Valid credentials → show Collection panel directly.
   4. User selects releases → "In Druckwarteschlange übernehmen"
-     → _TracklistWorker fetches A/B tracks for each release
+     → _ImportWorker loads release details (tracks, country) for each release
+       — from the cache if younger than 6 h, otherwise from the API
      → ReviewDialog opens for editing / confirmation
      → on ReviewDialog.accept(): write to Print sheet, close dialog
 
@@ -19,8 +20,8 @@ Collection panel
 ────────────────
   • "Angemeldet als: {username}" + "Abmelden" button
   • "7\" Singles laden" → background fetch with progress label
-  • Live search bar (filters in-memory list)
-  • QTableWidget: ☐ | Titel | Interpret | Label | Jahr
+  • Live search bar (filters by artist, title or catalog number)
+  • QTableWidget: ☐ | Titel | Interpret | Label | Kat.-Nr. | Jahr
   • "Alle auswählen" / "Auswahl aufheben"
   • "In Druckwarteschlange übernehmen" → fetch tracklists → open ReviewDialog
   • "Abbrechen"
@@ -28,6 +29,7 @@ Collection panel
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -52,10 +54,13 @@ from PyQt6.QtWidgets import (
 
 from modules.credentials_manager import CredentialsManager
 from modules.discogs_cache import CACHE_MAX_AGE_HOURS, DiscogsCache
-from modules.discogs_client import DiscogsClient
+from modules.discogs_client import (
+    DiscogsClient,
+    DiscogsRequestCancelled,
+    map_tracks_to_sides,
+)
 from modules.i18n import t
 from modules.logger import get_logger
-from modules.tracklist_loader import TracklistLoaderThread
 from ui.review_widget import ReviewDialog
 from ui.styles import apply_search_style, apply_table_style
 
@@ -70,20 +75,68 @@ def _get_colors():
 
 # ── Background workers ────────────────────────────────────────────────────────
 
+# Worker threads have no Qt parent, so closing / deleting the dialog never
+# destroys a running QThread (which would abort the process).  Threads that
+# are still running at shutdown are kept alive here until they finish.
+_LINGERING_THREADS: set[QThread] = set()
+
+# Custom + inherited signals that may be connected to dialog slots
+_WORKER_SIGNALS = (
+    "progress", "fetch_done", "import_done", "error",
+    "success", "failure", "finished",
+)
+
+
+def _disconnect_worker(thread: QThread) -> None:
+    """Disconnect all of *thread*'s signals from the dialog."""
+    for name in _WORKER_SIGNALS:
+        signal = getattr(thread, name, None)
+        if signal is None:
+            continue
+        try:
+            signal.disconnect()
+        except TypeError:
+            pass   # nothing connected
+
+
+def _keep_alive_until_finished(thread: QThread) -> None:
+    """Keep a (disconnected) running *thread* alive until it has finished."""
+    _LINGERING_THREADS.add(thread)
+
+    def _release() -> None:
+        _LINGERING_THREADS.discard(thread)
+        thread.deleteLater()
+        logger.debug(f"Lingering {type(thread).__name__} finished and released")
+
+    thread.finished.connect(_release)
+    if thread.isFinished():   # finished between the check and the connect
+        _release()
+
 class _VerifyWorker(QThread):
     """Verify a token without blocking the UI."""
 
     success = pyqtSignal()
     failure = pyqtSignal(str)
 
-    def __init__(self, username: str, token: str, parent=None) -> None:
+    def __init__(
+        self,
+        username: str,
+        token: str,
+        cancel_event: threading.Event,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
-        self._username = username
-        self._token    = token
+        self._username     = username
+        self._token        = token
+        self._cancel_event = cancel_event
 
     def run(self) -> None:
         try:
-            valid = DiscogsClient(self._username, self._token).verify_token()
+            valid = DiscogsClient(
+                self._username, self._token, self._cancel_event
+            ).verify_token()
+        except DiscogsRequestCancelled:
+            return
         except ConnectionError:
             self.failure.emit(t("discogs_err_network"))
             return
@@ -100,21 +153,30 @@ class _FetchWorker(QThread):
     """Fetch the collection in the background."""
 
     progress = pyqtSignal(int, int)   # current_page, total_pages
-    finished = pyqtSignal(list)       # list[dict] raw releases
-    error    = pyqtSignal(int, str)   # http_status_code (0=network), message
+    fetch_done = pyqtSignal(list)     # list[dict] raw releases
+    error      = pyqtSignal(int, str) # http_status_code (0=network), message
 
-    def __init__(self, username: str, token: str, parent=None) -> None:
+    def __init__(
+        self,
+        username: str,
+        token: str,
+        cancel_event: threading.Event,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
-        self._username = username
-        self._token    = token
+        self._username     = username
+        self._token        = token
+        self._cancel_event = cancel_event
 
     def run(self) -> None:
         try:
-            client   = DiscogsClient(self._username, self._token)
+            client   = DiscogsClient(self._username, self._token, self._cancel_event)
             releases = client.fetch_collection(
                 progress_callback=lambda cur, tot: self.progress.emit(cur, tot)
             )
-            self.finished.emit(releases)
+            self.fetch_done.emit(releases)
+        except DiscogsRequestCancelled:
+            logger.debug("Collection fetch cancelled")
         except _requests.HTTPError as exc:
             code = exc.response.status_code if exc.response is not None else 0
             self.error.emit(code, str(exc))
@@ -124,33 +186,34 @@ class _FetchWorker(QThread):
             self.error.emit(0, str(exc))
 
 
-class _TracklistWorker(QThread):
-    """Fetch tracklists for selected releases and expand into per-side rows.
+class _ImportWorker(QThread):
+    """Load release details for selected releases and expand into per-side rows.
 
-    Cache-first: reads from SQLite cache if available, only calls the API
-    when the tracklist has not been cached yet.
+    Cache-first: uses cached details while they are younger than
+    CACHE_MAX_AGE_HOURS, otherwise fetches them from the API and stores them.
     """
 
-    progress = pyqtSignal(int, int)   # n, total
-    finished = pyqtSignal(list, list) # (records_data: list[dict], warnings: list[str])
+    progress    = pyqtSignal(int, int)   # n, total
+    import_done = pyqtSignal(list, list) # (records_data: list[dict], warnings: list[str])
 
     def __init__(
         self,
         selected: list[dict],
         username: str,
         token: str,
-        cache,                         # DiscogsCache — avoids circular import annotation
+        cache: DiscogsCache,
+        cancel_event: threading.Event,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._selected = selected
-        self._username = username
-        self._token    = token
-        self._cache    = cache
+        self._selected     = selected
+        self._username     = username
+        self._token        = token
+        self._cache        = cache
+        self._cancel_event = cancel_event
 
     def run(self) -> None:
-        import json as _json
-        client: DiscogsClient = DiscogsClient(self._username, self._token)
+        client = DiscogsClient(self._username, self._token, self._cancel_event)
         total         = len(self._selected)
         records_data: list[dict] = []
         warnings:     list[str]  = []
@@ -161,63 +224,58 @@ class _TracklistWorker(QThread):
             base = {
                 "artist":  release["artist"],
                 "label":   release["label"],
+                "catno":   release.get("catno", ""),
                 "year":    release["year"],
-                "country": release["country"],
+                "country": "",
             }
 
-            # ── Cache-first: skip API call if tracklist already stored ────────
-            cached_release = self._cache.get_release(rid)
-            if (cached_release
-                    and cached_release.get("tracklist_fetched")
-                    and cached_release.get("tracklist_json")):
-                tracks = _json.loads(cached_release["tracklist_json"])
+            details = self._cache.get_details(rid)
+            if details is not None:
                 logger.debug(
-                    f"_TracklistWorker Cache-Hit: discogs_id={rid} "
-                    f"({len(tracks)} tracks)"
+                    f"_ImportWorker cache hit: discogs_id={rid} "
+                    f"({len(details['tracks'])} tracks)"
                 )
             else:
-                # API fallback — only when not in cache
-                logger.info(
-                    f"_TracklistWorker Cache-Miss: discogs_id={rid} — API-Call"
-                )
+                logger.debug(f"_ImportWorker cache miss: discogs_id={rid} — API call")
                 try:
-                    result = client.fetch_tracklist(rid)
-                    # Overwrite country with authoritative release-endpoint value
-                    base["country"] = result["country"] or release["country"]
-                    tracks = result["tracks"]
-                    # Persist immediately so subsequent opens don't hit the API
-                    self._cache.update_tracklist(rid, tracks)
-                except Exception:
-                    warnings.append(release["title"])
-                    records_data.append(
-                        {**base, "title": release["title"], "side": ""}
+                    details = client.fetch_release_details(rid)
+                    self._cache.save_details(rid, details["tracks"], details["country"])
+                except DiscogsRequestCancelled:
+                    logger.debug(f"_ImportWorker stopped after {n - 1}/{total} releases")
+                    return
+                except Exception as exc:
+                    logger.warning(
+                        f"Release details failed: discogs_id={rid}: "
+                        f"{type(exc).__name__}: {exc}"
                     )
+                    warnings.append(release["title"])
                     continue
 
-            a_sides = [trk for trk in tracks if trk["position"] == "A"]
-            b_sides = [trk for trk in tracks if trk["position"] == "B"]
+            base["country"] = details["country"]
+            # Also maps details cached in the older raw-position format
+            sided   = map_tracks_to_sides(details["tracks"], rid)
+            a_sides = [trk["title"] for trk in sided if trk["position"] == "A"]
+            b_sides = [trk["title"] for trk in sided if trk["position"] == "B"]
 
             if len(a_sides) == 1 and len(b_sides) == 1:
                 # Simple single: two rows with individual track titles
-                records_data.append(
-                    {**base, "title": a_sides[0]["title"], "side": "A"}
-                )
-                records_data.append(
-                    {**base, "title": b_sides[0]["title"], "side": "B"}
-                )
-            elif tracks:
-                # EP / Maxi / ambiguous: one row per track, full position as side
-                for trk in tracks:
+                records_data.append({**base, "title": a_sides[0], "side": "A"})
+                records_data.append({**base, "title": b_sides[0], "side": "B"})
+            elif sided:
+                # EP / Maxi: one row per track, side always "A" or "B"
+                for trk in sided:
                     records_data.append(
                         {**base, "title": trk["title"], "side": trk["position"]}
                     )
             else:
-                # No AB tracks returned: one fallback row
-                records_data.append(
-                    {**base, "title": release["title"], "side": ""}
+                # Never queue a row without a side — report it instead
+                logger.info(
+                    f"Release skipped — no A/B tracks: discogs_id={rid} "
+                    f"'{release['title']}'"
                 )
+                warnings.append(release["title"])
 
-        self.finished.emit(records_data, warnings)
+        self.import_done.emit(records_data, warnings)
 
 
 # ── Main dialog ───────────────────────────────────────────────────────────────
@@ -229,20 +287,17 @@ _COL_CHECK  = 0
 _COL_TITLE  = 1
 _COL_ARTIST = 2
 _COL_LABEL  = 3
-_COL_YEAR   = 4
+_COL_CATNO  = 4
+_COL_YEAR   = 5
+_NUM_COLS   = 6
 
 
 class DiscogsDialog(QDialog):
     """Import 7\" singles from Discogs into the print queue.
 
-    The filtered 7" release list is cached at class level so that reopening
-    the dialog within the same session skips the API call.  The cache is
-    keyed by Discogs username and cleared on logout.
+    The collection is cached in SQLite (DiscogsCache); the cache belongs to
+    one Discogs account and is cleared on logout.
     """
-
-    # Class-level session cache — persists across dialog instances
-    _cached_releases: list[dict] = []
-    _cache_username:  str        = ""
 
     def __init__(self, db_path: Path, parent=None) -> None:
         super().__init__(parent)
@@ -251,13 +306,25 @@ class DiscogsDialog(QDialog):
         self._releases: list[dict] = []
         self._displayed: list[dict] = []
         self._rate_timer: Optional[QTimer] = None
+        # Child timers — stopped in _shutdown_workers(), deleted with the dialog
+        self._sync_report_timer = QTimer(self)
+        self._sync_report_timer.setSingleShot(True)
+        self._sync_report_timer.timeout.connect(
+            lambda: self._load_from_cache(self._cache.get_cache_status())
+        )
+        self._auto_fetch_timer = QTimer(self)
+        self._auto_fetch_timer.setSingleShot(True)
+        self._auto_fetch_timer.timeout.connect(self._on_fetch)
         self._rate_countdown = 0
         self._fetch_worker:        Optional[_FetchWorker]          = None
         self._verify_worker:       Optional[_VerifyWorker]         = None
-        self._tracklist_worker:    Optional[_TracklistWorker]      = None
-        self._tracklist_loader:    Optional[TracklistLoaderThread] = None
+        self._verify_creds:        tuple[str, str]                 = ("", "")
+        self._import_worker:       Optional[_ImportWorker]         = None
         self._cache:               DiscogsCache                    = DiscogsCache()
         self._selected_ids:        set[int]                        = set()
+        # Shared by all workers of this dialog; set on close to abort waits
+        self._cancel_event      = threading.Event()
+        self._workers_shut_down = False
 
         self.setWindowTitle(t("dlg_discogs_title"))
         self.setWindowFlags(
@@ -398,12 +465,13 @@ class DiscogsDialog(QDialog):
         layout.addLayout(search_row)
 
         # Table
-        self._table = QTableWidget(0, 5)
+        self._table = QTableWidget(0, _NUM_COLS)
         self._table.setHorizontalHeaderLabels([
             "",
             t("discogs_col_title"),
             t("discogs_col_artist"),
             t("discogs_col_label"),
+            t("discogs_col_catno"),
             t("discogs_col_year"),
         ])
         self._table.horizontalHeader().setSectionResizeMode(
@@ -420,6 +488,9 @@ class DiscogsDialog(QDialog):
             _COL_LABEL, QHeaderView.ResizeMode.Stretch
         )
         self._table.horizontalHeader().setSectionResizeMode(
+            _COL_CATNO, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._table.horizontalHeader().setSectionResizeMode(
             _COL_YEAR, QHeaderView.ResizeMode.ResizeToContents
         )
         apply_table_style(self._table)
@@ -430,11 +501,6 @@ class DiscogsDialog(QDialog):
         self._table.verticalHeader().setVisible(False)
         self._table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self._table)
-
-        # Tracklist lazy-loading progress (shown below table while background fetch runs)
-        self._lbl_tracklist_progress = QLabel("")
-        self._lbl_tracklist_progress.setVisible(False)
-        layout.addWidget(self._lbl_tracklist_progress)
 
         # Select all / deselect all + selection counter
         select_row = QHBoxLayout()
@@ -487,22 +553,34 @@ class DiscogsDialog(QDialog):
         self._btn_verify.setEnabled(False)
         self._setup_status.setText(t("discogs_verifying"))
 
-        self._verify_worker = _VerifyWorker(username, token, parent=self)
-        self._verify_worker.success.connect(
-            lambda: self._on_verify_success(username, token)
+        self._verify_creds = (username, token)
+        self._verify_worker = _VerifyWorker(
+            username, token, self._cancel_event
         )
+        self._verify_worker.success.connect(self._on_verify_success)
         self._verify_worker.failure.connect(self._on_verify_failure)
-        self._verify_worker.finished.connect(
-            lambda: self._btn_verify.setEnabled(True)
-        )
+        self._verify_worker.finished.connect(self._on_verify_finished)
         self._verify_worker.start()
 
-    def _on_verify_success(self, username: str, token: str) -> None:
+    # Slots connected to worker signals return early after _shutdown_workers():
+    # a signal queued just before shutdown may still be delivered.
+
+    def _on_verify_finished(self) -> None:
+        if self._workers_shut_down:
+            return
+        self._btn_verify.setEnabled(True)
+
+    def _on_verify_success(self) -> None:
+        if self._workers_shut_down:
+            return
+        username, token = self._verify_creds
         self._cred_mgr.save(username, token)
         self._setup_status.setText("")
         self._show_collection_panel(username)
 
     def _on_verify_failure(self, message: str) -> None:
+        if self._workers_shut_down:
+            return
         self._setup_status.setText(f"<span style='color:red'>{message}</span>")
 
     # ── Slot: logout ──────────────────────────────────────────────────────────
@@ -512,8 +590,7 @@ class DiscogsDialog(QDialog):
         self._releases    = []
         self._displayed   = []
         self._selected_ids.clear()
-        DiscogsDialog._cached_releases = []
-        DiscogsDialog._cache_username  = ""
+        self._cache.clear()
         self._table.setRowCount(0)
         self._table.setVisible(True)
         self._lbl_progress.setText("")
@@ -522,39 +599,46 @@ class DiscogsDialog(QDialog):
         self._lbl_cache_status.setStyleSheet("")
         self._btn_cache_action.setVisible(False)
         self._lbl_cache_expired_reason.setVisible(False)
-        self._lbl_tracklist_progress.setVisible(False)
         self._stack.setCurrentIndex(_SETUP_IDX)
 
     # ── Slot: fetch collection ────────────────────────────────────────────────
 
     def _on_fetch(self) -> None:
+        if self._workers_shut_down:
+            return
+        if self._fetch_worker and self._fetch_worker.isRunning():
+            logger.debug("Fetch already running — ignoring request")
+            return
         creds    = self._cred_mgr.load()
         username = creds.get("discogs_username", "")
         token    = creds.get("discogs_token", "")
 
         self._btn_fetch.setEnabled(False)
+        self._btn_cache_action.setEnabled(False)
         self._btn_import.setEnabled(False)
         self._table.setRowCount(0)
         self._lbl_progress.setText(t("discogs_connecting"))
 
-        self._fetch_worker = _FetchWorker(username, token, parent=self)
+        self._fetch_worker = _FetchWorker(
+            username, token, self._cancel_event
+        )
         self._fetch_worker.progress.connect(self._on_fetch_progress)
-        self._fetch_worker.finished.connect(self._on_fetch_finished)
+        self._fetch_worker.fetch_done.connect(self._on_fetch_finished)
         self._fetch_worker.error.connect(self._on_fetch_error)
-        self._fetch_worker.finished.connect(
-            lambda _: self._btn_fetch.setEnabled(True)
-        )
-        self._fetch_worker.error.connect(
-            lambda *_: self._btn_fetch.setEnabled(True)
-        )
         self._fetch_worker.start()
 
     def _on_fetch_progress(self, current: int, total: int) -> None:
+        if self._workers_shut_down:
+            return
         self._lbl_progress.setText(
             t("discogs_progress", current=current, total=total)
         )
 
     def _on_fetch_finished(self, raw_releases: list) -> None:
+        if self._workers_shut_down:
+            return
+        self._btn_fetch.setEnabled(True)
+        self._btn_cache_action.setEnabled(True)
         creds    = self._cred_mgr.load()
         username = creds.get("discogs_username", "")
         token    = creds.get("discogs_token", "")
@@ -563,12 +647,6 @@ class DiscogsDialog(QDialog):
         # Normalize ALL releases for SQLite cache (is_7inch flag, no catno on label)
         normalized = client.normalize_for_cache(raw_releases)
         stats      = self._cache.sync_releases(normalized, username)
-
-        # Also keep session cache with filter_7inch output (includes catno) for
-        # backward compat with the _TracklistWorker → ReviewDialog import flow
-        filtered = client.filter_7inch(raw_releases)
-        DiscogsDialog._cached_releases = filtered
-        DiscogsDialog._cache_username  = username
 
         cache_status = self._cache.get_cache_status()
         logger.info(
@@ -589,10 +667,7 @@ class DiscogsDialog(QDialog):
                    updated=stats["updated"],
                    removed=stats["removed"])
         self._lbl_cache_status.setText(report)
-        QTimer.singleShot(
-            5000,
-            lambda: self._load_from_cache(self._cache.get_cache_status())
-        )
+        self._sync_report_timer.start(5000)
 
     def _apply_releases(self, releases: list[dict], from_cache: bool = False) -> None:
         """Populate the table from a (possibly cached) release list."""
@@ -617,6 +692,10 @@ class DiscogsDialog(QDialog):
         self._btn_import.setEnabled(True)
 
     def _on_fetch_error(self, code: int, message: str) -> None:
+        if self._workers_shut_down:
+            return
+        self._btn_fetch.setEnabled(True)
+        self._btn_cache_action.setEnabled(True)
         self._lbl_progress.setText("")
         if code == 401:
             self._cred_mgr.clear()
@@ -664,11 +743,13 @@ class DiscogsDialog(QDialog):
         else:
             self._displayed = [
                 r for r in self._releases
-                if q in r["artist"].lower() or q in r["title"].lower()
+                if q in r["artist"].lower()
+                or q in r["title"].lower()
+                or q in (r.get("catno") or "").lower()
             ]
         logger.debug(
-            f"Tabelle befüllen: {len(self._displayed)} Releases "
-            f"(nach 7\" Filter)"
+            f"Populating table: {len(self._displayed)} releases "
+            f"(after 7\" filter)"
         )
         self._populate_table(self._displayed)
         self._update_selection_counter()
@@ -700,6 +781,9 @@ class DiscogsDialog(QDialog):
                 self._table.setItem(row, _COL_TITLE,  title_item)
                 self._table.setItem(row, _COL_ARTIST, QTableWidgetItem(rec["artist"]))
                 self._table.setItem(row, _COL_LABEL,  QTableWidgetItem(rec["label"]))
+                self._table.setItem(
+                    row, _COL_CATNO, QTableWidgetItem(rec.get("catno") or "")
+                )
                 year_str = str(rec["year"]) if rec["year"] else ""
                 self._table.setItem(row, _COL_YEAR,   QTableWidgetItem(year_str))
         finally:
@@ -782,19 +866,23 @@ class DiscogsDialog(QDialog):
         self._btn_fetch.setEnabled(False)
         self._btn_logout.setEnabled(False)
 
-        self._tracklist_worker = _TracklistWorker(
-            selected_releases, username, token, self._cache, parent=self
+        self._import_worker = _ImportWorker(
+            selected_releases, username, token, self._cache, self._cancel_event
         )
-        self._tracklist_worker.progress.connect(self._on_tracklist_progress)
-        self._tracklist_worker.finished.connect(self._on_tracklist_done)
-        self._tracklist_worker.start()
+        self._import_worker.progress.connect(self._on_tracklist_progress)
+        self._import_worker.import_done.connect(self._on_tracklist_done)
+        self._import_worker.start()
 
     def _on_tracklist_progress(self, n: int, total: int) -> None:
+        if self._workers_shut_down:
+            return
         self._lbl_progress.setText(
             t("discogs_tracklist_progress", n=n, total=total)
         )
 
     def _on_tracklist_done(self, records_data: list, warnings: list) -> None:
+        if self._workers_shut_down:
+            return   # dialog was closed — never open the review dialog
         self._lbl_progress.setText("")
         self._btn_import.setEnabled(True)
         self._btn_fetch.setEnabled(True)
@@ -808,7 +896,10 @@ class DiscogsDialog(QDialog):
                 + "\n" + "\n".join(f"• {w}" for w in warnings),
             )
 
-        dlg = ReviewDialog(records_data, self._db_path, parent=self)
+        if not records_data:
+            return   # nothing importable — the warning above lists the releases
+
+        dlg = ReviewDialog(records_data, self._db_path, import_mode=True, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.accept()
 
@@ -827,6 +918,14 @@ class DiscogsDialog(QDialog):
         logger.debug("Discogs dialog opened — checking cache status")
         status = self._cache.get_cache_status()
 
+        # Never show another account's collection: a cache built for a
+        # different username is treated as "no cache".
+        username = self._cred_mgr.load().get("discogs_username", "")
+        if status["has_cache"] and status["username"].casefold() != username.casefold():
+            logger.info("Cache belongs to a different Discogs account — clearing it")
+            self._cache.clear()
+            status = self._cache.get_cache_status()
+
         if not status["has_cache"]:
             logger.info("No cache found — first load required")
             self._show_no_cache_state()
@@ -844,12 +943,10 @@ class DiscogsDialog(QDialog):
                 "triggering automatic reload"
             )
             self._cache.clear()
-            self._lbl_cache_status.setText(
-                "Cache wird aktualisiert (neue Sortierung) …"
-            )
+            self._lbl_cache_status.setText(t("cache_migrating"))
             self._btn_cache_action.setVisible(False)
             self._table.setVisible(False)
-            QTimer.singleShot(200, self._on_fetch)
+            self._auto_fetch_timer.start(200)
         else:
             logger.info(
                 f"Cache valid: {status['items_7inch']} × 7\" singles, "
@@ -921,124 +1018,58 @@ class DiscogsDialog(QDialog):
 
         if releases:
             logger.debug(
-                f"Tabelle befüllen: {len(self._displayed)} Releases "
-                f"(nach 7\" Filter)"
+                f"Populating table: {len(self._displayed)} releases "
+                f"(after 7\" filter)"
             )
             self._populate_table(self._displayed)
             self._update_selection_counter()
             self._btn_import.setEnabled(True)
 
-        # Detailed tracklist status diagnostic (visible only in debug mode)
-        self._cache.debug_tracklist_status()
+    # ── Shutdown ──────────────────────────────────────────────────────────────
 
-        # Start lazy tracklist loading for releases that don't have one yet
-        pending = self._cache.get_pending_tracklist_ids()
-        if not pending:
-            logger.info(
-                "Alle Tracklists im Cache vorhanden — "
-                "kein Discogs-API-Call erforderlich"
-            )
-            self._lbl_tracklist_progress.setText(t("tracklists_all_cached"))
-            self._lbl_tracklist_progress.setVisible(True)
-            QTimer.singleShot(
-                3000,
-                lambda: self._lbl_tracklist_progress.setVisible(False)
-            )
-            self._load_tracklists_from_cache()
-        else:
-            logger.info(
-                f"Tracklist lazy loading: {len(pending)} × 7\" Singles ohne Tracklist"
-            )
-            self._start_tracklist_loader(pending)
-
-    def _load_tracklists_from_cache(self) -> None:
-        """Log tracklist data already in cache — no API call."""
-        import json as _json
-        for row_idx, release in enumerate(self._displayed):
-            discogs_id = release.get("discogs_id")
-            if not discogs_id:
-                continue
-            cached = self._cache.get_release(discogs_id)
-            if cached and cached.get("tracklist_fetched"):
-                tracks = _json.loads(cached.get("tracklist_json") or "[]")
-                sides  = [trk["position"] for trk in tracks]
-                logger.debug(
-                    f"Tracklist aus Cache: discogs_id={discogs_id} "
-                    f"Seiten={sides}"
-                )
-
-    def _get_tracklist(self, discogs_id: int) -> list[dict]:
-        """Return tracklist for a release. Cache-first — only calls API on miss."""
-        import json as _json
-        cached = self._cache.get_release(int(discogs_id))
-        if (cached
-                and cached.get("tracklist_fetched")
-                and cached.get("tracklist_json")):
-            tracks = _json.loads(cached["tracklist_json"])
-            logger.debug(
-                f"_get_tracklist Cache-Hit: discogs_id={discogs_id} "
-                f"({len(tracks)} tracks)"
-            )
-            return tracks
-
-        # Cache miss — API fallback
-        logger.info(
-            f"_get_tracklist Cache-Miss: discogs_id={discogs_id} — API-Call"
-        )
-        try:
-            creds  = self._cred_mgr.load()
-            client = DiscogsClient(
-                creds.get("discogs_username", ""),
-                creds.get("discogs_token", ""),
-            )
-            result = client.fetch_tracklist(int(discogs_id))
-            tracks = result.get("tracks", [])
-            self._cache.update_tracklist(int(discogs_id), tracks)
-            return tracks
-        except Exception as exc:
-            logger.error(
-                f"_get_tracklist API-Fehler: discogs_id={discogs_id} — {exc}"
-            )
-            return []
-
-    def _start_tracklist_loader(self, pending_ids: list[int]) -> None:
-        if self._tracklist_loader and self._tracklist_loader.isRunning():
+    def _shutdown_workers(self) -> None:
+        """Cancel all background workers and wait for them to stop (once)."""
+        if self._workers_shut_down:
             return
-        creds  = self._cred_mgr.load()
-        client = DiscogsClient(
-            creds.get("discogs_username", ""),
-            creds.get("discogs_token", ""),
-        )
-        self._tracklist_loader = TracklistLoaderThread(
-            client, self._cache, pending_ids, parent=self
-        )
-        self._tracklist_loader.progress.connect(self._on_tracklist_loading_progress)
-        self._tracklist_loader.tracklist_ready.connect(self._on_tracklist_ready)
-        self._tracklist_loader.finished.connect(self._on_tracklist_loading_done)
-        self._lbl_tracklist_progress.setVisible(True)
-        self._tracklist_loader.start()
+        self._workers_shut_down = True
 
-    def _on_tracklist_loading_progress(self, current: int, total: int) -> None:
-        self._lbl_tracklist_progress.setText(
-            t("cache_tracklist_loading", current=current, total=total)
-        )
+        # Abort pending throttle / rate-limit waits in every DiscogsClient
+        self._cancel_event.set()
+        for timer in (self._rate_timer, self._sync_report_timer, self._auto_fetch_timer):
+            if timer:
+                timer.stop()   # must never fire after the dialog is closed
 
-    def _on_tracklist_ready(self, discogs_id: int, tracks: list) -> None:
-        logger.debug(
-            f"Tracklist ready: discogs_id={discogs_id}, {len(tracks)} tracks"
+        workers = (
+            ("import worker",    self._import_worker),
+            ("fetch worker",     self._fetch_worker),
+            ("verify worker",    self._verify_worker),
         )
+        for name, worker in workers:
+            if worker is None:
+                continue
+            # Disconnect even finished workers: their last signal may already
+            # be queued and would otherwise reach the closed dialog
+            _disconnect_worker(worker)
+            if worker.isRunning():
+                logger.debug(f"DiscogsDialog: stopping {name}")
+                if worker.wait(3000):
+                    logger.debug(f"DiscogsDialog: {name} stopped")
+                else:
+                    # E.g. a long collection page download — let it finish in
+                    # the background instead of destroying a running thread
+                    logger.warning(
+                        f"DiscogsDialog: {name} still running after 3 s — "
+                        "finishing in background"
+                    )
+                    _keep_alive_until_finished(worker)
 
-    def _on_tracklist_loading_done(self) -> None:
-        self._lbl_tracklist_progress.setText(t("cache_tracklist_done"))
-        QTimer.singleShot(
-            3000,
-            lambda: self._lbl_tracklist_progress.setVisible(False)
-        )
+        self._selected_ids.clear()
+
+    def done(self, result: int) -> None:
+        # Covers accept(), reject() (Cancel / Esc) and close
+        self._shutdown_workers()
+        super().done(result)
 
     def closeEvent(self, event) -> None:
-        self._selected_ids.clear()
-        if self._tracklist_loader and self._tracklist_loader.isRunning():
-            logger.debug("DiscogsDialog: cancelling tracklist loader on close")
-            self._tracklist_loader.cancel()
-            self._tracklist_loader.wait(2000)
+        self._shutdown_workers()
         super().closeEvent(event)

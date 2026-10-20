@@ -53,6 +53,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Windows: poppler-DLLs in PATH eintragen"
         ),
         "err_excel":         "Excel-Datei konnte nicht geladen werden:\n{detail}",
+        "err_pdf":           "PDF konnte nicht erstellt werden:\n{detail}",
         "err_db_missing":    (
             "Datenbankdatei nicht gefunden:\n{path}\n\n"
             "Bitte manuell kopieren:\n"
@@ -107,7 +108,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "datasource_overwrite_title":    "Lokale Daten überschreiben?",
         "datasource_overwrite_msg":      (
             "Die lokale Druckwarteschlange enthält {n} Einträge. "
-            "Bei Übernahme aus Discogs werden diese überschrieben. "
+            "Bei einer Übernahme aus Discogs wirst du gefragt, ob die neuen "
+            "Einträge angehängt werden oder die Warteschlange ersetzen sollen. "
             "Möchtest du fortfahren?"
         ),
         "datasource_overwrite_continue": "Fortfahren",
@@ -170,10 +172,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "discogs_found":         "{n} Singles gefunden.",
         "discogs_cached":        "{n} Singles (zwischengespeichert)",
         "discogs_search_lbl":    "Suche:",
-        "discogs_search_ph":     "Nach Interpret oder Titel filtern…",
+        "discogs_search_ph":     "Nach Interpret, Titel oder Kat.-Nr. filtern…",
         "discogs_col_title":     "Titel",
         "discogs_col_artist":    "Interpret",
         "discogs_col_label":     "Label",
+        "discogs_col_catno":     "Kat.-Nr.",
         "discogs_col_year":      "Jahr",
         "discogs_btn_all":       "Alle auswählen",
         "discogs_btn_none":      "Auswahl aufheben",
@@ -199,15 +202,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "cache_last_pull":             "Letzter Discogs-Pull: {datetime} (vor {hours} Stunden)",
         "cache_expired":               "⚠ Cache veraltet (vor {hours} Stunden) — bitte neu laden.",
         "cache_no_data":               "Noch keine Sammlung geladen.",
+        "cache_migrating":             "Cache wird aktualisiert (neue Sortierung) …",
         "cache_reload":                "Aktualisieren",
         "cache_load_now":              "Jetzt laden",
         "cache_singles_count":         "{total} Singles · {count} × 7\"",
         "cache_summary":               "Gesamt-Sammlung: {total} · davon 7\": {count}",
         "cache_sync_report":           "✓ Synchronisiert: +{added} neu, ~{updated} aktualisiert, -{removed} entfernt",
-        "cache_tracklist_loading":     "Lade Tracklists im Hintergrund... ({current} von {total} abgeschlossen)",
-        "cache_tracklist_done":        "✓ Alle Tracklists geladen",
         "dialog_title_with_count":     "Aus Discogs laden — {count} × 7\" Singles",
-        "tracklists_all_cached":       "✓ Alle Tracklists im Cache vorhanden",
         "cache_expired_reason":        (
             "ℹ Gemäss Discogs API-Nutzungsbedingungen dürfen Daten nicht länger als "
             "6 Stunden ohne Aktualisierung angezeigt werden."
@@ -238,6 +239,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_col_title":     "Titel",
         "review_col_artist":    "Interpret",
         "review_col_label":     "Label",
+        "review_col_catno":     "Kat.-Nr.",
         "review_col_country":   "Country",
         "review_col_year":      "Jahr",
         "review_col_side":      "Seite",
@@ -256,6 +258,7 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Review dialog — status bar
         "review_status_counts": "{n} Einträge gesamt | {m} ausgewählt zum Drucken",
+        "review_status_hidden": "{h} davon ausgeblendet",
         "review_status_warning":"⚠️  {k} Einträge haben leere Pflichtfelder",
         "review_status_ok":     "✓ Alle Einträge vollständig",
 
@@ -272,6 +275,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_warn_msg":      "{k} Einträge haben leere Felder (markiert in Rot).\nMöchtest du trotzdem fortfahren?",
         "review_warn_continue": "Fortfahren",
         "review_warn_back":     "Zurück zur Liste",
+        "review_queue_exists_title": "Druckwarteschlange nicht leer",
+        "review_queue_exists_msg":   "Die Druckwarteschlange enthält bereits {n} Einträge.\n"
+                                     "Neue Einträge anhängen oder die Warteschlange ersetzen?",
+        "review_queue_append":       "Anhängen",
+        "review_queue_replace":      "Ersetzen",
+        "review_queue_cancel":       "Abbrechen",
         "review_no_sel_msg":    "Keine Zeilen ausgewählt.",
 
         # Settings menu / theme / language
@@ -435,6 +444,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Windows: add poppler DLLs folder to PATH"
         ),
         "err_excel":         "Could not load Excel file:\n{detail}",
+        "err_pdf":           "Could not create PDF:\n{detail}",
         "err_db_missing":    (
             "Database file not found:\n{path}\n\n"
             "Please copy it manually:\n"
@@ -486,7 +496,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "datasource_overwrite_title":    "Overwrite local data?",
         "datasource_overwrite_msg":      (
             "The local print queue contains {n} entries. "
-            "Importing from Discogs will overwrite them. "
+            "When importing from Discogs you will be asked whether to append "
+            "the new entries or replace the queue. "
             "Continue?"
         ),
         "datasource_overwrite_continue": "Continue",
@@ -548,10 +559,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "discogs_found":         "{n} singles found.",
         "discogs_cached":        "{n} singles (cached)",
         "discogs_search_lbl":    "Search:",
-        "discogs_search_ph":     "Filter by artist or title…",
+        "discogs_search_ph":     "Filter by artist, title or cat. no.…",
         "discogs_col_title":     "Title",
         "discogs_col_artist":    "Artist",
         "discogs_col_label":     "Label",
+        "discogs_col_catno":     "Cat. No.",
         "discogs_col_year":      "Year",
         "discogs_btn_all":       "Select all",
         "discogs_btn_none":      "Deselect all",
@@ -577,15 +589,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "cache_last_pull":             "Last Discogs pull: {datetime} ({hours} hours ago)",
         "cache_expired":               "⚠ Cache expired ({hours} hours ago) — please reload.",
         "cache_no_data":               "No collection loaded yet.",
+        "cache_migrating":             "Updating cache (new sort order) …",
         "cache_reload":                "Reload",
         "cache_load_now":              "Load now",
         "cache_singles_count":         "{total} singles · {count} × 7\"",
         "cache_summary":               "Total collection: {total} · thereof 7\": {count}",
         "cache_sync_report":           "✓ Synced: +{added} new, ~{updated} updated, -{removed} removed",
-        "cache_tracklist_loading":     "Loading tracklists in background... ({current} of {total} done)",
-        "cache_tracklist_done":        "✓ All tracklists loaded",
         "dialog_title_with_count":     "Load from Discogs — {count} × 7\" singles",
-        "tracklists_all_cached":       "✓ All tracklists loaded from cache",
         "cache_expired_reason":        (
             "ℹ According to Discogs API Terms of Use, data may not be displayed "
             "for more than 6 hours without being refreshed."
@@ -615,6 +625,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_col_title":     "Title",
         "review_col_artist":    "Artist",
         "review_col_label":     "Label",
+        "review_col_catno":     "Cat. No.",
         "review_col_country":   "Country",
         "review_col_year":      "Year",
         "review_col_side":      "Side",
@@ -633,6 +644,7 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Review dialog — status bar
         "review_status_counts": "{n} entries total | {m} selected for printing",
+        "review_status_hidden": "{h} of them hidden",
         "review_status_warning":"⚠️  {k} entries have empty required fields",
         "review_status_ok":     "✓ All entries complete",
 
@@ -649,6 +661,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_warn_msg":      "{k} entries have empty fields (marked in red).\nContinue anyway?",
         "review_warn_continue": "Continue",
         "review_warn_back":     "Back to list",
+        "review_queue_exists_title": "Print queue not empty",
+        "review_queue_exists_msg":   "The print queue already contains {n} entries.\n"
+                                     "Append the new entries or replace the queue?",
+        "review_queue_append":       "Append",
+        "review_queue_replace":      "Replace",
+        "review_queue_cancel":       "Cancel",
         "review_no_sel_msg":    "No rows selected.",
 
         # Settings menu / theme / language

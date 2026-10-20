@@ -5,7 +5,10 @@ A desktop application for printing 7" vinyl record labels on **Avery Zweckform 4
 Made with :heart: and ClaudeCode - by a Collector for Collectors.
 
 + Local database (Excel) or Discogs integration.
-+ Discogs integration reads your 7" collection, pulls A/B sides automatically, and caches data locally (SQLite, 6-hour expiry per Discogs API ToU).
++ Discogs integration reads your 7" collection including **catalog numbers**, loads A/B sides on demand at import time, and caches data locally (SQLite, 6-hour expiry per Discogs API ToU — for the collection and for each release's details).
++ Catalog number is shown, editable and printed: the info line reads `Label CatNo (Country, Year)`, e.g. `Pyramid PYR 6013 (UK, 1967)`.
++ Sides are always printed as **A** or **B** (`A1`/`A2` → A, UK double-A side `AA` → B).
++ Discogs imports ask whether to **append** to or **replace** an existing print queue.
 + Watermark option available (main window sidebar and **⚙ Settings → Appearance**).
 + Dark / Light theme via **⚙ Settings → Appearance** — follows the OS setting until you pick one explicitly.
 + Printer calibration with X/Y fine-tuning and a built-in calibration PDF generator (**⚙ Settings → Appearance → Printer Calibration**).
@@ -364,7 +367,7 @@ The selected mode is **persisted across sessions**.
 **Switching to Discogs:**
 
 - If no Discogs credentials are saved yet, a setup dialog appears. You can set up the token immediately or cancel — the switch is reverted on cancel.
-- If the local print queue already contains entries, a confirmation dialog warns that they will be overwritten on the next import.
+- If the local print queue already contains entries, a confirmation dialog points out that the queue will be changed by the next import. When you confirm an import, the app asks whether to **Append** the new entries or **Replace** the queue (see [Discogs Import](#discogs-import)).
 
 **Switching back to Local database:**
 
@@ -379,16 +382,21 @@ The selected mode is **persisted across sessions**.
 
 #### Option A — Manual: prepare the Excel file
 
-The application reads from the **Print** sheet of your Excel workbook. Each row represents one label to be printed. Fill in the following columns:
+The application reads from the **Print** sheet of your Excel workbook. Each row represents one label to be printed. Fill in the following columns (A–G):
 
-| Column | Description | Example |
-|---|---|---|
-| Title | Record title | I Won't Let You Go |
-| Artist | Artist or band name | Blues Busters |
-| Label | Record label | Kentone, RE |
-| Country | Country of origin | Japan |
-| Year | Release year | 2014 |
-| Side | Vinyl side — `A` or `B` | A |
+| Column | Header | Description | Example |
+|---|---|---|---|
+| A | Title | Record title | I Won't Let You Go |
+| B | Artist | Artist or band name | Blues Busters |
+| C | Label | Record label | Kentone |
+| D | Country | Country of origin | Japan |
+| E | Year | Release year | 2014 |
+| F | Side | Vinyl side — `A` or `B` (see below) | A |
+| G | CatNo | Catalog number (optional) | RE-001 |
+
+Files created before column G existed still load — the catalog number is simply empty.
+
+**Side values** are always normalised to `A` or `B` (case-insensitive): prefixes like `Seite`, `Side`, `-` or `:` are ignored; `A`, `A1`, `A2` → **A**; `B`, `B1`, `B2` → **B**; the UK double-A side `AA` → **B**; anything unrecognised → **A**.
 
 The **Database** sheet is a read-only master reference and is never written to by the application.
 
@@ -434,6 +442,7 @@ Click **Print** to send the PDF to your printer.
 
 - On first use a reminder dialog appears listing the required print settings. Tick **Don't show again** to suppress it in future.
 - On Windows the application tries to open the OS print dialog directly. If your default PDF viewer does not support that (e.g. Microsoft Edge on Windows 11), the PDF is opened in the viewer instead — use **Ctrl + P** from there.
+- On Linux the PDF is opened in your default PDF viewer (via `xdg-open`) — print from the viewer with **Ctrl + P**. Nothing is sent to the printer without a print dialog.
 - Make sure to select **actual size** (100 %) in the print dialog — do not scale to fit.
 - Select the correct paper tray if your printer has multiple trays.
 - Print a test page on plain paper first and hold it against the label sheet at a light source to verify alignment before printing on the actual labels.
@@ -471,7 +480,7 @@ the Discogs connection status and active mode badge are shown on the right.
 
 ### Discogs Import
 
-The app can fetch your 7" singles directly from your Discogs collection, resolve A- and B-side track names automatically, and write the result to the print queue — all without touching the Excel file manually.
+The app can fetch your 7" singles directly from your Discogs collection (including catalog numbers), resolve A- and B-side track names automatically, and write the result to the print queue — all without touching the Excel file manually.
 
 #### Step 1 — Create a personal access token
 
@@ -495,8 +504,10 @@ After a successful verification the dialog switches automatically to the collect
 Click **Load 7" Singles**. The app fetches all releases from your Discogs collection (all pages) and filters automatically for 7" format singles. A progress indicator shows the current page being loaded.
 
 > The collection list is **cached locally in a SQLite database** (`data/discogs_cache.db`, not committed to version control). Re-opening the dialog reuses the cached data as long as it is less than 6 hours old — no API call is made. Once the cache expires, the status bar shows a warning and a **Aktualisieren / Reload** button appears. This behaviour is required by the Discogs API Terms of Use.
+>
+> The cache belongs to one Discogs account: logging out clears it, and a cache created for a different username is discarded.
 
-Use the search bar to filter the list by artist or title.
+The table shows Title, Artist, Label, **Cat. No.** and Year. Use the search bar to filter the list by artist, title or catalog number (e.g. `PYR`).
 
 #### Step 4 — Select singles and import
 
@@ -505,10 +516,14 @@ Use the search bar to filter the list by artist or title.
    - A **selection counter** appears to the right of the Select all / Deselect all buttons: e.g. `2 selected`. When the current search filter hides some of your selections, the counter shows both totals: `3 selected (1 visible)` in a highlighted colour so you know there are picks outside the current view.
    - **Deselect all** only removes the checkmarks for the releases currently visible in the table. Selections from other search terms remain intact. Clear the search bar to see (and deselect) everything at once.
 2. Click **Add to print queue**.
-   The app fetches the tracklist for each selected release from the Discogs release endpoint and resolves A- and B-sides:
-   - **Simple single (exactly 1 A-side + 1 B-side):** two rows are created, one for each side, with the individual track title.
-   - **EP / Maxi-single (multiple tracks):** one row per track, with the full position (A1, A2, B1 …) as the side value.
-   - **No tracklist available:** one row with the release title and an empty Side field.
+   The app loads the details (tracklist and country) of each selected release **on demand** from the Discogs release endpoint. Details are cached per release and reused for 6 hours (Discogs API ToU); older details are fetched again. All requests are throttled globally (≥ 1.1 s apart) to stay below the Discogs limit of 60 requests/min. Sides are resolved as follows:
+   - **Simple single (exactly 1 A-side + 1 B-side):** two rows are created, one for each side, with the individual track title. A UK double-A single (`A` / `AA`) becomes A and B.
+   - **EP / Maxi-single (multiple tracks):** one row per track; the side is always `A` or `B` (e.g. `A1`, `A2`, `B1`, `B2` → A, A, B, B).
+   - **Two tracks with numeric positions** (e.g. `1`, `2`): mapped to A and B in order.
+   - **Other sides are skipped:** tracks on C/D (e.g. a double 7") or numeric positions on releases with more than two tracks are left out (logged at info level).
+   - **No A/B tracks at all, or the details could not be loaded:** no row is created — the release is listed in the import warning instead. A queue row never has an empty side.
+
+   You can close the dialog with **Cancel** at any time — running requests are stopped.
 
 #### Step 5 — Review and confirm
 
@@ -520,9 +535,10 @@ A **Review dialog** opens showing all expanded rows before anything is written t
 | Title | Yes | Red background if empty (required) |
 | Artist | Yes | |
 | Label | Yes | |
+| Cat. No. | Yes | Catalog number — written to column G and printed on the label |
 | Country | Yes | |
 | Year | Yes | |
-| Side | Yes | Red background if empty (required) |
+| Side | Yes | Red background if empty (required); free text like `Side b` is saved as `B` |
 
 **Editing:**
 
@@ -534,7 +550,17 @@ A **Review dialog** opens showing all expanded rows before anything is written t
 
 **Status bar** at the bottom shows the total number of rows, how many are checked, and how many have incomplete required fields.
 
-**Confirm** (blue button) becomes active once at least one row is checked. Clicking it writes only the checked, visible rows to the Print sheet and closes both dialogs. The main window reloads the queue count automatically.
+**Confirm** (blue button) becomes active once at least one row is checked — including rows currently hidden by the search filter. Clicking it writes all checked rows (visible or hidden) to the Print sheet and closes both dialogs; unchecked rows are not written. If a search filter hides checked rows, the status bar says so (e.g. `2 of them hidden`). The main window reloads the queue count automatically.
+
+If the print queue already contains entries, you are asked how to proceed:
+
+| Button | Effect |
+|---|---|
+| **Append** (default) | Existing entries are kept; the new rows are added at the end |
+| **Replace** | The queue is replaced by the new rows |
+| **Cancel** | Nothing is written; you return to the review dialog |
+
+Opening the queue for editing via the sidebar never asks — there the edited list always replaces the queue.
 
 **Cancel** returns to the collection panel — your selection is preserved.
 
@@ -544,7 +570,7 @@ A **Review dialog** opens showing all expanded rows before anything is written t
 - The credentials file is listed in `.gitignore` and is never committed to version control.
 - On Linux/macOS file permissions are set to `600` (owner read/write only) automatically.
 - The Discogs collection cache (`data/discogs_cache.db`) is also gitignored and stays local.
-- Click **Log out** in the collection panel to delete the stored credentials immediately and return to the setup panel.
+- Click **Log out** (collection panel or **Settings → Discogs account**) to delete the stored credentials and the local collection cache immediately.
 
 ---
 
@@ -605,8 +631,8 @@ Restart the application after installing Poppler. If the preview still does not 
 | Platform | Symptom | Fix |
 |---|---|---|
 | Windows | Nothing happens after clicking Print | Your default PDF viewer does not register the "print" shell verb. The app falls back to opening the file — press **Ctrl + P** in the viewer. |
-| Linux | `lp: error` or no dialog | Install CUPS: `sudo apt install cups`. The app falls back to `xdg-open` if `lp` is unavailable. |
-| Linux | File opens in viewer but no print dialog | Click **File → Print** or press **Ctrl + P** inside the viewer. |
+| Linux | Nothing opens | The app opens the PDF with `xdg-open`. Make sure a default PDF viewer is set (e.g. `xdg-mime default org.gnome.Evince.desktop application/pdf`) and `xdg-utils` is installed. |
+| Linux | File opens in viewer but no print dialog | This is intended — click **File → Print** or press **Ctrl + P** inside the viewer. |
 
 ---
 
@@ -616,9 +642,12 @@ Restart the application after installing Poppler. If the preview still does not 
 |---|---|---|
 | "Token invalid" | Token revoked or entered incorrectly | Regenerate at [discogs.com/settings/developers](https://www.discogs.com/settings/developers) and re-enter via **Settings → Discogs account → Change token**. |
 | "No connection to Discogs" | Network or firewall issue | Check internet connectivity; verify that `api.discogs.com` is reachable. |
-| Import stalls during collection load | Discogs rate limit (60 requests/min) | The app shows a countdown and retries automatically — wait for the timer. |
+| Import stalls during collection load | Discogs rate limit (60 requests/min) | Requests are throttled automatically; on HTTP 429 the app waits (`Retry-After`, otherwise 60 s) and retries up to 2 times, then shows a countdown — wait for the timer. |
+| Import of many releases takes a while | Release details are loaded on demand, ≥ 1.1 s per uncached release | Expected. Details are cached for 6 hours, so re-importing the same releases is fast. |
+| Collection asks for a reload after an update | The cache schema gained the catalog number | Click **Load 7" Singles / Reload** once; the next sync fills in the catalog numbers. |
+| Country is empty | Country comes from the release details, which may not list one | Edit the Country field in the Review dialog. |
 | "Cache expired" warning in collection dialog | Cache is older than 6 hours | Click **Reload** to fetch a fresh copy. This is required by the Discogs API Terms of Use. |
-| Tracklist shows empty Side field | Track data unavailable for that release | Edit the Side field manually in the Review dialog before confirming the import. |
+| A selected release is listed in the import warning | Its details could not be loaded, or it has no A/B tracks (e.g. numbered tracks only) | Add the rows manually in the Review dialog (**Add row**) or via the Excel file. |
 
 ---
 
@@ -641,7 +670,7 @@ vinyl-label-printer/
 ├── config/
 │   ├── avery_formats.py           # Avery sheet dimensions and coordinate helpers
 │   ├── settings.py                # Persistent JSON settings (watermark path, data source mode, theme, ...)
-│   ├── settings.json              # Settings store; committed with defaults, overwritten on first save
+│   ├── settings.json              # Personal settings — NOT shipped; created on first save (gitignored)
 │   ├── stylesheet.py              # Global in-house QSS stylesheet builder (dark/light theming)
 │   ├── themes.py                  # ThemeColors dataclass — dark/light color palettes
 │   ├── credentials.example.json   # Committed template — values intentionally empty
@@ -655,9 +684,8 @@ vinyl-label-printer/
 │   ├── pdf_generator.py           # ReportLab — renders labels to PDF, dynamic font sizing
 │   ├── printer.py                 # Cross-platform OS print dialog trigger
 │   ├── i18n.py                    # All UI strings, language switching (DE / EN)
-│   ├── discogs_client.py          # Discogs REST API client (verify, fetch, filter, tracklist)
-│   ├── discogs_cache.py           # SQLite persistent cache for Discogs collection data (6 h ToU)
-│   ├── tracklist_loader.py        # Background QThread — lazy tracklist prefetch with cancellation
+│   ├── discogs_client.py          # Discogs REST API client (verify, collection, release details; global throttle)
+│   ├── discogs_cache.py           # SQLite cache: collection fields + per-release details (6 h ToU each)
 │   ├── version_checker.py         # GitHub release check + semantic version comparison
 │   └── credentials_manager.py     # Load/save/clear config/credentials.json
 └── ui/
@@ -712,14 +740,14 @@ Each label (48.5 × 25.4 mm) contains five centred text lines:
 | 1    | Title                 | Helvetica      | 9 pt     | 5 pt     |
 | 2    | Artist                | Helvetica-Bold | 8 pt     | 5 pt     |
 | 3    | `---`                 | Helvetica      | 6 pt     | 6 pt     |
-| 4    | Label (Country, Year) | Helvetica      | 7 pt     | 4.5 pt   |
+| 4    | Label CatNo (Country, Year) | Helvetica | 7 pt   | 4.5 pt   |
 | 5    | Side (A or B)         | Helvetica-Bold | 14 pt    | 14 pt    |
 
-Each field is **independently scaled down** from its maximum font size until the text fits within the usable label width (label width minus 4 pt horizontal padding on each side). Scaling stops at the minimum size — text is never clipped.
+Each field is **independently scaled down** from its maximum font size until the text fits within the usable label width (label width minus 4 pt horizontal padding on each side). Scaling stops at the minimum size; text that is still too wide is shortened with `…` so it never leaves the label.
 
 The five-line block is vertically centred inside the label cell. If a watermark image is set it is drawn first (behind the text), centred and scaled to fit within a 4 pt inset, at approximately 10 % opacity.
 
-**Info line formatting:** Country and Year are shown in parentheses after the label name. Empty fields are omitted along with their separator — e.g. if Country is empty, the line reads `Label (Year)` rather than `Label (, Year)`. If both are empty, the parentheses are dropped entirely.
+**Info line formatting:** `Label CatNo (Country, Year)`, e.g. `Pyramid PYR 6013 (UK, 1967)`. Empty fields are omitted along with their separator — e.g. without a catalog number and country the line reads `Pyramid (1967)`; if Country and Year are both empty, the parentheses are dropped entirely.
 
 ### Module Reference
 
@@ -734,7 +762,7 @@ The five-line block is vertically centred inside the label cell. If a watermark 
 
 #### `config/settings.py`
 
-Reads and writes `config/settings.json`. Keys:
+Reads and writes `config/settings.json`. The file is not shipped with the app — missing keys (or a missing file) fall back to defaults, and the file is created on the first save. Keys:
 
 | Key | Type | Description |
 |---|---|---|
@@ -759,10 +787,12 @@ Reads and writes `config/settings.json`. Keys:
 
 | Symbol | Description |
 |---|---|
-| `LabelRecord` | Named tuple: `title`, `artist`, `label`, `country`, `year`, `side` |
-| `load_print_queue(path)` | Reads the `Print` sheet; skips blank rows; normalises `side` to `"A"` or `"B"` |
+| `LabelRecord` | Dataclass: `title`, `artist`, `label`, `country`, `year`, `side`, `catno` (default `""`) |
+| `COLUMNS` | Sheet header: `Title`, `Artist`, `Label`, `Country`, `Year`, `Side`, `CatNo` (columns A–G) |
+| `load_print_queue(path)` | Reads the `Print` sheet; skips blank rows; normalises `side`; files without column G load with `catno=""` |
 | `load_database(path)` | Reads the `Database` sheet in read-only mode |
-| `write_print_queue(path, records)` | Overwrites the `Print` sheet with the given `LabelRecord` list |
+| `write_print_queue(path, records)` | Overwrites the `Print` sheet with the given `LabelRecord` list (all 7 columns) |
+| `normalise_side(value)` | Maps any side / position to `"A"` or `"B"` (`AA` → `B`, `A1` → `A`, `Seite B` → `B`, empty → `A`) |
 
 #### `modules/pdf_generator.py`
 
@@ -770,44 +800,46 @@ Reads and writes `config/settings.json`. Keys:
 |---|---|
 | `generate_pdf(records, output_path, format_name, start_position, watermark_path, debug_frames)` | Renders all records to a multi-page PDF; returns the resolved output path |
 | `generate_calibration_pdf(output_path, fmt)` | Renders a diagnostic calibration sheet with row/column indices, expected X/Y ranges, crosshairs, corner marks, and mm rulers; saved to `output/calibration_avery4780.pdf` |
-| `fit_text_to_width(c, text, max_width, font_name, size_max, size_min, step)` | Returns the largest font size ≤ `size_max` at which `text` fits within `max_width`; floors at `size_min` |
+| `fit_text_to_width(c, text, max_width, font_name, size_max, size_min, step)` | Returns the largest font size ≤ `size_max` at which `text` fits within `max_width`; floors at `size_min` (the caller then truncates with `…` if needed) |
 | `_WATERMARK_ALPHA` | Module constant (default `25`, range 0–255) — controls watermark opacity |
 
 #### `modules/discogs_client.py`
 
 | Symbol | Description |
 |---|---|
-| `DiscogsClient(username, token)` | Initialises a `requests.Session` with Discogs auth headers |
+| `DiscogsClient(username, token, cancel_event=None)` | Initialises a `requests.Session` with Discogs auth headers; setting the optional `threading.Event` aborts pending waits |
 | `verify_token()` | `GET /oauth/identity` — returns `True` if valid, `False` if 401, raises `ConnectionError` on network failure |
 | `fetch_collection(progress_callback)` | Paginates through all collection pages (sort: newest first); calls `progress_callback(page, total_pages)` between pages |
-| `filter_7inch(releases)` | Returns only 7" releases (format description matching); strips disambiguation suffixes from artist names; includes catno in label field |
-| `normalize_for_cache(releases)` | Normalises ALL releases for SQLite storage: sets `is_7inch`, `formats_json`, `date_added`; label name only (no catno) |
-| `fetch_tracklist(release_id)` | `GET /releases/{id}` — returns `{"tracks": list[dict], "country": str}`; normalises `A1`/`B1` positions to `A`/`B` for simple singles; sleeps 1 s for rate limiting |
+| `normalize_for_cache(releases)` | Normalises ALL releases for SQLite storage (collection fields only): `is_7inch`, `formats_json`, `date_added`, label name without disambiguation suffix (`Pyramid (2)` → `Pyramid`), `catno` (`none` → empty) |
+| `fetch_release_details(release_id)` | `GET /releases/{id}` — returns `{"tracks": list[dict], "country": str}` with each `track` entry (headings / index entries skipped) mapped to side `A`/`B` via `map_tracks_to_sides()`; other sides are skipped |
+| `map_tracks_to_sides(tracks, release_id)` | Maps positions to `A`/`B` (`AA` → `B`, `A2` → `A`); skips C/D and numeric positions, except exactly two numeric tracks → A, B |
+| `REQUEST_TIMEOUT` | `(5, 30)` — connect / read timeout applied to every request |
+| `MIN_REQUEST_INTERVAL_S` | `1.1` — minimum spacing between any two requests, enforced across all instances and threads |
+| `DiscogsRequestCancelled` | Raised when a wait is aborted via the cancel event |
+
+All HTTP calls go through a private `_request()` that applies the global throttle, logs `X-Discogs-Ratelimit-Remaining` (debug level) and retries HTTP 429 up to 2 times after `Retry-After` seconds (default 60 s); afterwards `requests.HTTPError` is raised as before.
 
 #### `modules/discogs_cache.py`
 
-SQLite-based persistent cache for Discogs collection data. Enforces the Discogs API Terms of Use: data older than 6 hours is treated as expired and must not be displayed.
+SQLite-based persistent cache for Discogs data. Enforces the Discogs API Terms of Use: data older than 6 hours is treated as expired and must not be displayed. Two groups of fields have separate freshness:
+
+| Group | Fields | Freshness |
+|---|---|---|
+| Collection | `title`, `artist`, `label`, `catno`, `year`, `formats_json`, `is_7inch`, `date_added` | Refreshed by every full sync; validity via `cache_meta.cached_at` |
+| Details | `country`, `tracklist_json`, `details_fetched_at` | Fetched on demand per release; each release has its own 6 h TTL |
 
 | Symbol | Description |
 |---|---|
-| `DiscogsCache()` | Opens (or creates) `data/discogs_cache.db`; runs schema migrations on first call |
+| `DiscogsCache()` | Opens (or creates) `data/discogs_cache.db`; runs schema migrations (adding `catno` invalidates the cache once so the next sync fills it) |
 | `get_cache_status()` | Returns `has_cache`, `is_valid`, `cached_at`, `age_hours`, `total_items`, `items_7inch`, `username` |
 | `get_7inch_releases()` | Returns all 7" releases ordered by `date_added DESC`; raises `RuntimeError` if cache is expired |
-| `get_pending_tracklist_ids()` | Returns `discogs_id` list of 7" releases whose tracklist has not been fetched yet |
-| `sync_releases(releases, username)` | Three-way diff: INSERT new, UPDATE changed (preserves existing tracklist data), DELETE removed; returns `{"added", "updated", "removed", "unchanged"}` |
-| `update_tracklist(discogs_id, tracklist)` | Persists a fetched tracklist; verifies the write with a follow-up SELECT |
+| `sync_releases(releases, username)` | Three-way diff on all collection fields: INSERT new, UPDATE changed (collection fields only — details are never touched), DELETE removed; returns `{"added", "updated", "removed", "unchanged"}` |
+| `get_details(discogs_id)` | Returns `{"tracks", "country"}` if details are younger than 6 h, otherwise `None` |
+| `save_details(discogs_id, tracks, country)` | Stores details with the current UTC timestamp |
 | `is_date_added_populated()` | Returns `True` if any release has a `date_added` value (migration guard) |
 | `clear()` | Wipes all cached releases and metadata |
 
-#### `modules/tracklist_loader.py`
-
-| Symbol | Description |
-|---|---|
-| `TracklistLoaderThread(client, cache, pending_ids)` | `QThread` subclass; iterates `pending_ids` after collection load |
-| `cancel()` | Sets a cancellation flag; the thread stops after finishing its current fetch (max 1 s delay) |
-| Signals | `progress(int, int)` — current/total; `tracklist_ready(int, list)` — id + tracks; `finished()`; `error(str)` non-fatal per-item error |
-
-The thread performs a pre-flight cache check before each API call and skips releases already stored. `fetch_tracklist()` internally sleeps 1 s for rate limiting — no additional sleep is added.
+Timestamps are stored as timezone-aware UTC ISO strings; naive values from older caches are read as UTC. Every connection is committed (or rolled back) and closed after use.
 
 #### `modules/credentials_manager.py`
 
@@ -843,7 +875,7 @@ The toggle is exposed in **Settings → Appearance → Developer → Debug loggi
 
 | Symbol | Description |
 |---|---|
-| `GITHUB_API_URL` | Endpoint: `GET /repos/EJAIS/vinylsticker/releases` — called with `per_page=1` as a request parameter (includes pre-releases) |
+| `GITHUB_API_URL` | Endpoint: `GET /repos/EJAIS/vinylsticker/releases` — called with `per_page=10`; the newest release with a plain `MAJOR.MINOR.PATCH` tag (optional `v` / `v.`) is used — pre-release tags such as `v0.4.0-rc1` are never reported as an update |
 | `GITHUB_RELEASES_URL` | Fallback URL opened when `release_url` is unavailable |
 | `get_latest_version(timeout)` | Fetches the newest release; returns a dict with `success`, `latest_version`, `tag_name`, `release_url`, `error` (`"network"` / `"api"` / `"no_releases"` / `"unknown"`) |
 | `is_update_available(latest_version)` | Compares `latest_version` against the running `__version__` using tuple comparison; returns `True` if an update exists |
@@ -855,7 +887,7 @@ Before opening the OS print dialog, `print_pdf()` shows a one-time `QMessageBox`
 | Platform | Mechanism |
 |---|---|
 | Windows | `os.startfile(path, "print")`; falls back to `os.startfile(path)` if no "print" verb is registered (e.g. Microsoft Edge as default viewer) |
-| Linux | `lp` (CUPS); falls back to `xdg-open` if `lp` is not available |
+| Linux | `xdg-open` — opens the default PDF viewer; the user prints from its print dialog (no direct `lp` printing) |
 | macOS | `open -a Preview` |
 
 #### `ui/styles.py`
@@ -884,7 +916,9 @@ Emits `theme_changed(str)`, `mode_changed(str)`, and `language_changed()` to `Ma
 | Setup      | No valid credentials saved                                     |
 | Collection | Valid credentials found or after successful token verification |
 
-On open the dialog checks the SQLite cache via `DiscogsCache`: if valid (< 6 h) it populates the table instantly; if expired it shows a warning and blocks the table; if empty it shows a first-load prompt. A full API pull syncs the cache and shows a brief sync report.
+Table columns: ☐, Title, Artist, Label, Cat. No., Year; the live search matches artist, title and catalog number.
+
+On open the dialog checks the SQLite cache via `DiscogsCache`: if valid (< 6 h) it populates the table instantly; if expired it shows a warning and blocks the table; if empty (or created for another account) it shows a first-load prompt. A full API pull syncs the cache and shows a brief sync report. There is no background tracklist prefetch — details are loaded at import time.
 
 Selections persist across live-search queries via an internal `_selected_ids: set[int]` keyed on `discogs_id`. The table's `itemChanged` signal is blocked during repopulation to prevent recursive updates. **Select all** / **Deselect all** operate only on currently visible rows; hidden selections are preserved. A counter label shows `N selected` or `N selected (M visible)` when filtered results hide part of the selection. **Add to print queue** always reads from `_selected_ids` rather than from visible table rows.
 
@@ -893,9 +927,10 @@ Background workers:
 | Class | Signal(s) | Description |
 |---|---|---|
 | `_VerifyWorker` | `success`, `failure(str)` | Calls `verify_token()` off the UI thread |
-| `_FetchWorker` | `progress(int,int)`, `finished(list)`, `error(int,str)` | Paginates `fetch_collection()`; handles 429 rate-limit with a 60 s countdown + auto-retry |
-| `TracklistLoaderThread` | `progress(int,int)`, `tracklist_ready(int,list)`, `finished()`, `error(str)` | Lazy-prefetches tracklists for all 7" releases after collection load; cache-first, API fallback; cancellable |
-| `_TracklistWorker` | `progress(int,int)`, `finished(list,list)` | Calls `fetch_tracklist()` per selected release at import time; cache-first; expands into per-side rows |
+| `_FetchWorker` | `progress(int,int)`, `fetch_done(list)`, `error(int,str)` | Paginates `fetch_collection()`; a persistent 429 starts a 60 s countdown + auto-retry |
+| `_ImportWorker` | `progress(int,int)`, `import_done(list,list)` | Per selected release: `get_details()` from the cache, otherwise `fetch_release_details()` + `save_details()`; maps tracks to A/B and expands into per-side rows |
+
+All workers share one cancel event. Closing the dialog in any way (Cancel, Esc, after import, window close) calls `_shutdown_workers()` via `done()`, which sets the event and waits for the workers to stop.
 
 #### `ui/review_widget.py`
 
@@ -903,12 +938,13 @@ Background workers:
 
 | Feature | Details |
 |---|---|
-| Columns | ☐, Title, Artist, Label, Country, Year, Side |
+| Columns | ☐, Title, Artist, Label, Cat. No., Country, Year, Side |
 | Required fields | Title, Side — highlighted red when empty |
 | Edit feedback | Edited cell flashes yellow (600 ms) then returns to normal or red |
 | Row operations | Drag & drop reorder; context menu delete / duplicate; toolbar add / delete |
-| Search | Live filter by title or artist (`setRowHidden`) |
-| Confirm | Writes only checked, visible rows via `write_print_queue()`; disabled until ≥ 1 row checked |
+| Search | Live filter by title or artist (`setRowHidden`); **Select all / none** only affect visible rows |
+| Confirm | Writes all checked rows (visible or hidden) via `write_print_queue()`; sides saved via `normalise_side()`; disabled until ≥ 1 row is checked |
+| `import_mode` | `True` when opened from the Discogs import: asks **Append / Replace / Cancel** if the Print sheet is not empty. `False` (editing the queue from the sidebar) always replaces |
 
 ### Printer Calibration
 
