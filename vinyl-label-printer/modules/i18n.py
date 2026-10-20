@@ -274,6 +274,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_warn_msg":      "{k} Einträge haben leere Felder (markiert in Rot).\nMöchtest du trotzdem fortfahren?",
         "review_warn_continue": "Fortfahren",
         "review_warn_back":     "Zurück zur Liste",
+        "review_queue_exists_title": "Druckwarteschlange nicht leer",
+        "review_queue_exists_msg":   "Die Druckwarteschlange enthält bereits {n} Einträge.\n"
+                                     "Neue Einträge anhängen oder die Warteschlange ersetzen?",
+        "review_queue_append":       "Anhängen",
+        "review_queue_replace":      "Ersetzen",
+        "review_queue_cancel":       "Abbrechen",
         "review_no_sel_msg":    "Keine Zeilen ausgewählt.",
 
         # Settings menu / theme / language
@@ -653,6 +659,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_warn_msg":      "{k} entries have empty fields (marked in red).\nContinue anyway?",
         "review_warn_continue": "Continue",
         "review_warn_back":     "Back to list",
+        "review_queue_exists_title": "Print queue not empty",
+        "review_queue_exists_msg":   "The print queue already contains {n} entries.\n"
+                                     "Append the new entries or replace the queue?",
+        "review_queue_append":       "Append",
+        "review_queue_replace":      "Replace",
+        "review_queue_cancel":       "Cancel",
         "review_no_sel_msg":    "No rows selected.",
 
         # Settings menu / theme / language

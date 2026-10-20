@@ -41,9 +41,17 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules.excel_reader import LabelRecord, write_print_queue
+from modules.excel_reader import (
+    LabelRecord,
+    load_print_queue,
+    normalise_side,
+    write_print_queue,
+)
+from modules.logger import get_logger
 from modules.i18n import t
 from ui.styles import apply_search_style, apply_table_style
+
+logger = get_logger()
 
 # ── Column indices ────────────────────────────────────────────────────────────
 
@@ -79,10 +87,15 @@ class ReviewDialog(QDialog):
         self,
         records: list[dict],
         db_path: Path,
+        import_mode: bool = False,
         parent=None,
     ) -> None:
+        """*import_mode*: rows come from an import (e.g. Discogs) — ask whether
+        to append to or replace a non-empty print queue on confirm.  When
+        False the dialog edits the queue itself and always replaces it."""
         super().__init__(parent)
         self._db_path   = db_path
+        self._import_mode = import_mode
         self._populating = False
         self._confirmed_records: list[LabelRecord] = []
         self._row_count = len(records)   # total rows at open (for title)
@@ -519,6 +532,15 @@ class ReviewDialog(QDialog):
 
         records = [self._row_to_labelrecord(r) for r in checked_rows]
 
+        if self._import_mode:
+            existing = self._load_existing_queue()
+            if existing:
+                choice = self._ask_append_or_replace(len(existing))
+                if choice is None:
+                    return
+                if choice == "append":
+                    records = existing + records
+
         try:
             write_print_queue(self._db_path, records)
         except Exception as exc:
@@ -531,6 +553,38 @@ class ReviewDialog(QDialog):
 
         self._confirmed_records = records
         self.accept()
+
+    def _load_existing_queue(self) -> list[LabelRecord]:
+        try:
+            return load_print_queue(self._db_path)
+        except Exception as exc:
+            logger.warning(f"Could not read existing print queue: {exc}")
+            return []
+
+    def _ask_append_or_replace(self, n_existing: int) -> str | None:
+        """Return "append", "replace" or None (cancel)."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle(t("review_queue_exists_title"))
+        msg.setText(t("review_queue_exists_msg", n=n_existing))
+        btn_append  = msg.addButton(
+            t("review_queue_append"), QMessageBox.ButtonRole.AcceptRole
+        )
+        btn_replace = msg.addButton(
+            t("review_queue_replace"), QMessageBox.ButtonRole.DestructiveRole
+        )
+        btn_cancel  = msg.addButton(
+            t("review_queue_cancel"), QMessageBox.ButtonRole.RejectRole
+        )
+        msg.setDefaultButton(btn_append)
+        msg.setEscapeButton(btn_cancel)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked == btn_append:
+            return "append"
+        if clicked == btn_replace:
+            return "replace"
+        return None
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -557,7 +611,9 @@ class ReviewDialog(QDialog):
             label   = rec["label"],
             country = rec["country"],
             year    = rec["year"],
-            side    = rec["side"],
+            # Free text like "Side b" is stored as "B"; empty stays empty
+            # (flagged by the validation in _on_confirm)
+            side    = normalise_side(rec["side"]) if rec["side"].strip() else "",
             catno   = rec["catno"],
         )
 

@@ -55,6 +55,7 @@ from PyQt6.QtWidgets import (
 from modules.credentials_manager import CredentialsManager
 from modules.discogs_cache import CACHE_MAX_AGE_HOURS, DiscogsCache
 from modules.discogs_client import DiscogsClient, DiscogsRequestCancelled
+from modules.excel_reader import normalise_side
 from modules.i18n import t
 from modules.logger import get_logger
 from ui.review_widget import ReviewDialog
@@ -145,6 +146,22 @@ class _FetchWorker(QThread):
             self.error.emit(0, str(exc))
 
 
+def _assign_sides(tracks: list[dict]) -> list[tuple[str, str]]:
+    """Map tracks to (title, side) pairs with side "A" or "B".
+
+    Works with raw positions ('AA', 'A1', …) as well as details cached in the
+    older, already normalised format.  Two tracks without any A/B position
+    (e.g. '1', '2') are mapped to A and B in order.
+    """
+    has_ab = any(
+        (trk.get("position") or "").strip().upper().startswith(("A", "B"))
+        for trk in tracks
+    )
+    if not has_ab and len(tracks) == 2:
+        return [(tracks[0]["title"], "A"), (tracks[1]["title"], "B")]
+    return [(trk["title"], normalise_side(trk.get("position"))) for trk in tracks]
+
+
 class _ImportWorker(QThread):
     """Load release details for selected releases and expand into per-side rows.
 
@@ -216,23 +233,18 @@ class _ImportWorker(QThread):
             base["country"] = details["country"]
             tracks = details["tracks"]
 
-            a_sides = [trk for trk in tracks if trk["position"] == "A"]
-            b_sides = [trk for trk in tracks if trk["position"] == "B"]
+            sided   = _assign_sides(tracks)
+            a_sides = [title for title, side in sided if side == "A"]
+            b_sides = [title for title, side in sided if side == "B"]
 
             if len(a_sides) == 1 and len(b_sides) == 1:
                 # Simple single: two rows with individual track titles
-                records_data.append(
-                    {**base, "title": a_sides[0]["title"], "side": "A"}
-                )
-                records_data.append(
-                    {**base, "title": b_sides[0]["title"], "side": "B"}
-                )
-            elif tracks:
-                # EP / Maxi / ambiguous: one row per track, full position as side
-                for trk in tracks:
-                    records_data.append(
-                        {**base, "title": trk["title"], "side": trk["position"]}
-                    )
+                records_data.append({**base, "title": a_sides[0], "side": "A"})
+                records_data.append({**base, "title": b_sides[0], "side": "B"})
+            elif sided:
+                # EP / Maxi: one row per track, side always "A" or "B"
+                for title, side in sided:
+                    records_data.append({**base, "title": title, "side": side})
             else:
                 # No AB tracks returned: one fallback row
                 records_data.append(
@@ -830,7 +842,7 @@ class DiscogsDialog(QDialog):
                 + "\n" + "\n".join(f"• {w}" for w in warnings),
             )
 
-        dlg = ReviewDialog(records_data, self._db_path, parent=self)
+        dlg = ReviewDialog(records_data, self._db_path, import_mode=True, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.accept()
 

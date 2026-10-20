@@ -199,15 +199,12 @@ class DiscogsClient:
         return result
 
     def fetch_release_details(self, release_id: int) -> dict:
-        """Fetch release details (A/B tracks and country) for a release.
+        """Fetch release details (tracks and country) for a release.
 
-        Calls GET /releases/{release_id} and returns the subset of tracks
-        whose position starts with 'A' or 'B'.
-
-        Normalisation: if the result contains exactly one A-side track and one
-        B-side track the position digits are stripped ('A1' → 'A', 'B1' → 'B').
-        For EPs / Maxis with multiple A or B tracks the original positions are
-        kept (e.g. 'A1', 'A2', 'B1', 'B2').
+        Calls GET /releases/{release_id} and returns every tracklist entry of
+        type "track" (headings and index entries are skipped) with its RAW
+        position, e.g. 'A', 'AA', 'A1', 'B2' or ''.  Mapping positions to
+        sides is up to the caller (see excel_reader.normalise_side()).
 
         Raises requests.HTTPError on non-2xx responses.
         Returns dict with keys:
@@ -223,26 +220,19 @@ class DiscogsClient:
         country    = body.get("country", "")
         raw_tracks = body.get("tracklist", [])
 
-        ab_tracks = [
+        tracks = [
             {
-                "position": trk.get("position", "").strip(),
+                "position": (trk.get("position") or "").strip(),
                 "title":    trk.get("title", ""),
             }
             for trk in raw_tracks
-            if trk.get("position", "").upper().startswith(("A", "B"))
+            if trk.get("type_", "track") == "track"
         ]
 
-        a_sides = [t for t in ab_tracks if t["position"].upper().startswith("A")]
-        b_sides = [t for t in ab_tracks if t["position"].upper().startswith("B")]
-
-        if len(a_sides) == 1 and len(b_sides) == 1:
-            for trk in ab_tracks:
-                trk["position"] = trk["position"][0].upper()  # 'A1' → 'A'
-
         logger.debug(
-            f"Tracklist fetched: {len(ab_tracks)} tracks for release_id={release_id}"
+            f"Tracklist fetched: {len(tracks)} tracks for release_id={release_id}"
         )
-        return {"tracks": ab_tracks, "country": country}
+        return {"tracks": tracks, "country": country}
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
