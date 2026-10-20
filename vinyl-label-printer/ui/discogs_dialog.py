@@ -28,6 +28,7 @@ Collection panel
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -52,7 +53,7 @@ from PyQt6.QtWidgets import (
 
 from modules.credentials_manager import CredentialsManager
 from modules.discogs_cache import CACHE_MAX_AGE_HOURS, DiscogsCache
-from modules.discogs_client import DiscogsClient
+from modules.discogs_client import DiscogsClient, DiscogsRequestCancelled
 from modules.i18n import t
 from modules.logger import get_logger
 from modules.tracklist_loader import TracklistLoaderThread
@@ -76,14 +77,25 @@ class _VerifyWorker(QThread):
     success = pyqtSignal()
     failure = pyqtSignal(str)
 
-    def __init__(self, username: str, token: str, parent=None) -> None:
+    def __init__(
+        self,
+        username: str,
+        token: str,
+        cancel_event: threading.Event,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
-        self._username = username
-        self._token    = token
+        self._username     = username
+        self._token        = token
+        self._cancel_event = cancel_event
 
     def run(self) -> None:
         try:
-            valid = DiscogsClient(self._username, self._token).verify_token()
+            valid = DiscogsClient(
+                self._username, self._token, self._cancel_event
+            ).verify_token()
+        except DiscogsRequestCancelled:
+            return
         except ConnectionError:
             self.failure.emit(t("discogs_err_network"))
             return
@@ -100,21 +112,30 @@ class _FetchWorker(QThread):
     """Fetch the collection in the background."""
 
     progress = pyqtSignal(int, int)   # current_page, total_pages
-    finished = pyqtSignal(list)       # list[dict] raw releases
-    error    = pyqtSignal(int, str)   # http_status_code (0=network), message
+    fetch_done = pyqtSignal(list)     # list[dict] raw releases
+    error      = pyqtSignal(int, str) # http_status_code (0=network), message
 
-    def __init__(self, username: str, token: str, parent=None) -> None:
+    def __init__(
+        self,
+        username: str,
+        token: str,
+        cancel_event: threading.Event,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
-        self._username = username
-        self._token    = token
+        self._username     = username
+        self._token        = token
+        self._cancel_event = cancel_event
 
     def run(self) -> None:
         try:
-            client   = DiscogsClient(self._username, self._token)
+            client   = DiscogsClient(self._username, self._token, self._cancel_event)
             releases = client.fetch_collection(
                 progress_callback=lambda cur, tot: self.progress.emit(cur, tot)
             )
-            self.finished.emit(releases)
+            self.fetch_done.emit(releases)
+        except DiscogsRequestCancelled:
+            logger.debug("Collection fetch cancelled")
         except _requests.HTTPError as exc:
             code = exc.response.status_code if exc.response is not None else 0
             self.error.emit(code, str(exc))
@@ -132,7 +153,7 @@ class _TracklistWorker(QThread):
     """
 
     progress = pyqtSignal(int, int)   # n, total
-    finished = pyqtSignal(list, list) # (records_data: list[dict], warnings: list[str])
+    tracklists_done = pyqtSignal(list, list)  # (records_data: list[dict], warnings: list[str])
 
     def __init__(
         self,
@@ -140,17 +161,21 @@ class _TracklistWorker(QThread):
         username: str,
         token: str,
         cache,                         # DiscogsCache — avoids circular import annotation
+        cancel_event: threading.Event,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._selected = selected
-        self._username = username
-        self._token    = token
-        self._cache    = cache
+        self._selected     = selected
+        self._username     = username
+        self._token        = token
+        self._cache        = cache
+        self._cancel_event = cancel_event
 
     def run(self) -> None:
         import json as _json
-        client: DiscogsClient = DiscogsClient(self._username, self._token)
+        client: DiscogsClient = DiscogsClient(
+            self._username, self._token, self._cancel_event
+        )
         total         = len(self._selected)
         records_data: list[dict] = []
         warnings:     list[str]  = []
@@ -187,6 +212,9 @@ class _TracklistWorker(QThread):
                     tracks = result["tracks"]
                     # Persist immediately so subsequent opens don't hit the API
                     self._cache.update_tracklist(rid, tracks)
+                except DiscogsRequestCancelled:
+                    logger.debug(f"_TracklistWorker stopped after {n - 1}/{total} releases")
+                    return
                 except Exception:
                     warnings.append(release["title"])
                     records_data.append(
@@ -217,7 +245,7 @@ class _TracklistWorker(QThread):
                     {**base, "title": release["title"], "side": ""}
                 )
 
-        self.finished.emit(records_data, warnings)
+        self.tracklists_done.emit(records_data, warnings)
 
 
 # ── Main dialog ───────────────────────────────────────────────────────────────
@@ -258,6 +286,9 @@ class DiscogsDialog(QDialog):
         self._tracklist_loader:    Optional[TracklistLoaderThread] = None
         self._cache:               DiscogsCache                    = DiscogsCache()
         self._selected_ids:        set[int]                        = set()
+        # Shared by all workers of this dialog; set on close to abort waits
+        self._cancel_event      = threading.Event()
+        self._workers_shut_down = False
 
         self.setWindowTitle(t("dlg_discogs_title"))
         self.setWindowFlags(
@@ -487,7 +518,9 @@ class DiscogsDialog(QDialog):
         self._btn_verify.setEnabled(False)
         self._setup_status.setText(t("discogs_verifying"))
 
-        self._verify_worker = _VerifyWorker(username, token, parent=self)
+        self._verify_worker = _VerifyWorker(
+            username, token, self._cancel_event, parent=self
+        )
         self._verify_worker.success.connect(
             lambda: self._on_verify_success(username, token)
         )
@@ -537,11 +570,13 @@ class DiscogsDialog(QDialog):
         self._table.setRowCount(0)
         self._lbl_progress.setText(t("discogs_connecting"))
 
-        self._fetch_worker = _FetchWorker(username, token, parent=self)
+        self._fetch_worker = _FetchWorker(
+            username, token, self._cancel_event, parent=self
+        )
         self._fetch_worker.progress.connect(self._on_fetch_progress)
-        self._fetch_worker.finished.connect(self._on_fetch_finished)
+        self._fetch_worker.fetch_done.connect(self._on_fetch_finished)
         self._fetch_worker.error.connect(self._on_fetch_error)
-        self._fetch_worker.finished.connect(
+        self._fetch_worker.fetch_done.connect(
             lambda _: self._btn_fetch.setEnabled(True)
         )
         self._fetch_worker.error.connect(
@@ -783,10 +818,11 @@ class DiscogsDialog(QDialog):
         self._btn_logout.setEnabled(False)
 
         self._tracklist_worker = _TracklistWorker(
-            selected_releases, username, token, self._cache, parent=self
+            selected_releases, username, token, self._cache, self._cancel_event,
+            parent=self,
         )
         self._tracklist_worker.progress.connect(self._on_tracklist_progress)
-        self._tracklist_worker.finished.connect(self._on_tracklist_done)
+        self._tracklist_worker.tracklists_done.connect(self._on_tracklist_done)
         self._tracklist_worker.start()
 
     def _on_tracklist_progress(self, n: int, total: int) -> None:
@@ -967,40 +1003,6 @@ class DiscogsDialog(QDialog):
                     f"Seiten={sides}"
                 )
 
-    def _get_tracklist(self, discogs_id: int) -> list[dict]:
-        """Return tracklist for a release. Cache-first — only calls API on miss."""
-        import json as _json
-        cached = self._cache.get_release(int(discogs_id))
-        if (cached
-                and cached.get("tracklist_fetched")
-                and cached.get("tracklist_json")):
-            tracks = _json.loads(cached["tracklist_json"])
-            logger.debug(
-                f"_get_tracklist Cache-Hit: discogs_id={discogs_id} "
-                f"({len(tracks)} tracks)"
-            )
-            return tracks
-
-        # Cache miss — API fallback
-        logger.info(
-            f"_get_tracklist Cache-Miss: discogs_id={discogs_id} — API-Call"
-        )
-        try:
-            creds  = self._cred_mgr.load()
-            client = DiscogsClient(
-                creds.get("discogs_username", ""),
-                creds.get("discogs_token", ""),
-            )
-            result = client.fetch_tracklist(int(discogs_id))
-            tracks = result.get("tracks", [])
-            self._cache.update_tracklist(int(discogs_id), tracks)
-            return tracks
-        except Exception as exc:
-            logger.error(
-                f"_get_tracklist API-Fehler: discogs_id={discogs_id} — {exc}"
-            )
-            return []
-
     def _start_tracklist_loader(self, pending_ids: list[int]) -> None:
         if self._tracklist_loader and self._tracklist_loader.isRunning():
             return
@@ -1008,13 +1010,14 @@ class DiscogsDialog(QDialog):
         client = DiscogsClient(
             creds.get("discogs_username", ""),
             creds.get("discogs_token", ""),
+            self._cancel_event,
         )
         self._tracklist_loader = TracklistLoaderThread(
             client, self._cache, pending_ids, parent=self
         )
         self._tracklist_loader.progress.connect(self._on_tracklist_loading_progress)
         self._tracklist_loader.tracklist_ready.connect(self._on_tracklist_ready)
-        self._tracklist_loader.finished.connect(self._on_tracklist_loading_done)
+        self._tracklist_loader.loading_done.connect(self._on_tracklist_loading_done)
         self._lbl_tracklist_progress.setVisible(True)
         self._tracklist_loader.start()
 
@@ -1035,10 +1038,42 @@ class DiscogsDialog(QDialog):
             lambda: self._lbl_tracklist_progress.setVisible(False)
         )
 
-    def closeEvent(self, event) -> None:
-        self._selected_ids.clear()
-        if self._tracklist_loader and self._tracklist_loader.isRunning():
-            logger.debug("DiscogsDialog: cancelling tracklist loader on close")
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+
+    def _shutdown_workers(self) -> None:
+        """Cancel all background workers and wait for them to stop (once)."""
+        if self._workers_shut_down:
+            return
+        self._workers_shut_down = True
+
+        # Abort pending throttle / rate-limit waits in every DiscogsClient
+        self._cancel_event.set()
+        if self._rate_timer:
+            self._rate_timer.stop()   # would otherwise restart a fetch later
+        if self._tracklist_loader:
             self._tracklist_loader.cancel()
-            self._tracklist_loader.wait(2000)
+
+        workers = (
+            ("tracklist loader", self._tracklist_loader),
+            ("tracklist worker", self._tracklist_worker),
+            ("fetch worker",     self._fetch_worker),
+            ("verify worker",    self._verify_worker),
+        )
+        for name, worker in workers:
+            if worker and worker.isRunning():
+                logger.debug(f"DiscogsDialog: stopping {name}")
+                if worker.wait(3000):
+                    logger.debug(f"DiscogsDialog: {name} stopped")
+                else:
+                    logger.warning(f"DiscogsDialog: {name} did not stop within 3 s")
+
+        self._selected_ids.clear()
+
+    def done(self, result: int) -> None:
+        # Covers accept(), reject() (Cancel / Esc) and close
+        self._shutdown_workers()
+        super().done(result)
+
+    def closeEvent(self, event) -> None:
+        self._shutdown_workers()
         super().closeEvent(event)

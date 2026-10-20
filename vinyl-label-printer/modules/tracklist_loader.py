@@ -10,7 +10,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from modules.discogs_cache import DiscogsCache
-from modules.discogs_client import DiscogsClient
+from modules.discogs_client import DiscogsClient, DiscogsRequestCancelled
 from modules.logger import get_logger
 
 logger = get_logger()
@@ -21,13 +21,13 @@ class TracklistLoaderThread(QThread):
     Fetches tracklists in the background after the collection is loaded.
     Emits progress and updates the cache incrementally.
 
-    fetch_tracklist() already sleeps 1 second per call for rate limiting —
-    no additional sleep is added here.
+    Rate limiting is handled globally by DiscogsClient — no additional sleep
+    is added here.  Setting the client's cancel event aborts a pending wait.
     """
 
     progress        = pyqtSignal(int, int)   # current, total
     tracklist_ready = pyqtSignal(int, list)  # discogs_id, tracks
-    finished        = pyqtSignal()
+    loading_done    = pyqtSignal()
     error           = pyqtSignal(str)        # per-item error message (non-fatal)
 
     def __init__(
@@ -84,6 +84,12 @@ class TracklistLoaderThread(QThread):
                 logger.debug(
                     f"Tracklist OK: discogs_id={rid} — {len(tracks)} tracks found"
                 )
+            except DiscogsRequestCancelled:
+                self._cancelled = True
+                logger.debug(
+                    f"Tracklist loader stopped after {i}/{total} releases"
+                )
+                return
             except Exception as exc:
                 logger.warning(
                     f"Tracklist fetch failed — skipping: "
@@ -99,4 +105,4 @@ class TracklistLoaderThread(QThread):
                 f"{total - skipped} neu geladen, {skipped} aus Cache übersprungen"
             )
 
-        self.finished.emit()
+        self.loading_done.emit()

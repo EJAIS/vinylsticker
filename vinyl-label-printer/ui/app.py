@@ -162,7 +162,9 @@ class MainWindow(QMainWindow):
         """Load data button: reload Excel (LOCAL) or open Discogs dialog (DISCOGS)."""
         if self._mode == DataSourceMode.DISCOGS:
             dlg = DiscogsDialog(self._db_path, parent=self)
-            if dlg.exec() == QDialog.DialogCode.Accepted:
+            accepted = dlg.exec() == QDialog.DialogCode.Accepted
+            dlg.deleteLater()
+            if accepted:
                 self._load_queue()
                 self._update_footer_status()
         else:

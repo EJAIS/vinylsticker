@@ -1265,6 +1265,7 @@ class SettingsDialog(QDialog):
             db_path = Path(__file__).parent.parent / "data" / "database.xlsx"
         dlg = DiscogsDialog(db_path, parent=self)
         dlg.exec()
+        dlg.deleteLater()
         self._refresh_discogs_status()
 
     def _open_github(self) -> None:
