@@ -65,7 +65,7 @@ class TracklistLoaderThread(QThread):
             existing = self._cache.get_release(rid)
             if existing and existing.get("tracklist_fetched"):
                 logger.debug(
-                    f"Tracklist bereits im Cache — überspringe API-Call: "
+                    f"Tracklist already cached — skipping API call: "
                     f"discogs_id={rid}"
                 )
                 skipped += 1
@@ -101,8 +101,8 @@ class TracklistLoaderThread(QThread):
 
         if not self._cancelled:
             logger.info(
-                f"Tracklist Loading abgeschlossen: "
-                f"{total - skipped} neu geladen, {skipped} aus Cache übersprungen"
+                f"Tracklist loading complete: "
+                f"{total - skipped} fetched, {skipped} skipped (already cached)"
             )
 
         self.loading_done.emit()

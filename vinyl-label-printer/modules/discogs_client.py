@@ -15,11 +15,13 @@ from typing import Callable
 
 import requests
 
+from __version__ import __version__
 from modules.logger import get_logger
 
 logger = get_logger()
 
-_ARTIST_NUM_RE = re.compile(r"\s*\(\d+\)$")
+# Discogs disambiguation suffix on artist / label names, e.g. "Giant (11)"
+_DISAMBIG_SUFFIX_RE = re.compile(r"\s*\(\d+\)$")
 
 # Minimum spacing between any two Discogs requests (limit: 60 req/min).
 MIN_REQUEST_INTERVAL_S = 1.1
@@ -40,7 +42,7 @@ class DiscogsClient:
     """
 
     BASE_URL   = "https://api.discogs.com"
-    USER_AGENT = "VinylLabelPrinter/1.0 +https://github.com/YOURNAME/vinyl-label-printer"
+    USER_AGENT = f"VinylLabelPrinter/{__version__} +https://github.com/EJAIS/vinylsticker"
 
     # Shared throttle state — protected by _throttle_lock
     _throttle_lock:   threading.Lock = threading.Lock()
@@ -134,46 +136,6 @@ class DiscogsClient:
 
         return releases
 
-    def filter_7inch(self, releases: list[dict]) -> list[dict]:
-        """Return normalized dicts for releases that are 7" singles.
-
-        A release qualifies when any of its format entries lists '7"' in
-        the descriptions array.
-
-        The artist name has trailing Discogs disambiguation suffixes removed,
-        e.g. 'Beatles, The (2)' → 'Beatles, The'.
-        """
-        result: list[dict] = []
-        for release in releases:
-            info = release.get("basic_information", {})
-            if not self._is_7inch(info):
-                continue
-
-            artists = info.get("artists") or []
-            labels  = info.get("labels") or []
-
-            artist_name = _ARTIST_NUM_RE.sub("", artists[0]["name"]) if artists else ""
-            label_str   = ""
-            if labels:
-                lbl    = labels[0]
-                catno  = lbl.get("catno", "")
-                label_str = lbl.get("name", "")
-                if catno and catno.upper() != "NONE":
-                    label_str = f"{label_str} {catno}"
-
-            result.append(
-                {
-                    "title":      info.get("title", ""),
-                    "artist":     artist_name.strip(),
-                    "label":      label_str.strip(),
-                    "country":    info.get("country", ""),
-                    "year":       int(info.get("year") or 0),
-                    "side":       "",   # not available from collection API
-                    "discogs_id": release.get("id", 0),
-                }
-            )
-        return result
-
     # Accepted description strings that identify a 7" single.
     # Covers the ASCII straight double-quote (most common in Discogs API),
     # the Unicode right double quotation mark variant, and the double-single-quote
@@ -183,9 +145,10 @@ class DiscogsClient:
     def normalize_for_cache(self, releases: list[dict]) -> list[dict]:
         """Normalize ALL raw API releases for SQLite cache storage.
 
-        Unlike filter_7inch(), this includes every release (no format filter)
-        and adds is_7inch / formats_json fields.  The label field stores name
-        only — catalog number is intentionally omitted for cache schema clarity.
+        Includes every release (no format filter) and adds is_7inch /
+        formats_json fields.  The label field stores the name only (without
+        Discogs disambiguation suffix) — catalog number is intentionally
+        omitted for cache schema clarity.
         """
         result: list[dict] = []
         for release in releases:
@@ -194,10 +157,12 @@ class DiscogsClient:
             rid     = release.get("id", 0)
 
             artists     = info.get("artists") or []
-            artist_name = _ARTIST_NUM_RE.sub("", artists[0]["name"]) if artists else ""
+            artist_name = _DISAMBIG_SUFFIX_RE.sub("", artists[0]["name"]) if artists else ""
 
             labels     = info.get("labels") or []
-            label_name = labels[0].get("name", "") if labels else ""
+            label_name = (
+                _DISAMBIG_SUFFIX_RE.sub("", labels[0].get("name", "")) if labels else ""
+            )
 
             # Robust 7" detection: check every description string with strip()
             # to handle whitespace variants and multiple quote encodings.
@@ -337,10 +302,3 @@ class DiscogsClient:
             return max(float(resp.headers["Retry-After"]), 0.0)
         except (KeyError, TypeError, ValueError):
             return _RATE_LIMIT_DEFAULT_WAIT_S
-
-    @staticmethod
-    def _is_7inch(basic_information: dict) -> bool:
-        for fmt in basic_information.get("formats", []):
-            if '7"' in (fmt.get("descriptions") or []):
-                return True
-        return False

@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 )
 
 import modules.i18n as i18n
+from __version__ import __version__
 from modules.i18n import t
 from modules.logger import get_logger
 
@@ -42,8 +43,7 @@ from modules.data_source import DataSourceMode
 from modules.credentials_manager import CredentialsManager
 from config.settings import (
     get_watermark_path, set_watermark_path,
-    get_data_source_mode, set_data_source_mode,
-    get_theme,
+    get_data_source_mode,
     get_debug_logging,
     get_calibration_x,
     get_calibration_y,
@@ -60,6 +60,11 @@ _BASE_DIR = Path(__file__).parent.parent
 _DB_PATH  = _BASE_DIR / "data" / "database.xlsx"
 _OUT_DIR  = _BASE_DIR / "output"
 _PDF_NAME = "labels.pdf"
+
+
+def _window_title() -> str:
+    """Main window title incl. version — rebuilt on every language switch."""
+    return f"{t('app_title')} v{__version__}"
 
 
 class MainWindow(QMainWindow):
@@ -88,7 +93,7 @@ class MainWindow(QMainWindow):
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _init_ui(self) -> None:
-        self.setWindowTitle(t("app_title"))
+        self.setWindowTitle(_window_title())
         self.setMinimumSize(900, 620)
         self.menuBar().setVisible(False)
 
@@ -236,13 +241,21 @@ class MainWindow(QMainWindow):
         _OUT_DIR.mkdir(parents=True, exist_ok=True)
         self._pdf_path = _OUT_DIR / _PDF_NAME
 
-        generate_pdf(
-            records=self._records,
-            output_path=self._pdf_path,
-            format_name="4780",
-            start_position=self._start_index,
-            watermark_path=self._watermark_path,
-        )
+        try:
+            generate_pdf(
+                records=self._records,
+                output_path=self._pdf_path,
+                format_name="4780",
+                start_position=self._start_index,
+                watermark_path=self._watermark_path,
+            )
+        except Exception as exc:
+            logger.error(f"PDF generation failed: {type(exc).__name__}: {exc}")
+            self._sidebar.set_pdf_status("ready")
+            QMessageBox.critical(
+                self, t("app_title"), t("err_pdf", detail=str(exc))
+            )
+            return
 
         self._preview.load_pdf(self._pdf_path)
         self._sidebar.set_pdf_status("done")
@@ -349,7 +362,7 @@ class MainWindow(QMainWindow):
 
     def _retranslate_ui(self) -> None:
         """Update all translatable strings after a language switch."""
-        self.setWindowTitle(t("app_title"))
+        self.setWindowTitle(_window_title())
         self._sidebar.retranslate()
         self._footer.retranslate()
         self._preview.retranslate()

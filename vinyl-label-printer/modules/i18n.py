@@ -53,6 +53,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Windows: poppler-DLLs in PATH eintragen"
         ),
         "err_excel":         "Excel-Datei konnte nicht geladen werden:\n{detail}",
+        "err_pdf":           "PDF konnte nicht erstellt werden:\n{detail}",
         "err_db_missing":    (
             "Datenbankdatei nicht gefunden:\n{path}\n\n"
             "Bitte manuell kopieren:\n"
@@ -199,6 +200,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "cache_last_pull":             "Letzter Discogs-Pull: {datetime} (vor {hours} Stunden)",
         "cache_expired":               "⚠ Cache veraltet (vor {hours} Stunden) — bitte neu laden.",
         "cache_no_data":               "Noch keine Sammlung geladen.",
+        "cache_migrating":             "Cache wird aktualisiert (neue Sortierung) …",
         "cache_reload":                "Aktualisieren",
         "cache_load_now":              "Jetzt laden",
         "cache_singles_count":         "{total} Singles · {count} × 7\"",
@@ -436,6 +438,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Windows: add poppler DLLs folder to PATH"
         ),
         "err_excel":         "Could not load Excel file:\n{detail}",
+        "err_pdf":           "Could not create PDF:\n{detail}",
         "err_db_missing":    (
             "Database file not found:\n{path}\n\n"
             "Please copy it manually:\n"
@@ -578,6 +581,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "cache_last_pull":             "Last Discogs pull: {datetime} ({hours} hours ago)",
         "cache_expired":               "⚠ Cache expired ({hours} hours ago) — please reload.",
         "cache_no_data":               "No collection loaded yet.",
+        "cache_migrating":             "Updating cache (new sort order) …",
         "cache_reload":                "Reload",
         "cache_load_now":              "Load now",
         "cache_singles_count":         "{total} singles · {count} × 7\"",

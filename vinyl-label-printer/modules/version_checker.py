@@ -1,6 +1,8 @@
 """GitHub release version checker."""
 from __future__ import annotations
 
+import re
+
 import requests
 
 from __version__ import __version__
@@ -43,7 +45,7 @@ def get_latest_version(timeout: int = 5) -> dict:
                     "latest_version": "", "tag_name": "", "release_url": ""}
         release = data[0]
         tag = release.get("tag_name", "")
-        version = tag.lstrip("v")
+        version = _normalize_version(tag)
         logger.debug(f"Version check — {resp.status_code}, tag={tag}")
         return {
             "success": True,
@@ -62,6 +64,16 @@ def get_latest_version(timeout: int = 5) -> dict:
                 "latest_version": "", "tag_name": "", "release_url": ""}
 
 
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """Return the numeric parts of *version*, e.g. "v.0.2.0" → (0, 2, 0)."""
+    return tuple(int(x) for x in re.findall(r"\d+", version))
+
+
+def _normalize_version(tag: str) -> str:
+    """Return a plain dotted version from a release tag, e.g. "v.0.2.0" → "0.2.0"."""
+    return ".".join(str(x) for x in _version_tuple(tag))
+
+
 def is_update_available(latest_version: str) -> bool:
     """
     Return True if latest_version is newer than the current __version__.
@@ -69,8 +81,8 @@ def is_update_available(latest_version: str) -> bool:
     Uses tuple comparison for correct semantic versioning.
     """
     try:
-        latest = tuple(int(x) for x in latest_version.split("."))
-        current = tuple(int(x) for x in __version__.split("."))
-        return latest > current
+        latest = _version_tuple(latest_version)
+        current = _version_tuple(__version__)
+        return bool(latest) and latest > current
     except Exception:
         return False

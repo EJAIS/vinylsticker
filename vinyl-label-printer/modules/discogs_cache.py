@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Iterator
 
 from modules.logger import get_logger
 
@@ -38,10 +40,27 @@ class DiscogsCache:
         conn.row_factory = sqlite3.Row
         return conn
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        """Yield a connection; commit (or roll back on error) and always close it.
+
+        sqlite3's own "with conn" only manages the transaction — it never
+        closes the connection.
+        """
+        conn = self._get_connection()
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def _init_db(self) -> None:
         """Create tables and indexes if they don't exist."""
         logger.debug(f"Cache DB path: {DB_PATH}")
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS releases (
                     discogs_id          INTEGER PRIMARY KEY,
@@ -82,13 +101,17 @@ class DiscogsCache:
 
     def get_cached_at(self) -> datetime | None:
         """Returns UTC datetime of last successful pull, or None."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT value FROM cache_meta WHERE key='cached_at'"
             ).fetchone()
-            if row:
-                return datetime.fromisoformat(row["value"])
-        return None
+        if not row:
+            return None
+        cached_at = datetime.fromisoformat(row["value"])
+        # Older caches stored naive UTC timestamps — make them aware
+        if cached_at.tzinfo is None:
+            cached_at = cached_at.replace(tzinfo=timezone.utc)
+        return cached_at
 
     def get_cache_status(self) -> dict:
         """
@@ -115,15 +138,15 @@ class DiscogsCache:
                 "username":    "",
             }
             logger.debug(
-                f"Cache status: has=False, valid=False, age=None, 7inch=0"
+                "Cache status: has=False, valid=False, age=None, 7inch=0"
             )
             return status
 
-        age       = datetime.utcnow() - cached_at
+        age       = datetime.now(timezone.utc) - cached_at
         age_hours = round(age.total_seconds() / 3600, 1)
         is_valid  = age < timedelta(hours=CACHE_MAX_AGE_HOURS)
 
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             total = conn.execute(
                 "SELECT COUNT(*) FROM releases"
             ).fetchone()[0]
@@ -152,7 +175,7 @@ class DiscogsCache:
         )
 
         # Diagnostic samples — visible only in debug mode
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             sample = conn.execute(
                 "SELECT discogs_id, title, is_7inch, formats_json "
                 "FROM releases LIMIT 5"
@@ -175,8 +198,8 @@ class DiscogsCache:
                 f"formats={row['formats_json'][:80]}"
             )
         logger.debug(
-            f"Tracklist Cache: {fetched_count} gecacht, "
-            f"{not_fetched} × 7\" ausstehend"
+            f"Tracklist cache: {fetched_count} cached, "
+            f"{not_fetched} × 7\" pending"
         )
 
         return status
@@ -200,7 +223,7 @@ class DiscogsCache:
                 "Discogs API Terms of Use"
             )
 
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM releases WHERE is_7inch=1 "
                 "ORDER BY date_added DESC, artist, title"
@@ -211,7 +234,7 @@ class DiscogsCache:
 
     def get_release(self, discogs_id: int) -> dict | None:
         """Returns single release by discogs_id, or None."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM releases WHERE discogs_id=?",
                 (discogs_id,)
@@ -223,7 +246,7 @@ class DiscogsCache:
         Returns discogs_ids of 7" releases without a cached tracklist.
         Explicitly includes rows where tracklist_fetched is NULL or 0/FALSE.
         """
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             rows = conn.execute("""
                 SELECT discogs_id FROM releases
                 WHERE is_7inch = 1
@@ -236,9 +259,9 @@ class DiscogsCache:
         ids = [int(row["discogs_id"]) for row in rows]
         already_cached = total_7inch - len(ids)
         logger.debug(
-            f"Pending tracklists: {len(ids)} ausstehend, "
-            f"{already_cached} bereits gecacht "
-            f"(von {total_7inch} × 7\" gesamt)"
+            f"Pending tracklists: {len(ids)} pending, "
+            f"{already_cached} already cached "
+            f"(of {total_7inch} × 7\" total)"
         )
         return ids
 
@@ -248,7 +271,7 @@ class DiscogsCache:
         Used to detect whether an existing cache was built before date_added
         was introduced and needs a full reload.
         """
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             count = conn.execute(
                 "SELECT COUNT(*) FROM releases WHERE date_added != ''"
             ).fetchone()[0]
@@ -294,11 +317,11 @@ class DiscogsCache:
             f"— {len(releases)} releases from API"
         )
 
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         stats   = {"added": 0, "updated": 0, "removed": 0, "unchanged": 0}
         api_ids = {r["discogs_id"] for r in releases}
 
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             existing_rows = conn.execute(
                 "SELECT discogs_id, title, artist, label, country, year "
                 "FROM releases"
@@ -414,7 +437,7 @@ class DiscogsCache:
 
     def update_tracklist(self, discogs_id: int, tracklist: list[dict]) -> None:
         """Saves fetched tracklist for a release."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             conn.execute("""
                 UPDATE releases SET
                     tracklist_json    = ?,
@@ -423,7 +446,7 @@ class DiscogsCache:
                 WHERE discogs_id = ?
             """, (
                 json.dumps(tracklist, ensure_ascii=False),
-                datetime.utcnow().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 int(discogs_id),
             ))
             # Verify the write was applied
@@ -433,18 +456,18 @@ class DiscogsCache:
             ).fetchone()
             if row and row["tracklist_fetched"]:
                 logger.debug(
-                    f"Tracklist gespeichert: discogs_id={discogs_id} "
-                    f"({len(tracklist)} Tracks) ✓"
+                    f"Tracklist saved: discogs_id={discogs_id} "
+                    f"({len(tracklist)} tracks) ✓"
                 )
             else:
                 logger.error(
-                    f"Tracklist NICHT gespeichert: discogs_id={discogs_id} "
-                    f"— DB update fehlgeschlagen!"
+                    f"Tracklist NOT saved: discogs_id={discogs_id} "
+                    "— DB update failed!"
                 )
 
     def debug_tracklist_status(self) -> None:
         """Log detailed tracklist cache status. Call once after dialog opens."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             fetched = conn.execute("""
                 SELECT COUNT(*) FROM releases
                 WHERE is_7inch = 1 AND tracklist_fetched = 1
@@ -473,9 +496,9 @@ class DiscogsCache:
             """).fetchall()
 
         logger.debug("=== Tracklist Cache Status ===")
-        logger.debug(f"Gecacht: {fetched} | Ausstehend: {not_fetched}")
+        logger.debug(f"Cached: {fetched} | Pending: {not_fetched}")
         if sample_missing:
-            logger.debug("Sample NICHT gecacht:")
+            logger.debug("Sample NOT cached:")
             for row in sample_missing:
                 logger.debug(
                     f"  id={row['discogs_id']}, "
@@ -483,7 +506,7 @@ class DiscogsCache:
                     f"fetched={row['tracklist_fetched']}"
                 )
         if sample_cached:
-            logger.debug("Sample gecacht:")
+            logger.debug("Sample cached:")
             for row in sample_cached:
                 logger.debug(
                     f"  id={row['discogs_id']}, "
@@ -493,7 +516,7 @@ class DiscogsCache:
 
     def clear(self) -> None:
         """Wipes all cached data."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             conn.executescript("""
                 DELETE FROM releases;
                 DELETE FROM cache_meta;

@@ -263,14 +263,9 @@ _COL_YEAR   = 4
 class DiscogsDialog(QDialog):
     """Import 7\" singles from Discogs into the print queue.
 
-    The filtered 7" release list is cached at class level so that reopening
-    the dialog within the same session skips the API call.  The cache is
-    keyed by Discogs username and cleared on logout.
+    The collection is cached in SQLite (DiscogsCache); the cache belongs to
+    one Discogs account and is cleared on logout.
     """
-
-    # Class-level session cache — persists across dialog instances
-    _cached_releases: list[dict] = []
-    _cache_username:  str        = ""
 
     def __init__(self, db_path: Path, parent=None) -> None:
         super().__init__(parent)
@@ -545,8 +540,7 @@ class DiscogsDialog(QDialog):
         self._releases    = []
         self._displayed   = []
         self._selected_ids.clear()
-        DiscogsDialog._cached_releases = []
-        DiscogsDialog._cache_username  = ""
+        self._cache.clear()
         self._table.setRowCount(0)
         self._table.setVisible(True)
         self._lbl_progress.setText("")
@@ -598,12 +592,6 @@ class DiscogsDialog(QDialog):
         # Normalize ALL releases for SQLite cache (is_7inch flag, no catno on label)
         normalized = client.normalize_for_cache(raw_releases)
         stats      = self._cache.sync_releases(normalized, username)
-
-        # Also keep session cache with filter_7inch output (includes catno) for
-        # backward compat with the _TracklistWorker → ReviewDialog import flow
-        filtered = client.filter_7inch(raw_releases)
-        DiscogsDialog._cached_releases = filtered
-        DiscogsDialog._cache_username  = username
 
         cache_status = self._cache.get_cache_status()
         logger.info(
@@ -702,8 +690,8 @@ class DiscogsDialog(QDialog):
                 if q in r["artist"].lower() or q in r["title"].lower()
             ]
         logger.debug(
-            f"Tabelle befüllen: {len(self._displayed)} Releases "
-            f"(nach 7\" Filter)"
+            f"Populating table: {len(self._displayed)} releases "
+            f"(after 7\" filter)"
         )
         self._populate_table(self._displayed)
         self._update_selection_counter()
@@ -863,6 +851,14 @@ class DiscogsDialog(QDialog):
         logger.debug("Discogs dialog opened — checking cache status")
         status = self._cache.get_cache_status()
 
+        # Never show another account's collection: a cache built for a
+        # different username is treated as "no cache".
+        username = self._cred_mgr.load().get("discogs_username", "")
+        if status["has_cache"] and status["username"].casefold() != username.casefold():
+            logger.info("Cache belongs to a different Discogs account — clearing it")
+            self._cache.clear()
+            status = self._cache.get_cache_status()
+
         if not status["has_cache"]:
             logger.info("No cache found — first load required")
             self._show_no_cache_state()
@@ -880,9 +876,7 @@ class DiscogsDialog(QDialog):
                 "triggering automatic reload"
             )
             self._cache.clear()
-            self._lbl_cache_status.setText(
-                "Cache wird aktualisiert (neue Sortierung) …"
-            )
+            self._lbl_cache_status.setText(t("cache_migrating"))
             self._btn_cache_action.setVisible(False)
             self._table.setVisible(False)
             QTimer.singleShot(200, self._on_fetch)
@@ -957,8 +951,8 @@ class DiscogsDialog(QDialog):
 
         if releases:
             logger.debug(
-                f"Tabelle befüllen: {len(self._displayed)} Releases "
-                f"(nach 7\" Filter)"
+                f"Populating table: {len(self._displayed)} releases "
+                f"(after 7\" filter)"
             )
             self._populate_table(self._displayed)
             self._update_selection_counter()
@@ -971,8 +965,8 @@ class DiscogsDialog(QDialog):
         pending = self._cache.get_pending_tracklist_ids()
         if not pending:
             logger.info(
-                "Alle Tracklists im Cache vorhanden — "
-                "kein Discogs-API-Call erforderlich"
+                "All tracklists present in cache — "
+                "no Discogs API call required"
             )
             self._lbl_tracklist_progress.setText(t("tracklists_all_cached"))
             self._lbl_tracklist_progress.setVisible(True)
@@ -983,7 +977,7 @@ class DiscogsDialog(QDialog):
             self._load_tracklists_from_cache()
         else:
             logger.info(
-                f"Tracklist lazy loading: {len(pending)} × 7\" Singles ohne Tracklist"
+                f"Tracklist lazy loading: {len(pending)} × 7\" singles without tracklist"
             )
             self._start_tracklist_loader(pending)
 
@@ -999,8 +993,8 @@ class DiscogsDialog(QDialog):
                 tracks = _json.loads(cached.get("tracklist_json") or "[]")
                 sides  = [trk["position"] for trk in tracks]
                 logger.debug(
-                    f"Tracklist aus Cache: discogs_id={discogs_id} "
-                    f"Seiten={sides}"
+                    f"Tracklist from cache: discogs_id={discogs_id} "
+                    f"sides={sides}"
                 )
 
     def _start_tracklist_loader(self, pending_ids: list[int]) -> None:
