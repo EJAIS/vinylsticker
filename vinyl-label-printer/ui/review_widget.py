@@ -367,6 +367,10 @@ class ReviewDialog(QDialog):
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
         self._populating = True
         for row in range(self._table.rowCount()):
+            # Only affect what the user sees; rows hidden by the search filter
+            # keep their current check state.
+            if self._table.isRowHidden(row):
+                continue
             item = self._table.item(row, _COL_CHECK)
             if item:
                 item.setCheckState(state)
@@ -422,18 +426,19 @@ class ReviewDialog(QDialog):
     # ── Status bar ────────────────────────────────────────────────────────────
 
     def _update_status(self) -> None:
-        total      = 0
-        checked    = 0
-        incomplete = 0
+        # Counts span all rows, not just the visible ones: hidden rows that are
+        # checked are still written on confirm.
+        total          = self._table.rowCount()
+        checked        = 0
+        checked_hidden = 0
+        incomplete     = 0
 
-        for row in range(self._table.rowCount()):
-            if self._table.isRowHidden(row):
-                continue
-            total += 1
-
+        for row in range(total):
             chk = self._table.item(row, _COL_CHECK)
             if chk and chk.checkState() == Qt.CheckState.Checked:
                 checked += 1
+                if self._table.isRowHidden(row):
+                    checked_hidden += 1
 
             if any(
                 not (self._table.item(row, col) and
@@ -442,9 +447,10 @@ class ReviewDialog(QDialog):
             ):
                 incomplete += 1
 
-        self._lbl_status_counts.setText(
-            t("review_status_counts", n=total, m=checked)
-        )
+        counts_text = t("review_status_counts", n=total, m=checked)
+        if checked_hidden:
+            counts_text += f" ({t('review_status_hidden', h=checked_hidden)})"
+        self._lbl_status_counts.setText(counts_text)
 
         if incomplete:
             self._lbl_status_warning.setText(
@@ -475,10 +481,11 @@ class ReviewDialog(QDialog):
     # ── Confirm ───────────────────────────────────────────────────────────────
 
     def _on_confirm(self) -> None:
+        # Visibility is irrelevant here: write_print_queue() replaces the whole
+        # Print sheet, so checked rows hidden by the search filter must be kept.
         checked_rows = [
             row for row in range(self._table.rowCount())
-            if not self._table.isRowHidden(row)
-            and self._table.item(row, _COL_CHECK) is not None
+            if self._table.item(row, _COL_CHECK) is not None
             and self._table.item(row, _COL_CHECK).checkState() == Qt.CheckState.Checked
         ]
 

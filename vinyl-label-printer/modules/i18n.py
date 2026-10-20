@@ -256,6 +256,7 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Review dialog — status bar
         "review_status_counts": "{n} Einträge gesamt | {m} ausgewählt zum Drucken",
+        "review_status_hidden": "{h} davon ausgeblendet",
         "review_status_warning":"⚠️  {k} Einträge haben leere Pflichtfelder",
         "review_status_ok":     "✓ Alle Einträge vollständig",
 
@@ -633,6 +634,7 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Review dialog — status bar
         "review_status_counts": "{n} entries total | {m} selected for printing",
+        "review_status_hidden": "{h} of them hidden",
         "review_status_warning":"⚠️  {k} entries have empty required fields",
         "review_status_ok":     "✓ All entries complete",
 
