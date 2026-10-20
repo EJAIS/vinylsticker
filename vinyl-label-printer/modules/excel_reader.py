@@ -141,6 +141,27 @@ def _str(value: object) -> str:
 _SIDE_PREFIX_RE = re.compile(r"^(?:SEITE|SIDE|[\s\-:])+")
 
 
+def resolve_side(value: object) -> str | None:
+    """Return "A" or "B" for *value*, or None if it names no A/B side.
+
+    Same rules as normalise_side() but without the "A" default, e.g.
+    "C1", "D" or "3" → None.
+    """
+    raw = str(value).strip().upper() if value is not None else ""
+    raw = _SIDE_PREFIX_RE.sub("", raw)
+    if not raw:
+        return None
+    if raw.startswith("AA"):
+        return "B"
+    if raw[0] in ("A", "B"):
+        return raw[0]
+    # Fallback: take the last character that is A or B
+    for ch in reversed(raw):
+        if ch in ("A", "B"):
+            return ch
+    return None
+
+
 def normalise_side(value: object) -> str:
     """Normalise a side / track position to a single uppercase 'A' or 'B'.
 
@@ -160,16 +181,4 @@ def normalise_side(value: object) -> str:
         normalise_side("side a")  # → "A"
         normalise_side("")        # → "A"
     """
-    raw = str(value).strip().upper() if value is not None else ""
-    raw = _SIDE_PREFIX_RE.sub("", raw)
-    if not raw:
-        return "A"
-    if raw.startswith("AA"):
-        return "B"
-    if raw[0] in ("A", "B"):
-        return raw[0]
-    # Fallback: take the last character that is A or B
-    for ch in reversed(raw):
-        if ch in ("A", "B"):
-            return ch
-    return "A"
+    return resolve_side(value) or "A"

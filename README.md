@@ -519,8 +519,9 @@ The table shows Title, Artist, Label, **Cat. No.** and Year. Use the search bar 
    The app loads the details (tracklist and country) of each selected release **on demand** from the Discogs release endpoint. Details are cached per release and reused for 6 hours (Discogs API ToU); older details are fetched again. All requests are throttled globally (≥ 1.1 s apart) to stay below the Discogs limit of 60 requests/min. Sides are resolved as follows:
    - **Simple single (exactly 1 A-side + 1 B-side):** two rows are created, one for each side, with the individual track title. A UK double-A single (`A` / `AA`) becomes A and B.
    - **EP / Maxi-single (multiple tracks):** one row per track; the side is always `A` or `B` (e.g. `A1`, `A2`, `B1`, `B2` → A, A, B, B).
-   - **Two tracks without A/B positions** (e.g. `1`, `2`): mapped to A and B in order.
-   - **No tracklist available:** one row with the release title and an empty Side field.
+   - **Two tracks with numeric positions** (e.g. `1`, `2`): mapped to A and B in order.
+   - **Other sides are skipped:** tracks on C/D (e.g. a double 7") or numeric positions on releases with more than two tracks are left out (logged at info level).
+   - **No A/B tracks at all, or the details could not be loaded:** no row is created — the release is listed in the import warning instead. A queue row never has an empty side.
 
    You can close the dialog with **Cancel** at any time — running requests are stopped.
 
@@ -646,7 +647,7 @@ Restart the application after installing Poppler. If the preview still does not 
 | Collection asks for a reload after an update | The cache schema gained the catalog number | Click **Load 7" Singles / Reload** once; the next sync fills in the catalog numbers. |
 | Country is empty | Country comes from the release details, which may not list one | Edit the Country field in the Review dialog. |
 | "Cache expired" warning in collection dialog | Cache is older than 6 hours | Click **Reload** to fetch a fresh copy. This is required by the Discogs API Terms of Use. |
-| Tracklist shows empty Side field | Track data unavailable for that release | Edit the Side field manually in the Review dialog before confirming the import. |
+| A selected release is listed in the import warning | Its details could not be loaded, or it has no A/B tracks (e.g. numbered tracks only) | Add the rows manually in the Review dialog (**Add row**) or via the Excel file. |
 
 ---
 
@@ -810,7 +811,9 @@ Reads and writes `config/settings.json`. The file is not shipped with the app �
 | `verify_token()` | `GET /oauth/identity` — returns `True` if valid, `False` if 401, raises `ConnectionError` on network failure |
 | `fetch_collection(progress_callback)` | Paginates through all collection pages (sort: newest first); calls `progress_callback(page, total_pages)` between pages |
 | `normalize_for_cache(releases)` | Normalises ALL releases for SQLite storage (collection fields only): `is_7inch`, `formats_json`, `date_added`, label name without disambiguation suffix (`Pyramid (2)` → `Pyramid`), `catno` (`none` → empty) |
-| `fetch_release_details(release_id)` | `GET /releases/{id}` — returns `{"tracks": list[dict], "country": str}` with the **raw** positions of all `track` entries (headings / index entries skipped) |
+| `fetch_release_details(release_id)` | `GET /releases/{id}` — returns `{"tracks": list[dict], "country": str}` with each `track` entry (headings / index entries skipped) mapped to side `A`/`B` via `map_tracks_to_sides()`; other sides are skipped |
+| `map_tracks_to_sides(tracks, release_id)` | Maps positions to `A`/`B` (`AA` → `B`, `A2` → `A`); skips C/D and numeric positions, except exactly two numeric tracks → A, B |
+| `REQUEST_TIMEOUT` | `(5, 30)` — connect / read timeout applied to every request |
 | `MIN_REQUEST_INTERVAL_S` | `1.1` — minimum spacing between any two requests, enforced across all instances and threads |
 | `DiscogsRequestCancelled` | Raised when a wait is aborted via the cancel event |
 
@@ -872,7 +875,7 @@ The toggle is exposed in **Settings → Appearance → Developer → Debug loggi
 
 | Symbol | Description |
 |---|---|
-| `GITHUB_API_URL` | Endpoint: `GET /repos/EJAIS/vinylsticker/releases` — called with `per_page=1` as a request parameter (includes pre-releases) |
+| `GITHUB_API_URL` | Endpoint: `GET /repos/EJAIS/vinylsticker/releases` — called with `per_page=10`; the newest release with a plain `MAJOR.MINOR.PATCH` tag (optional `v` / `v.`) is used — pre-release tags such as `v0.4.0-rc1` are never reported as an update |
 | `GITHUB_RELEASES_URL` | Fallback URL opened when `release_url` is unavailable |
 | `get_latest_version(timeout)` | Fetches the newest release; returns a dict with `success`, `latest_version`, `tag_name`, `release_url`, `error` (`"network"` / `"api"` / `"no_releases"` / `"unknown"`) |
 | `is_update_available(latest_version)` | Compares `latest_version` against the running `__version__` using tuple comparison; returns `True` if an update exists |

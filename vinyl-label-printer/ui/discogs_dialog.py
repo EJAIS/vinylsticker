@@ -54,8 +54,11 @@ from PyQt6.QtWidgets import (
 
 from modules.credentials_manager import CredentialsManager
 from modules.discogs_cache import CACHE_MAX_AGE_HOURS, DiscogsCache
-from modules.discogs_client import DiscogsClient, DiscogsRequestCancelled
-from modules.excel_reader import normalise_side
+from modules.discogs_client import (
+    DiscogsClient,
+    DiscogsRequestCancelled,
+    map_tracks_to_sides,
+)
 from modules.i18n import t
 from modules.logger import get_logger
 from ui.review_widget import ReviewDialog
@@ -71,6 +74,39 @@ def _get_colors():
 
 
 # ── Background workers ────────────────────────────────────────────────────────
+
+# Worker threads have no Qt parent, so closing / deleting the dialog never
+# destroys a running QThread (which would abort the process).  Threads that
+# are still running at shutdown are kept alive here until they finish.
+_LINGERING_THREADS: set[QThread] = set()
+
+# Custom + inherited signals that may be connected to dialog slots / lambdas
+_WORKER_SIGNALS = (
+    "progress", "fetch_done", "import_done", "error",
+    "success", "failure", "finished",
+)
+
+
+def _keep_alive_until_finished(thread: QThread) -> None:
+    """Detach *thread* from the dialog and release it once it has finished."""
+    for name in _WORKER_SIGNALS:
+        signal = getattr(thread, name, None)
+        if signal is None:
+            continue
+        try:
+            signal.disconnect()
+        except TypeError:
+            pass   # nothing connected
+    _LINGERING_THREADS.add(thread)
+
+    def _release() -> None:
+        _LINGERING_THREADS.discard(thread)
+        thread.deleteLater()
+        logger.debug(f"Lingering {type(thread).__name__} finished and released")
+
+    thread.finished.connect(_release)
+    if thread.isFinished():   # finished between the check and the connect
+        _release()
 
 class _VerifyWorker(QThread):
     """Verify a token without blocking the UI."""
@@ -146,22 +182,6 @@ class _FetchWorker(QThread):
             self.error.emit(0, str(exc))
 
 
-def _assign_sides(tracks: list[dict]) -> list[tuple[str, str]]:
-    """Map tracks to (title, side) pairs with side "A" or "B".
-
-    Works with raw positions ('AA', 'A1', …) as well as details cached in the
-    older, already normalised format.  Two tracks without any A/B position
-    (e.g. '1', '2') are mapped to A and B in order.
-    """
-    has_ab = any(
-        (trk.get("position") or "").strip().upper().startswith(("A", "B"))
-        for trk in tracks
-    )
-    if not has_ab and len(tracks) == 2:
-        return [(tracks[0]["title"], "A"), (tracks[1]["title"], "B")]
-    return [(trk["title"], normalise_side(trk.get("position"))) for trk in tracks]
-
-
 class _ImportWorker(QThread):
     """Load release details for selected releases and expand into per-side rows.
 
@@ -225,17 +245,13 @@ class _ImportWorker(QThread):
                         f"{type(exc).__name__}: {exc}"
                     )
                     warnings.append(release["title"])
-                    records_data.append(
-                        {**base, "title": release["title"], "side": ""}
-                    )
                     continue
 
             base["country"] = details["country"]
-            tracks = details["tracks"]
-
-            sided   = _assign_sides(tracks)
-            a_sides = [title for title, side in sided if side == "A"]
-            b_sides = [title for title, side in sided if side == "B"]
+            # Also maps details cached in the older raw-position format
+            sided   = map_tracks_to_sides(details["tracks"], rid)
+            a_sides = [trk["title"] for trk in sided if trk["position"] == "A"]
+            b_sides = [trk["title"] for trk in sided if trk["position"] == "B"]
 
             if len(a_sides) == 1 and len(b_sides) == 1:
                 # Simple single: two rows with individual track titles
@@ -243,13 +259,17 @@ class _ImportWorker(QThread):
                 records_data.append({**base, "title": b_sides[0], "side": "B"})
             elif sided:
                 # EP / Maxi: one row per track, side always "A" or "B"
-                for title, side in sided:
-                    records_data.append({**base, "title": title, "side": side})
+                for trk in sided:
+                    records_data.append(
+                        {**base, "title": trk["title"], "side": trk["position"]}
+                    )
             else:
-                # No AB tracks returned: one fallback row
-                records_data.append(
-                    {**base, "title": release["title"], "side": ""}
+                # Never queue a row without a side — report it instead
+                logger.info(
+                    f"Release skipped — no A/B tracks: discogs_id={rid} "
+                    f"'{release['title']}'"
                 )
+                warnings.append(release["title"])
 
         self.import_done.emit(records_data, warnings)
 
@@ -282,6 +302,15 @@ class DiscogsDialog(QDialog):
         self._releases: list[dict] = []
         self._displayed: list[dict] = []
         self._rate_timer: Optional[QTimer] = None
+        # Child timers — stopped in _shutdown_workers(), deleted with the dialog
+        self._sync_report_timer = QTimer(self)
+        self._sync_report_timer.setSingleShot(True)
+        self._sync_report_timer.timeout.connect(
+            lambda: self._load_from_cache(self._cache.get_cache_status())
+        )
+        self._auto_fetch_timer = QTimer(self)
+        self._auto_fetch_timer.setSingleShot(True)
+        self._auto_fetch_timer.timeout.connect(self._on_fetch)
         self._rate_countdown = 0
         self._fetch_worker:        Optional[_FetchWorker]          = None
         self._verify_worker:       Optional[_VerifyWorker]         = None
@@ -520,7 +549,7 @@ class DiscogsDialog(QDialog):
         self._setup_status.setText(t("discogs_verifying"))
 
         self._verify_worker = _VerifyWorker(
-            username, token, self._cancel_event, parent=self
+            username, token, self._cancel_event
         )
         self._verify_worker.success.connect(
             lambda: self._on_verify_success(username, token)
@@ -570,7 +599,7 @@ class DiscogsDialog(QDialog):
         self._lbl_progress.setText(t("discogs_connecting"))
 
         self._fetch_worker = _FetchWorker(
-            username, token, self._cancel_event, parent=self
+            username, token, self._cancel_event
         )
         self._fetch_worker.progress.connect(self._on_fetch_progress)
         self._fetch_worker.fetch_done.connect(self._on_fetch_finished)
@@ -617,10 +646,7 @@ class DiscogsDialog(QDialog):
                    updated=stats["updated"],
                    removed=stats["removed"])
         self._lbl_cache_status.setText(report)
-        QTimer.singleShot(
-            5000,
-            lambda: self._load_from_cache(self._cache.get_cache_status())
-        )
+        self._sync_report_timer.start(5000)
 
     def _apply_releases(self, releases: list[dict], from_cache: bool = False) -> None:
         """Populate the table from a (possibly cached) release list."""
@@ -816,8 +842,7 @@ class DiscogsDialog(QDialog):
         self._btn_logout.setEnabled(False)
 
         self._import_worker = _ImportWorker(
-            selected_releases, username, token, self._cache, self._cancel_event,
-            parent=self,
+            selected_releases, username, token, self._cache, self._cancel_event
         )
         self._import_worker.progress.connect(self._on_tracklist_progress)
         self._import_worker.import_done.connect(self._on_tracklist_done)
@@ -841,6 +866,9 @@ class DiscogsDialog(QDialog):
                 t("discogs_tracklist_warn_msg", n=len(warnings))
                 + "\n" + "\n".join(f"• {w}" for w in warnings),
             )
+
+        if not records_data:
+            return   # nothing importable — the warning above lists the releases
 
         dlg = ReviewDialog(records_data, self._db_path, import_mode=True, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -889,7 +917,7 @@ class DiscogsDialog(QDialog):
             self._lbl_cache_status.setText(t("cache_migrating"))
             self._btn_cache_action.setVisible(False)
             self._table.setVisible(False)
-            QTimer.singleShot(200, self._on_fetch)
+            self._auto_fetch_timer.start(200)
         else:
             logger.info(
                 f"Cache valid: {status['items_7inch']} × 7\" singles, "
@@ -978,8 +1006,9 @@ class DiscogsDialog(QDialog):
 
         # Abort pending throttle / rate-limit waits in every DiscogsClient
         self._cancel_event.set()
-        if self._rate_timer:
-            self._rate_timer.stop()   # would otherwise restart a fetch later
+        for timer in (self._rate_timer, self._sync_report_timer, self._auto_fetch_timer):
+            if timer:
+                timer.stop()   # must never fire after the dialog is closed
 
         workers = (
             ("import worker",    self._import_worker),
@@ -992,7 +1021,13 @@ class DiscogsDialog(QDialog):
                 if worker.wait(3000):
                     logger.debug(f"DiscogsDialog: {name} stopped")
                 else:
-                    logger.warning(f"DiscogsDialog: {name} did not stop within 3 s")
+                    # E.g. a long collection page download — let it finish in
+                    # the background instead of destroying a running thread
+                    logger.warning(
+                        f"DiscogsDialog: {name} still running after 3 s — "
+                        "finishing in background"
+                    )
+                    _keep_alive_until_finished(worker)
 
         self._selected_ids.clear()
 

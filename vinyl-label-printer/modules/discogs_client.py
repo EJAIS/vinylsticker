@@ -16,6 +16,7 @@ from typing import Callable
 import requests
 
 from __version__ import __version__
+from modules.excel_reader import resolve_side
 from modules.logger import get_logger
 
 logger = get_logger()
@@ -28,6 +29,37 @@ MIN_REQUEST_INTERVAL_S = 1.1
 # HTTP 429 handling: Discogs uses a 60 s moving window.
 _RATE_LIMIT_DEFAULT_WAIT_S = 60.0
 _RATE_LIMIT_MAX_RETRIES    = 2
+# (connect, read) timeout in seconds for every request
+REQUEST_TIMEOUT = (5, 30)
+
+_NUMERIC_POSITION_RE = re.compile(r"^\d*$")
+
+
+def map_tracks_to_sides(tracks: list[dict], release_id: object = "?") -> list[dict]:
+    """Return *tracks* with each position mapped to "A" or "B".
+
+    Tracks whose position names neither side (C/D sides of a double 7",
+    numeric positions, …) are skipped and logged.  Exception: exactly two
+    tracks with numeric or empty positions ('1', '2') become A and B.
+    Idempotent — already mapped tracks are returned unchanged.
+    """
+    positions = [(trk.get("position") or "").strip() for trk in tracks]
+    if len(tracks) == 2 and all(_NUMERIC_POSITION_RE.match(p) for p in positions):
+        return [
+            {"position": "A", "title": tracks[0].get("title", "")},
+            {"position": "B", "title": tracks[1].get("title", "")},
+        ]
+    result: list[dict] = []
+    for trk, position in zip(tracks, positions):
+        side = resolve_side(position)
+        if side is None:
+            logger.info(
+                f"Track skipped — no A/B side: release_id={release_id} "
+                f"position={position!r} title={trk.get('title', '')!r}"
+            )
+            continue
+        result.append({"position": side, "title": trk.get("title", "")})
+    return result
 
 
 class DiscogsRequestCancelled(Exception):
@@ -76,7 +108,7 @@ class DiscogsClient:
         distinguish "wrong token" from "no internet".
         """
         try:
-            resp = self._request(f"{self.BASE_URL}/oauth/identity", timeout=10)
+            resp = self._request(f"{self.BASE_URL}/oauth/identity")
         except requests.ConnectionError as exc:
             raise ConnectionError(str(exc)) from exc
         if resp.status_code in (401, 403):
@@ -112,7 +144,7 @@ class DiscogsClient:
             logger.debug(
                 f"Discogs API — GET collection page {current_page + 1}/{total_pages}"
             )
-            resp = self._request(url, params=params, timeout=30)
+            resp = self._request(url, params=params)
             resp.raise_for_status()
             body = resp.json()
 
@@ -201,10 +233,10 @@ class DiscogsClient:
     def fetch_release_details(self, release_id: int) -> dict:
         """Fetch release details (tracks and country) for a release.
 
-        Calls GET /releases/{release_id} and returns every tracklist entry of
-        type "track" (headings and index entries are skipped) with its RAW
-        position, e.g. 'A', 'AA', 'A1', 'B2' or ''.  Mapping positions to
-        sides is up to the caller (see excel_reader.normalise_side()).
+        Calls GET /releases/{release_id} and returns the tracklist entries of
+        type "track" (headings and index entries are skipped) mapped to side
+        "A" or "B" via map_tracks_to_sides() — e.g. 'AA' → 'B', 'A2' → 'A'.
+        Tracks on other sides (C/D of a double 7") are skipped.
 
         Raises requests.HTTPError on non-2xx responses.
         Returns dict with keys:
@@ -212,22 +244,16 @@ class DiscogsClient:
           'country' — str, top-level country field from the release response
         """
         logger.debug(f"Fetching release details for release_id={release_id}")
-        resp = self._request(
-            f"{self.BASE_URL}/releases/{release_id}", timeout=15
-        )
+        resp = self._request(f"{self.BASE_URL}/releases/{release_id}")
         resp.raise_for_status()
         body       = resp.json()
         country    = body.get("country", "")
         raw_tracks = body.get("tracklist", [])
 
-        tracks = [
-            {
-                "position": (trk.get("position") or "").strip(),
-                "title":    trk.get("title", ""),
-            }
-            for trk in raw_tracks
-            if trk.get("type_", "track") == "track"
-        ]
+        tracks = map_tracks_to_sides(
+            [trk for trk in raw_tracks if trk.get("type_", "track") == "track"],
+            release_id,
+        )
 
         logger.debug(
             f"Tracklist fetched: {len(tracks)} tracks for release_id={release_id}"
@@ -244,6 +270,7 @@ class DiscogsClient:
         requests.HTTPError.  Raises DiscogsRequestCancelled if the cancel
         event is set before or during a wait.
         """
+        kwargs.setdefault("timeout", REQUEST_TIMEOUT)
         attempt = 0
         while True:
             self._throttle()

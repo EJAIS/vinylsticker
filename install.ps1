@@ -51,8 +51,10 @@ function Get-InstalledVersion {
     return ""
 }
 
-# Returns @{ Version; Tag } — the version is built from the numeric parts of
-# the tag (e.g. "v.0.2.0" -> "0.2.0"), the tag is needed for the download URL.
+# Returns @{ Version; Tag } of the newest stable release (e.g. "v.0.2.0" ->
+# "0.2.0"). Only plain tags (optional "v"/"v." + MAJOR.MINOR.PATCH) count —
+# pre-release tags like "v0.4.0-rc1" are skipped. The tag is needed for the
+# download URL.
 function Get-LatestVersion {
     try {
         $headers = @{ "Accept" = "application/vnd.github+json" }
@@ -60,11 +62,12 @@ function Get-LatestVersion {
             -Uri "$RepoApi/releases" `
             -Headers $headers `
             -TimeoutSec 10
-        if ($releases.Count -gt 0) {
-            $tag = $releases[0].tag_name
-            $version = ([regex]::Matches($tag, '\d+') |
-                        ForEach-Object { $_.Value }) -join '.'
-            return @{ Version = $version; Tag = $tag }
+        foreach ($release in $releases) {
+            $tag = $release.tag_name
+            if ($tag -match '^v?\.?(\d+)\.(\d+)\.(\d+)$') {
+                $version = "$($Matches[1]).$($Matches[2]).$($Matches[3])"
+                return @{ Version = $version; Tag = $tag }
+            }
         }
     } catch {
         Write-Warn "Could not fetch version from GitHub."

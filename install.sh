@@ -49,8 +49,9 @@ get_installed_version() {
     fi
 }
 
-# Prints "<version> <tag>", e.g. "0.2.0 v.0.2.0" — the version is built from
-# the numeric parts of the tag, the tag itself is needed for the download URL.
+# Prints "<version> <tag>" of the newest stable release, e.g. "0.2.0 v.0.2.0".
+# Only plain tags (optional "v"/"v." + MAJOR.MINOR.PATCH) count — pre-release
+# tags like "v0.4.0-rc1" are skipped.  The tag is needed for the download URL.
 get_latest_version() {
     curl -sf \
         -H "Accept: application/vnd.github+json" \
@@ -59,9 +60,12 @@ get_latest_version() {
 import sys, json, re
 try:
     data = json.load(sys.stdin)
-    if data:
-        tag = data[0]['tag_name']
-        print('.'.join(re.findall(r'\d+', tag)), tag)
+    for release in data:
+        tag = release.get('tag_name', '')
+        m = re.match(r'^v?\.?(\d+)\.(\d+)\.(\d+)$', tag, re.IGNORECASE)
+        if m:
+            print('.'.join(m.groups()), tag)
+            break
     else:
         print('')
 except Exception:

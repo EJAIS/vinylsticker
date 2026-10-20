@@ -108,7 +108,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "datasource_overwrite_title":    "Lokale Daten überschreiben?",
         "datasource_overwrite_msg":      (
             "Die lokale Druckwarteschlange enthält {n} Einträge. "
-            "Bei Übernahme aus Discogs werden diese überschrieben. "
+            "Bei einer Übernahme aus Discogs wirst du gefragt, ob die neuen "
+            "Einträge angehängt werden oder die Warteschlange ersetzen sollen. "
             "Möchtest du fortfahren?"
         ),
         "datasource_overwrite_continue": "Fortfahren",
@@ -495,7 +496,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "datasource_overwrite_title":    "Overwrite local data?",
         "datasource_overwrite_msg":      (
             "The local print queue contains {n} entries. "
-            "Importing from Discogs will overwrite them. "
+            "When importing from Discogs you will be asked whether to append "
+            "the new entries or replace the queue. "
             "Continue?"
         ),
         "datasource_overwrite_continue": "Continue",
