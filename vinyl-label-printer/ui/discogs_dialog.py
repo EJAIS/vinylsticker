@@ -80,15 +80,15 @@ def _get_colors():
 # are still running at shutdown are kept alive here until they finish.
 _LINGERING_THREADS: set[QThread] = set()
 
-# Custom + inherited signals that may be connected to dialog slots / lambdas
+# Custom + inherited signals that may be connected to dialog slots
 _WORKER_SIGNALS = (
     "progress", "fetch_done", "import_done", "error",
     "success", "failure", "finished",
 )
 
 
-def _keep_alive_until_finished(thread: QThread) -> None:
-    """Detach *thread* from the dialog and release it once it has finished."""
+def _disconnect_worker(thread: QThread) -> None:
+    """Disconnect all of *thread*'s signals from the dialog."""
     for name in _WORKER_SIGNALS:
         signal = getattr(thread, name, None)
         if signal is None:
@@ -97,6 +97,10 @@ def _keep_alive_until_finished(thread: QThread) -> None:
             signal.disconnect()
         except TypeError:
             pass   # nothing connected
+
+
+def _keep_alive_until_finished(thread: QThread) -> None:
+    """Keep a (disconnected) running *thread* alive until it has finished."""
     _LINGERING_THREADS.add(thread)
 
     def _release() -> None:
@@ -314,6 +318,7 @@ class DiscogsDialog(QDialog):
         self._rate_countdown = 0
         self._fetch_worker:        Optional[_FetchWorker]          = None
         self._verify_worker:       Optional[_VerifyWorker]         = None
+        self._verify_creds:        tuple[str, str]                 = ("", "")
         self._import_worker:       Optional[_ImportWorker]         = None
         self._cache:               DiscogsCache                    = DiscogsCache()
         self._selected_ids:        set[int]                        = set()
@@ -548,24 +553,34 @@ class DiscogsDialog(QDialog):
         self._btn_verify.setEnabled(False)
         self._setup_status.setText(t("discogs_verifying"))
 
+        self._verify_creds = (username, token)
         self._verify_worker = _VerifyWorker(
             username, token, self._cancel_event
         )
-        self._verify_worker.success.connect(
-            lambda: self._on_verify_success(username, token)
-        )
+        self._verify_worker.success.connect(self._on_verify_success)
         self._verify_worker.failure.connect(self._on_verify_failure)
-        self._verify_worker.finished.connect(
-            lambda: self._btn_verify.setEnabled(True)
-        )
+        self._verify_worker.finished.connect(self._on_verify_finished)
         self._verify_worker.start()
 
-    def _on_verify_success(self, username: str, token: str) -> None:
+    # Slots connected to worker signals return early after _shutdown_workers():
+    # a signal queued just before shutdown may still be delivered.
+
+    def _on_verify_finished(self) -> None:
+        if self._workers_shut_down:
+            return
+        self._btn_verify.setEnabled(True)
+
+    def _on_verify_success(self) -> None:
+        if self._workers_shut_down:
+            return
+        username, token = self._verify_creds
         self._cred_mgr.save(username, token)
         self._setup_status.setText("")
         self._show_collection_panel(username)
 
     def _on_verify_failure(self, message: str) -> None:
+        if self._workers_shut_down:
+            return
         self._setup_status.setText(f"<span style='color:red'>{message}</span>")
 
     # ── Slot: logout ──────────────────────────────────────────────────────────
@@ -589,11 +604,17 @@ class DiscogsDialog(QDialog):
     # ── Slot: fetch collection ────────────────────────────────────────────────
 
     def _on_fetch(self) -> None:
+        if self._workers_shut_down:
+            return
+        if self._fetch_worker and self._fetch_worker.isRunning():
+            logger.debug("Fetch already running — ignoring request")
+            return
         creds    = self._cred_mgr.load()
         username = creds.get("discogs_username", "")
         token    = creds.get("discogs_token", "")
 
         self._btn_fetch.setEnabled(False)
+        self._btn_cache_action.setEnabled(False)
         self._btn_import.setEnabled(False)
         self._table.setRowCount(0)
         self._lbl_progress.setText(t("discogs_connecting"))
@@ -604,20 +625,20 @@ class DiscogsDialog(QDialog):
         self._fetch_worker.progress.connect(self._on_fetch_progress)
         self._fetch_worker.fetch_done.connect(self._on_fetch_finished)
         self._fetch_worker.error.connect(self._on_fetch_error)
-        self._fetch_worker.fetch_done.connect(
-            lambda _: self._btn_fetch.setEnabled(True)
-        )
-        self._fetch_worker.error.connect(
-            lambda *_: self._btn_fetch.setEnabled(True)
-        )
         self._fetch_worker.start()
 
     def _on_fetch_progress(self, current: int, total: int) -> None:
+        if self._workers_shut_down:
+            return
         self._lbl_progress.setText(
             t("discogs_progress", current=current, total=total)
         )
 
     def _on_fetch_finished(self, raw_releases: list) -> None:
+        if self._workers_shut_down:
+            return
+        self._btn_fetch.setEnabled(True)
+        self._btn_cache_action.setEnabled(True)
         creds    = self._cred_mgr.load()
         username = creds.get("discogs_username", "")
         token    = creds.get("discogs_token", "")
@@ -671,6 +692,10 @@ class DiscogsDialog(QDialog):
         self._btn_import.setEnabled(True)
 
     def _on_fetch_error(self, code: int, message: str) -> None:
+        if self._workers_shut_down:
+            return
+        self._btn_fetch.setEnabled(True)
+        self._btn_cache_action.setEnabled(True)
         self._lbl_progress.setText("")
         if code == 401:
             self._cred_mgr.clear()
@@ -849,11 +874,15 @@ class DiscogsDialog(QDialog):
         self._import_worker.start()
 
     def _on_tracklist_progress(self, n: int, total: int) -> None:
+        if self._workers_shut_down:
+            return
         self._lbl_progress.setText(
             t("discogs_tracklist_progress", n=n, total=total)
         )
 
     def _on_tracklist_done(self, records_data: list, warnings: list) -> None:
+        if self._workers_shut_down:
+            return   # dialog was closed — never open the review dialog
         self._lbl_progress.setText("")
         self._btn_import.setEnabled(True)
         self._btn_fetch.setEnabled(True)
@@ -1016,7 +1045,12 @@ class DiscogsDialog(QDialog):
             ("verify worker",    self._verify_worker),
         )
         for name, worker in workers:
-            if worker and worker.isRunning():
+            if worker is None:
+                continue
+            # Disconnect even finished workers: their last signal may already
+            # be queued and would otherwise reach the closed dialog
+            _disconnect_worker(worker)
+            if worker.isRunning():
                 logger.debug(f"DiscogsDialog: stopping {name}")
                 if worker.wait(3000):
                     logger.debug(f"DiscogsDialog: {name} stopped")
