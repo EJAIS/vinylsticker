@@ -20,8 +20,8 @@ Collection panel
 ────────────────
   • "Angemeldet als: {username}" + "Abmelden" button
   • "7\" Singles laden" → background fetch with progress label
-  • Live search bar (filters in-memory list)
-  • QTableWidget: ☐ | Titel | Interpret | Label | Jahr
+  • Live search bar (filters by artist, title or catalog number)
+  • QTableWidget: ☐ | Titel | Interpret | Label | Kat.-Nr. | Jahr
   • "Alle auswählen" / "Auswahl aufheben"
   • "In Druckwarteschlange übernehmen" → fetch tracklists → open ReviewDialog
   • "Abbrechen"
@@ -251,7 +251,9 @@ _COL_CHECK  = 0
 _COL_TITLE  = 1
 _COL_ARTIST = 2
 _COL_LABEL  = 3
-_COL_YEAR   = 4
+_COL_CATNO  = 4
+_COL_YEAR   = 5
+_NUM_COLS   = 6
 
 
 class DiscogsDialog(QDialog):
@@ -417,12 +419,13 @@ class DiscogsDialog(QDialog):
         layout.addLayout(search_row)
 
         # Table
-        self._table = QTableWidget(0, 5)
+        self._table = QTableWidget(0, _NUM_COLS)
         self._table.setHorizontalHeaderLabels([
             "",
             t("discogs_col_title"),
             t("discogs_col_artist"),
             t("discogs_col_label"),
+            t("discogs_col_catno"),
             t("discogs_col_year"),
         ])
         self._table.horizontalHeader().setSectionResizeMode(
@@ -437,6 +440,9 @@ class DiscogsDialog(QDialog):
         )
         self._table.horizontalHeader().setSectionResizeMode(
             _COL_LABEL, QHeaderView.ResizeMode.Stretch
+        )
+        self._table.horizontalHeader().setSectionResizeMode(
+            _COL_CATNO, QHeaderView.ResizeMode.ResizeToContents
         )
         self._table.horizontalHeader().setSectionResizeMode(
             _COL_YEAR, QHeaderView.ResizeMode.ResizeToContents
@@ -674,7 +680,9 @@ class DiscogsDialog(QDialog):
         else:
             self._displayed = [
                 r for r in self._releases
-                if q in r["artist"].lower() or q in r["title"].lower()
+                if q in r["artist"].lower()
+                or q in r["title"].lower()
+                or q in (r.get("catno") or "").lower()
             ]
         logger.debug(
             f"Populating table: {len(self._displayed)} releases "
@@ -710,6 +718,9 @@ class DiscogsDialog(QDialog):
                 self._table.setItem(row, _COL_TITLE,  title_item)
                 self._table.setItem(row, _COL_ARTIST, QTableWidgetItem(rec["artist"]))
                 self._table.setItem(row, _COL_LABEL,  QTableWidgetItem(rec["label"]))
+                self._table.setItem(
+                    row, _COL_CATNO, QTableWidgetItem(rec.get("catno") or "")
+                )
                 year_str = str(rec["year"]) if rec["year"] else ""
                 self._table.setItem(row, _COL_YEAR,   QTableWidgetItem(year_str))
         finally:

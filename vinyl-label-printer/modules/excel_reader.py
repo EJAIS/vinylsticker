@@ -3,6 +3,9 @@ Excel reader module.
 
 Loads label records from the "Print" and "Database" sheets of the project
 Excel file.  The "Database" sheet is always opened read-only.
+
+Column layout (A–G): Title, Artist, Label, Country, Year, Side, CatNo.
+Files without column G (CatNo) load with an empty catalog number.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ logger = get_logger()
 
 SHEET_PRINT    = "Print"
 SHEET_DATABASE = "Database"
-COLUMNS        = ("Title", "Artist", "Label", "Country", "Year", "Side")
+COLUMNS        = ("Title", "Artist", "Label", "Country", "Year", "Side", "CatNo")
 
 
 @dataclass
@@ -29,6 +32,7 @@ class LabelRecord:
     country: str
     year:    str
     side:    str   # always "A" or "B" after normalisation
+    catno:   str = ""
 
 
 # ── Public helpers ────────────────────────────────────────────────────────────
@@ -62,7 +66,9 @@ def write_print_queue(xlsx_path: Path, records: list[LabelRecord]) -> None:
     ws.delete_rows(1, ws.max_row)          # clear all existing rows
     ws.append(list(COLUMNS))              # write header
     for rec in records:
-        ws.append([rec.title, rec.artist, rec.label, rec.country, rec.year, rec.side])
+        ws.append([
+            rec.title, rec.artist, rec.label, rec.country, rec.year, rec.side, rec.catno,
+        ])
     wb.save(str(xlsx_path))
     wb.close()
 
@@ -105,9 +111,9 @@ def _row_to_record(row: tuple) -> LabelRecord | None:
     Returns None for rows where the Title cell is empty/None so that blank
     rows at the bottom of the sheet are silently ignored.
     """
-    # Pad to at least 6 elements in case the row is shorter than expected
-    cells = list(row) + [None] * 6
-    title, artist, label, country, year, side = cells[:6]
+    # Pad to at least 7 elements — older files have no CatNo column (G)
+    cells = list(row) + [None] * 7
+    title, artist, label, country, year, side, catno = cells[:7]
 
     # Skip rows with no title
     if title is None or str(title).strip() == "":
@@ -120,6 +126,7 @@ def _row_to_record(row: tuple) -> LabelRecord | None:
         country=_str(country),
         year=_str(year),
         side=_normalise_side(side),
+        catno=_str(catno),
     )
 
 

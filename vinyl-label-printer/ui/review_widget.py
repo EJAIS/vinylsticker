@@ -51,12 +51,15 @@ _COL_CHECK   = 0
 _COL_TITLE   = 1
 _COL_ARTIST  = 2
 _COL_LABEL   = 3
-_COL_COUNTRY = 4
-_COL_YEAR    = 5
-_COL_SIDE    = 6
-_NUM_COLS    = 7
+_COL_CATNO   = 4
+_COL_COUNTRY = 5
+_COL_YEAR    = 6
+_COL_SIDE    = 7
+_NUM_COLS    = 8
 
-_EDITABLE_COLS = (_COL_TITLE, _COL_ARTIST, _COL_LABEL, _COL_COUNTRY, _COL_YEAR, _COL_SIDE)
+_EDITABLE_COLS = (
+    _COL_TITLE, _COL_ARTIST, _COL_LABEL, _COL_CATNO, _COL_COUNTRY, _COL_YEAR, _COL_SIDE,
+)
 _REQUIRED_COLS = (_COL_TITLE, _COL_SIDE)
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -175,6 +178,7 @@ class ReviewDialog(QDialog):
             t("review_col_title"),
             t("review_col_artist"),
             t("review_col_label"),
+            t("review_col_catno"),
             t("review_col_country"),
             t("review_col_year"),
             t("review_col_side"),
@@ -190,6 +194,7 @@ class ReviewDialog(QDialog):
         hdr.setSectionResizeMode(_COL_TITLE,   QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(_COL_ARTIST,  QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(_COL_LABEL,   QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(_COL_CATNO,   QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(_COL_COUNTRY, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(_COL_YEAR,    QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(_COL_SIDE,    QHeaderView.ResizeMode.ResizeToContents)
@@ -260,6 +265,7 @@ class ReviewDialog(QDialog):
             str(rec.get("title",   "") or ""),
             str(rec.get("artist",  "") or ""),
             str(rec.get("label",   "") or ""),
+            str(rec.get("catno",   "") or ""),
             str(rec.get("country", "") or ""),
             str(rec.get("year",    "") or ""),
             str(rec.get("side",    "") or ""),
@@ -537,6 +543,7 @@ class ReviewDialog(QDialog):
             "title":   cell(_COL_TITLE),
             "artist":  cell(_COL_ARTIST),
             "label":   cell(_COL_LABEL),
+            "catno":   cell(_COL_CATNO),
             "country": cell(_COL_COUNTRY),
             "year":    cell(_COL_YEAR),
             "side":    cell(_COL_SIDE),
@@ -551,6 +558,7 @@ class ReviewDialog(QDialog):
             country = rec["country"],
             year    = rec["year"],
             side    = rec["side"],
+            catno   = rec["catno"],
         )
 
     def get_records(self) -> list[LabelRecord]:
