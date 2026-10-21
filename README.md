@@ -46,6 +46,7 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
    - [Printer Calibration](#printer-calibration)
    - [Calibration PDF](#calibration-pdf)
    - [Adding a Language](#adding-a-language)
+   - [Building from source (PyInstaller)](#building-from-source-pyinstaller)
 
 ---
 
@@ -681,6 +682,7 @@ vinyl-label-printer/
 │   ├── data_source.py             # DataSourceMode enum (LOCAL / DISCOGS)
 │   ├── excel_reader.py            # openpyxl — loads/writes Print sheet, loads Database
 │   ├── logger.py                  # Centralised rotating-file logger; debug toggle
+│   ├── paths.py                   # Locations of bundled read-only resources (source / PyInstaller)
 │   ├── pdf_generator.py           # ReportLab — renders labels to PDF, dynamic font sizing
 │   ├── printer.py                 # Cross-platform OS print dialog trigger
 │   ├── i18n.py                    # All UI strings, language switching (DE / EN)
@@ -871,6 +873,13 @@ Timestamps are stored as timezone-aware UTC ISO strings; naive values from older
 
 The toggle is exposed in **Settings → Appearance → Developer → Debug logging**. When active, a red badge appears in the footer; clicking it reopens the settings dialog on the Appearance tab.
 
+#### `modules/paths.py`
+
+| Symbol | Description |
+|---|---|
+| `resource_path(relative)` | Absolute path of a read-only resource shipped with the app — relative to `vinyl-label-printer/` when running from source, relative to the PyInstaller bundle (`sys._MEIPASS`) when frozen |
+| `get_poppler_path()` | Bundled Poppler `bin` folder (Windows builds only) or `None`, in which case pdf2image uses Poppler from the system `PATH` |
+
 #### `modules/version_checker.py`
 
 | Symbol | Description |
@@ -990,3 +999,21 @@ Left-margin and top-margin mm rulers are printed along the page edges.
 2. Copy the `"DE"` block and paste it with a new ISO 639-1 key (e.g., `"FR"`).
 3. Translate all string values.
 4. The new language will automatically appear in **⚙ Settings → Appearance** at next launch — no other code changes are needed.
+
+### Building from source (PyInstaller)
+
+The app can be bundled into a self-contained folder with [PyInstaller](https://pyinstaller.org/)
+using the spec file in `packaging/`. Run from the repository root with the app's requirements
+installed:
+
+```bash
+pip install -r vinyl-label-printer/requirements.txt pyinstaller
+pyinstaller --noconfirm --clean packaging/vinyl-label-printer.spec
+dist/vinyl-label-printer/vinyl-label-printer --version
+```
+
+The result is `dist/vinyl-label-printer/` (onedir build). On Linux, Poppler is not bundled —
+install `poppler-utils` as usual. On Windows, extract the `Library/bin` folder of a
+[Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases) release to
+`packaging/poppler/bin` before building to bundle it; otherwise Poppler is taken from `PATH`.
+The CI workflow `.github/workflows/build.yml` builds both platforms the same way.

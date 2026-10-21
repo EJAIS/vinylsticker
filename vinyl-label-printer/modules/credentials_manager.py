@@ -14,9 +14,11 @@ import json
 import os
 from pathlib import Path
 
+from modules.paths import resource_path
+
 _CONFIG_DIR = Path(__file__).parent.parent / "config"
 _CREDENTIALS_FILE = _CONFIG_DIR / "credentials.json"
-_EXAMPLE_FILE = _CONFIG_DIR / "credentials.example.json"
+_EXAMPLE_FILE = resource_path("config/credentials.example.json")
 
 _EMPTY: dict = {"discogs_username": "", "discogs_token": ""}
 
