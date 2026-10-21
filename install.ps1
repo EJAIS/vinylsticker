@@ -292,6 +292,16 @@ function Get-App {
             -Recurse -Force
     }
 
+    # Copy the app icon (window icon and Start Menu shortcut)
+    $iconSource = Join-Path $extracted.FullName "packaging\icons"
+    $iconDir = Join-Path $InstallDir "icons"
+    if (Test-Path (Join-Path $iconSource "icon.ico")) {
+        New-Item -ItemType Directory -Path $iconDir -Force | Out-Null
+        Copy-Item (Join-Path $iconSource "icon.ico") $iconDir -Force
+        Copy-Item (Join-Path $iconSource "hicolor\256x256\apps\vinyl-label-printer.png") `
+            $iconDir -Force
+    }
+
     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
     Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -376,7 +386,12 @@ function New-StartMenuShortcut {
     $shortcut.WorkingDirectory = $InstallDir
     $shortcut.Description = "Print 7-inch vinyl labels"
     $shortcut.WindowStyle = 1
-    $shortcut.IconLocation = "shell32.dll,17"
+    $iconFile = Join-Path $InstallDir "icons\icon.ico"
+    if (Test-Path $iconFile) {
+        $shortcut.IconLocation = "$iconFile,0"
+    } else {
+        $shortcut.IconLocation = "shell32.dll,17"
+    }
     $shortcut.Save()
 
     Write-Success "Start Menu shortcut created"

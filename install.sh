@@ -276,6 +276,13 @@ download_app() {
         cp -r "$extracted/examples" "$INSTALL_DIR/examples"
     fi
 
+    # Copy the app icon (used by the app window and the menu entry)
+    local icon_src="$extracted/packaging/icons/hicolor/256x256/apps/vinyl-label-printer.png"
+    if [ -f "$icon_src" ]; then
+        mkdir -p "$INSTALL_DIR/icons"
+        cp "$icon_src" "$INSTALL_DIR/icons/vinyl-label-printer.png"
+    fi
+
     # Cleanup
     rm -f "$tmp_zip"
     rm -rf "$tmp_dir"
@@ -348,13 +355,17 @@ create_desktop_entry() {
 
     mkdir -p "$DESKTOP_DIR"
 
+    # Older versions ship no icon; fall back to the theme's printer icon
+    local icon="$INSTALL_DIR/icons/vinyl-label-printer.png"
+    [ -f "$icon" ] || icon="printer"
+
     cat > "$DESKTOP_DIR/vinyl-label-printer.desktop" << EOF
 [Desktop Entry]
 Name=Vinyl Label Printer
 GenericName=Vinyl Label Printer
 Comment=Print 7" vinyl labels on Avery 4780
 Exec=$BIN_DIR/vinyl-label-printer
-Icon=printer
+Icon=$icon
 Terminal=false
 Type=Application
 Categories=Utility;Office;
