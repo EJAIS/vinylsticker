@@ -30,6 +30,8 @@ $AppSubDir   = "vinyl-label-printer"
 $InstallDir  = Join-Path $env:LOCALAPPDATA "vinyl-label-printer"
 $StartMenu   = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $ShortcutPath = Join-Path $StartMenu "Vinyl Label Printer.lnk"
+# Install dir of the Setup.exe (Inno Setup) installer, a separate installation
+$SetupInstallDir = Join-Path $env:LOCALAPPDATA "Programs\Vinyl Label Printer"
 $BackupDir   = Join-Path $env:TEMP "vinyl-label-printer-backup-$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 
 # ── Colors / Output helpers ────────────────────────────────────
@@ -468,6 +470,12 @@ function Main {
     if ($Uninstall) {
         Remove-App
         return
+    }
+
+    if (Test-Path $SetupInstallDir) {
+        Write-Warn "Vinyl Label Printer is also installed with Setup.exe: $SetupInstallDir"
+        Write-Warn "Both installations will show up in the Start Menu. To update the"
+        Write-Warn "Setup.exe installation, run the newer Setup.exe instead of this script."
     }
 
     $installedVersion = Get-InstalledVersion
