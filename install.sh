@@ -448,6 +448,29 @@ uninstall() {
     fi
 }
 
+# ── Coexistence with the .deb package ─────────────────────────
+# The .deb installs to /opt/vinyl-label-printer with its own system-wide menu
+# entry. A script install next to it adds a second entry in
+# ~/.local/share/applications that duplicates or hides the package's entry.
+DEB_INSTALL_DIR="/opt/vinyl-label-printer"
+
+check_deb_package() {
+    [ -d "$DEB_INSTALL_DIR" ] || return 0
+
+    warning "The Vinyl Label Printer package (.deb) is installed: $DEB_INSTALL_DIR"
+    warning "Installing with this script as well creates a second menu entry"
+    warning "that duplicates or hides the one from the package."
+    info "To update the package, install the newer .deb instead (see README)."
+    if [ "$IS_PIPE" = true ]; then
+        error "Not continuing non-interactively. To install with the script anyway:"
+        error "  curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh -o /tmp/install.sh"
+        error "  bash /tmp/install.sh"
+        exit 1
+    fi
+    read -rp "Install with the script anyway? [y/N] " confirm
+    [[ "$confirm" =~ ^[yYjJ]$ ]] || { info "Cancelled."; exit 0; }
+}
+
 # ── Main ──────────────────────────────────────────────────────
 main() {
     echo ""
@@ -467,6 +490,8 @@ main() {
         uninstall
         exit 0
     fi
+
+    check_deb_package
 
     # Detect fresh install vs. update
     INSTALLED_VERSION=$(get_installed_version)
