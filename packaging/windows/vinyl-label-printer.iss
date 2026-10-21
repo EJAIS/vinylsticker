@@ -81,8 +81,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [InstallDelete]
 ; Remove the previous bundle before an upgrade so no stale libraries or Qt
-; plugins from an older version stay next to the new ones.
-Type: filesandordirs; Name: "{app}\_internal"
+; plugins from an older version stay next to the new ones. Only when {app}
+; already holds our exe: an _internal folder of another app is never touched.
+Type: filesandordirs; Name: "{app}\_internal"; Check: IsUpgradeOfThisApp
 
 [Files]
 Source: "{#RepoRoot}\dist\vinyl-label-printer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -100,6 +101,13 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(
 ; the install.ps1 install dir) are never touched.
 
 [Code]
+// Check for [InstallDelete]: {app} already contains this app's exe, i.e. this
+// is an upgrade of an existing Vinyl Label Printer installation.
+function IsUpgradeOfThisApp: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\{#AppExeName}'));
+end;
+
 // The app keeps its data in %APPDATA%\vinyl-label-printer and
 // %LOCALAPPDATA%\vinyl-label-printer (also the install.ps1 install dir).
 // Installing into one of them would mix program files with user data.
