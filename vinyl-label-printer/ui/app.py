@@ -41,6 +41,7 @@ from modules.pdf_generator import generate_pdf
 from modules.printer import print_pdf
 from modules.data_source import DataSourceMode
 from modules.credentials_manager import CredentialsManager
+from modules.paths import get_database_file, get_output_dir
 from config.settings import (
     get_watermark_path, set_watermark_path,
     get_data_source_mode,
@@ -55,10 +56,6 @@ from ui.footer_widget import FooterWidget
 from ui.discogs_dialog import DiscogsDialog
 from ui.review_widget import ReviewDialog
 
-# Paths resolved relative to vinyl-label-printer/
-_BASE_DIR = Path(__file__).parent.parent
-_DB_PATH  = _BASE_DIR / "data" / "database.xlsx"
-_OUT_DIR  = _BASE_DIR / "output"
 _PDF_NAME = "labels.pdf"
 
 
@@ -74,7 +71,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._records:        list[LabelRecord] = []
         self._pdf_path:       Path | None = None
-        self._db_path:        Path = _DB_PATH
+        self._db_path:        Path = get_database_file()
         self._watermark_path: Path | None = get_watermark_path()
         self._mode:           DataSourceMode = get_data_source_mode()
         self._start_index:    int = 0
@@ -238,8 +235,7 @@ class MainWindow(QMainWindow):
         self._sidebar.set_pdf_status("generating")
         QApplication.processEvents()
 
-        _OUT_DIR.mkdir(parents=True, exist_ok=True)
-        self._pdf_path = _OUT_DIR / _PDF_NAME
+        self._pdf_path = get_output_dir() / _PDF_NAME
 
         try:
             generate_pdf(

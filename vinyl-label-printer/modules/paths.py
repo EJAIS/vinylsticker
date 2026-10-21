@@ -1,15 +1,35 @@
 """
-Filesystem locations of resources shipped with the application.
+Filesystem locations used by the application — the single place that knows
+where files live.
 
-Works both when running from source and when frozen by PyInstaller.
-Only read-only resources are resolved here; writable user data still lives
-next to the source tree for now.
+  Read-only resources  shipped with the app (resource_path, get_poppler_path).
+                       Works from source and when frozen by PyInstaller.
+  User directories     writable per-user folders resolved via platformdirs and
+                       created on demand:
+                         config  settings.json, credentials.json
+                         data    database.xlsx
+                         cache   discogs_cache.db (+ sidecars), generated PDFs
+                         log     app.log
+  Legacy migration     one-time copy of user files from the old app-relative
+                       layout (config/, data/ next to the code) into the user
+                       directories (migrate_legacy_data, seed_example_database).
+
+Nothing in this module may write next to the application code.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
 import sys
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+
+from platformdirs import PlatformDirs
+
+APP_NAME = "vinyl-label-printer"
 
 # Root of the read-only resources: the vinyl-label-printer/ folder when running
 # from source, the PyInstaller bundle directory (sys._MEIPASS) when frozen.
@@ -18,6 +38,17 @@ if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
 else:
     _RESOURCE_ROOT = Path(__file__).resolve().parent.parent
 
+# Config and data use the roaming profile on Windows (%APPDATA%). The local
+# variant (%LOCALAPPDATA%\vinyl-label-printer) is the install.ps1 install dir,
+# which "install.ps1 -Uninstall" deletes recursively. Cache and logs stay local.
+# On Linux both resolve to the same XDG directories.
+_ROAMING_DIRS = PlatformDirs(APP_NAME, appauthor=False, roaming=True)
+_LOCAL_DIRS = PlatformDirs(APP_NAME, appauthor=False, roaming=False)
+
+MIGRATION_MARKER = "legacy-migration.json"
+
+
+# ── Read-only resources ───────────────────────────────────────────────────────
 
 def resource_path(relative: str | Path) -> Path:
     """Return the absolute path of a read-only resource shipped with the app.
@@ -37,3 +68,227 @@ def get_poppler_path() -> str | None:
     """
     poppler_bin = resource_path("poppler/bin")
     return str(poppler_bin) if poppler_bin.is_dir() else None
+
+
+# ── User directories (created on demand) ──────────────────────────────────────
+
+def _ensure(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_config_dir() -> Path:
+    """Directory for settings.json and credentials.json."""
+    return _ensure(Path(_ROAMING_DIRS.user_config_dir))
+
+
+def get_data_dir() -> Path:
+    """Directory for the user's database.xlsx."""
+    return _ensure(Path(_ROAMING_DIRS.user_data_dir))
+
+
+def get_cache_dir() -> Path:
+    """Directory for the Discogs cache and generated PDFs."""
+    return _ensure(Path(_LOCAL_DIRS.user_cache_dir))
+
+
+def get_log_dir() -> Path:
+    """Directory for app.log."""
+    return _ensure(Path(_LOCAL_DIRS.user_log_dir))
+
+
+def get_settings_file() -> Path:
+    return get_config_dir() / "settings.json"
+
+
+def get_credentials_file() -> Path:
+    return get_config_dir() / "credentials.json"
+
+
+def get_database_file() -> Path:
+    return get_data_dir() / "database.xlsx"
+
+
+def get_discogs_cache_file() -> Path:
+    return get_cache_dir() / "discogs_cache.db"
+
+
+def get_output_dir() -> Path:
+    """Directory for generated PDFs (labels and calibration sheet)."""
+    return _ensure(get_cache_dir() / "output")
+
+
+def get_log_file() -> Path:
+    return get_log_dir() / "app.log"
+
+
+# ── One-time migration from the legacy layout ─────────────────────────────────
+
+# Legacy path (relative to a legacy app folder) → target path getter
+_LEGACY_FILES = (
+    ("config/settings.json", get_settings_file),
+    ("config/credentials.json", get_credentials_file),
+    ("data/database.xlsx", get_database_file),
+)
+_LEGACY_CACHE_DB = "data/discogs_cache.db"
+_SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
+
+
+@dataclass
+class MigrationResult:
+    """Outcome of migrate_legacy_data(); logged by main.py once logging is set up."""
+    already_done: bool = False
+    copied: list[tuple[Path, Path]] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+def _legacy_dirs() -> list[Path]:
+    """Legacy app folders that may hold user files, in migration priority order.
+
+    a) the folder next to the code (git clones, install.sh / install.ps1 installs)
+    b) the install.sh / install.ps1 install dir, for users switching to the
+       packaged app
+    """
+    candidates = [Path(__file__).resolve().parent.parent]
+    if sys.platform == "win32":
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            candidates.append(Path(local_appdata) / APP_NAME)
+    else:
+        candidates.append(Path.home() / APP_NAME)
+
+    unique: list[Path] = []
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        if resolved not in unique:
+            unique.append(resolved)
+    return unique
+
+
+def _copy_new(src: Path, dst: Path) -> None:
+    """Copy *src* to *dst* via a temporary file so *dst* is never left half-written."""
+    tmp = dst.with_name(dst.name + ".migrating")
+    # copyfile (unlike copy2) fails instead of copying *into* tmp if it is a directory
+    shutil.copyfile(src, tmp)
+    shutil.copystat(src, tmp)
+    os.replace(tmp, dst)
+
+
+def migrate_legacy_data() -> MigrationResult:
+    """Copy user files from the legacy app-relative layout into the user directories.
+
+    Runs once: a marker file in the config dir records a successful migration.
+    Files are copied, never moved or deleted, and an existing target is never
+    overwritten. Logs are not migrated. Never raises — errors are collected in
+    the result so the app can always start.
+    """
+    result = MigrationResult()
+    try:
+        marker = get_config_dir() / MIGRATION_MARKER
+        if marker.exists():
+            result.already_done = True
+            return result
+
+        for legacy_dir in _legacy_dirs():
+            for rel, target_getter in _LEGACY_FILES:
+                src = legacy_dir / rel
+                try:
+                    if not src.is_file():
+                        continue
+                    dst = target_getter()
+                    if dst.exists():
+                        continue
+                    _copy_new(src, dst)
+                    if dst.name == "credentials.json":
+                        try:
+                            os.chmod(dst, 0o600)
+                        except (NotImplementedError, OSError):
+                            pass  # chmod has no effect on Windows
+                    result.copied.append((src, dst))
+                except Exception as exc:
+                    result.errors.append(f"{src}: {type(exc).__name__}: {exc}")
+
+            _migrate_cache_db(legacy_dir, result)
+
+        if not result.errors:
+            marker.write_text(
+                json.dumps(
+                    {
+                        "migrated_at": datetime.now(timezone.utc).isoformat(),
+                        "copied": [[str(s), str(d)] for s, d in result.copied],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+    except Exception as exc:
+        result.errors.append(f"{type(exc).__name__}: {exc}")
+    return result
+
+
+def _migrate_cache_db(legacy_dir: Path, result: MigrationResult) -> None:
+    """Copy discogs_cache.db together with its SQLite sidecar files as one unit.
+
+    Skipped entirely if the target database or any target sidecar exists, so a
+    sidecar is never paired with a different database.
+    """
+    src_db = legacy_dir / _LEGACY_CACHE_DB
+    try:
+        if not src_db.is_file():
+            return
+        dst_db = get_discogs_cache_file()
+        targets = [dst_db] + [
+            dst_db.with_name(dst_db.name + s) for s in _SQLITE_SIDECARS
+        ]
+        if any(t.exists() for t in targets):
+            return
+        _copy_new(src_db, dst_db)
+        result.copied.append((src_db, dst_db))
+        for suffix in _SQLITE_SIDECARS:
+            src_side = src_db.with_name(src_db.name + suffix)
+            if src_side.is_file():
+                dst_side = dst_db.with_name(dst_db.name + suffix)
+                _copy_new(src_side, dst_side)
+                result.copied.append((src_side, dst_side))
+    except Exception as exc:
+        result.errors.append(f"{src_db}: {type(exc).__name__}: {exc}")
+
+
+def _example_database() -> Path | None:
+    """Locate the bundled example database.xlsx, if any.
+
+    Frozen builds and install.sh / install.ps1 installs ship it as
+    examples/database.xlsx next to the code; a git clone has it one level up
+    in the repository root.
+    """
+    candidates = [resource_path("examples/database.xlsx")]
+    if not getattr(sys, "frozen", False):
+        candidates.append(_RESOURCE_ROOT.parent / "examples" / "database.xlsx")
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def seed_example_database() -> tuple[Path | None, str | None]:
+    """Copy the example database into the data dir if no database.xlsx exists yet.
+
+    Mirrors the first-run seeding of install.sh / install.ps1. Never raises.
+
+    Returns:
+        (copied target path or None, error message or None)
+    """
+    try:
+        dst = get_database_file()
+        if dst.exists():
+            return None, None
+        example = _example_database()
+        if example is None:
+            return None, "example database not found"
+        _copy_new(example, dst)
+        return dst, None
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
