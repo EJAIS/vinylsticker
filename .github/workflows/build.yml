@@ -395,6 +395,9 @@ jobs:
           echo "Output: $out"
           echo "$out" | grep -F "$VERSION"
           test -f dist/vinyl-label-printer/_internal/icons/vinyl-label-printer.png
+          # The committed window icon is the 256 px hicolor PNG (build_icons.py).
+          cmp vinyl-label-printer/icons/vinyl-label-printer.png \
+            packaging/icons/hicolor/256x256/apps/vinyl-label-printer.png
 
       - name: Install fpm ${{ env.FPM_VERSION }}
         env:
@@ -506,6 +509,12 @@ jobs:
             sleep 1
           done
           test -n "$id"
+          # Window icon set from icons/vinyl-label-printer.png (256 px). The
+          # custom xprop format prints no trailing newline, hence the echo.
+          # shellcheck disable=SC2016  # xprop format, not shell variables
+          xprop -id "$id" -len 16 -f _NET_WM_ICON 32cc ' = $0 x $1' _NET_WM_ICON | tee icon.txt
+          echo
+          grep -qF "= 256 x 256" icon.txt
           # WM_CLASS(STRING) = "<instance>", "<class>"; StartupWMClass is the class.
           xprop -id "$id" WM_CLASS | tee wm_class.txt
           test "$(awk -F'"' '{print $4}' wm_class.txt)" = "$expected_class"
