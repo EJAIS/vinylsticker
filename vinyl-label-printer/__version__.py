@@ -1,2 +1,2 @@
-__version__ = "0.4.0"
-__status__ = "Beta"
+__version__ = "1.0.0"
+__status__ = "Stable"
