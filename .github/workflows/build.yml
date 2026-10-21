@@ -209,7 +209,7 @@ jobs:
           Write-Host "Built dist/$file"
           "file=$file" >> $env:GITHUB_OUTPUT
 
-      - name: Install test (silent install, upgrade, --version, uninstall)
+      - name: Install test (silent install, upgrade, --version, uninstall, foreign folder)
         run: |
           $setup = (Resolve-Path "dist/${{ steps.setup.outputs.file }}").Path
           $appDir = Join-Path $env:LOCALAPPDATA "Programs\Vinyl Label Printer"
@@ -234,13 +234,43 @@ jobs:
           }
           $silent = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/NORESTART")
 
+          # Waits for an uninstaller: it restarts itself from %TEMP% and
+          # returns at once.
+          function Wait-Gone($path, $seconds) {
+            $deadline = (Get-Date).AddSeconds($seconds)
+            while ((Test-Path $path) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          }
+
+          # Get-SetupInstallDir of install.ps1, loaded with its settings but
+          # without running the script (it starts Main at the end).
+          function Get-Ps1SetupInstallDir {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path install.ps1).Path, [ref]$null, [ref]$null)
+            $code = @("Set-StrictMode -Version Latest")
+            foreach ($st in $ast.EndBlock.Statements) {
+              if (($st -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                   $st.Left.Extent.Text -in '$SetupUninstallKey', '$SetupInstallDir') -or
+                  ($st -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                   $st.Name -eq 'Get-SetupInstallDir')) {
+                $code += $st.Extent.Text
+              }
+            }
+            if ($code.Count -ne 4) { throw "install.ps1: Get-SetupInstallDir or its settings not found" }
+            & ([scriptblock]::Create(($code + "Get-SetupInstallDir") -join "`n"))
+          }
+
           # Fresh install, then the same setup again over it (upgrade path:
-          # same AppId, files replaced, still one uninstall entry).
+          # same AppId, files replaced, still one uninstall entry). A stale file
+          # in _internal stands for a library of the old version: the upgrade
+          # must remove it ([InstallDelete]).
+          $stale = Join-Path $appDir "_internal\stale-from-old-version.txt"
           foreach ($run in 1, 2) {
             $log = Join-Path $env:RUNNER_TEMP "setup-$run.log"
             Invoke-WithTimeout $setup ($silent + "/LOG=`"$log`"") 300 $log
             Write-Host "Install run $run finished"
+            if ($run -eq 1) { Set-Content -Path $stale -Value "stale" }
           }
+          if (Test-Path $stale) { throw "Upgrade did not remove the old _internal: $stale" }
           if (-not (Test-Path $exe)) { throw "Installed exe not found: $exe" }
           if (-not (Test-Path $shortcut)) { throw "Start Menu shortcut not found: $shortcut" }
           if (Test-Path (Join-Path $appDir "unins001.exe")) { throw "Second uninstaller: upgrade created a new installation" }
@@ -259,17 +289,18 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Exit code $($p.ExitCode)" }
           if ($text -notmatch [regex]::Escape($env:VERSION)) { throw "Version string not found" }
 
+          $detected = Get-Ps1SetupInstallDir
+          Write-Host "install.ps1 detects the Setup.exe install in: $detected"
+          if ($detected -ne $appDir) { throw "install.ps1 detected '$detected', expected '$appDir'" }
+
           # User data must survive the uninstall.
           New-Item -ItemType Directory -Force -Path (Split-Path $dataFile) | Out-Null
           Set-Content -Path $dataFile -Value "{}"
 
-          # The uninstaller restarts itself from %TEMP% and returns at once, so
-          # wait for the program folder to disappear.
           $log = Join-Path $env:RUNNER_TEMP "uninstall.log"
           Invoke-WithTimeout (Join-Path $appDir "unins000.exe") `
             @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"$log`"") 120 $log
-          $deadline = (Get-Date).AddSeconds(120)
-          while ((Test-Path $appDir) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          Wait-Gone $appDir 120
           if (Test-Path $appDir) {
             Get-ChildItem -Recurse $appDir | Select-Object -First 20 | ForEach-Object { $_.FullName }
             throw "Program folder still exists after uninstall: $appDir"
@@ -278,6 +309,31 @@ jobs:
           if (Test-Path $uninstKey) { throw "Uninstall entry still exists after uninstall" }
           if (-not (Test-Path $dataFile)) { throw "User data was deleted by the uninstaller" }
           Write-Host "Uninstall OK: program folder, shortcut and uninstall entry removed, user data kept"
+
+          # Install into a folder that holds another app's _internal (no
+          # vinyl-label-printer.exe): its files must survive install and uninstall.
+          $otherDir = Join-Path $env:RUNNER_TEMP "Other App"
+          $keep = Join-Path $otherDir "_internal\keep.txt"
+          New-Item -ItemType Directory -Force -Path (Split-Path $keep) | Out-Null
+          Set-Content -Path $keep -Value "not ours"
+          $log = Join-Path $env:RUNNER_TEMP "setup-other.log"
+          Invoke-WithTimeout $setup ($silent + "/DIR=`"$otherDir`"" + "/LOG=`"$log`"") 300 $log
+          $otherExe = Join-Path $otherDir "vinyl-label-printer.exe"
+          if (-not (Test-Path $otherExe)) { throw "Installed exe not found: $otherExe" }
+          if (-not (Test-Path $keep)) { throw "Install deleted the foreign _internal: $keep" }
+          $detected = Get-Ps1SetupInstallDir
+          Write-Host "install.ps1 detects the Setup.exe install in: $detected"
+          if ($detected -ne $otherDir) { throw "install.ps1 detected '$detected', expected '$otherDir'" }
+
+          $log = Join-Path $env:RUNNER_TEMP "uninstall-other.log"
+          Invoke-WithTimeout (Join-Path $otherDir "unins000.exe") `
+            @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"$log`"") 120 $log
+          Wait-Gone $otherExe 120
+          Wait-Gone (Join-Path $otherDir "unins000.exe") 60
+          if (Test-Path $otherExe) { throw "Exe still exists after uninstall: $otherExe" }
+          if (-not (Test-Path $keep)) { throw "Uninstall deleted the foreign _internal: $keep" }
+          if ($null -ne (Get-Ps1SetupInstallDir)) { throw "install.ps1 still detects a Setup.exe install" }
+          Write-Host "Foreign folder OK: _internal\keep.txt kept through install and uninstall"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -424,16 +480,23 @@ jobs:
           apt-get install -y --no-install-recommends desktop-file-utils
           desktop-file-validate /usr/share/applications/vinyl-label-printer.desktop
 
-      - name: Start on X11 (Xvfb) and check StartupWMClass
+      - name: Start from the menu entry on X11 (Xvfb) and check the window matching
+        env:
+          DESKTOP_FILE: /usr/share/applications/vinyl-label-printer.desktop
         run: |
           apt-get install -y --no-install-recommends \
             xvfb x11-utils libgl1-mesa-dri fonts-dejavu-core
-          expected=$(sed -n 's/^StartupWMClass=//p' \
-            /usr/share/applications/vinyl-label-printer.desktop)
+          # Absolute paths, so a launcher of install.sh in ~/.local/bin (first in
+          # PATH on Linux Mint) cannot be started instead.
+          exec_cmd=$(sed -n 's/^Exec=//p' "$DESKTOP_FILE")
+          test "$exec_cmd" = /usr/bin/vinyl-label-printer
+          test "$(sed -n 's/^TryExec=//p' "$DESKTOP_FILE")" = /usr/bin/vinyl-label-printer
+          expected_class=$(sed -n 's/^StartupWMClass=//p' "$DESKTOP_FILE")
+          desktop_id=$(basename "$DESKTOP_FILE" .desktop)
           Xvfb :99 -screen 0 1400x1000x24 & xvfb=$!
           export DISPLAY=:99
           for _ in $(seq 1 20); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.5; done
-          QT_QPA_PLATFORM=xcb vinyl-label-printer & app=$!
+          QT_QPA_PLATFORM=xcb "$exec_cmd" & app=$!
           # The main window title is "<app name> v<version>" in every language.
           for _ in $(seq 1 60); do
             id=$(xwininfo -root -tree \
@@ -443,18 +506,42 @@ jobs:
             sleep 1
           done
           test -n "$id"
+          # WM_CLASS(STRING) = "<instance>", "<class>"; StartupWMClass is the class.
           xprop -id "$id" WM_CLASS | tee wm_class.txt
-          grep -F "\"$expected\"" wm_class.txt
+          test "$(awk -F'"' '{print $4}' wm_class.txt)" = "$expected_class"
+          # setDesktopFileName() in main.py: Qt sets _GTK_APPLICATION_ID (and the
+          # Wayland app_id) to it; it must name this .desktop file.
+          xprop -id "$id" _GTK_APPLICATION_ID | tee app_id.txt
+          test "$(awk -F'"' '{print $2}' app_id.txt)" = "$desktop_id"
           kill "$app" "$xvfb"
 
-      - name: Remove the package (user data is kept)
+      - name: Remove the package (user data is kept, install.sh follows the dpkg status)
         run: |
+          # check_deb_package of install.sh, non-interactive (as with curl | bash):
+          # fails while the package is installed, passes otherwise.
+          check_deb_package() {
+            bash -c '
+              warning() { echo "W: $*"; }; info() { :; }; error() { echo "E: $*"; }
+              IS_PIPE=true
+              eval "$(sed -n "/^DEB_PACKAGE=/p; /^DEB_INSTALL_DIR=/p;
+                              /^check_deb_package() {/,/^}/p" install.sh)"
+              check_deb_package'
+          }
+          if check_deb_package; then
+            echo "::error::install.sh does not detect the installed package"
+            exit 1
+          fi
+
           mkdir -p "$HOME/.config/vinyl-label-printer"
           echo '{}' > "$HOME/.config/vinyl-label-printer/settings.json"
           apt-get remove -y vinyl-label-printer
           test ! -e /usr/bin/vinyl-label-printer
           test ! -e /opt/vinyl-label-printer
           test -f "$HOME/.config/vinyl-label-printer/settings.json"
+
+          # A leftover folder after "apt remove" must not block install.sh.
+          mkdir -p /opt/vinyl-label-printer/leftover
+          check_deb_package
 
   release:
     # Runs for every build. On a v* tag it publishes the GitHub Release. Pull

@@ -452,10 +452,16 @@ uninstall() {
 # The .deb installs to /opt/vinyl-label-printer with its own system-wide menu
 # entry. A script install next to it adds a second entry in
 # ~/.local/share/applications that duplicates or hides the package's entry.
+# Decided by the dpkg status, not by the folder: a leftover
+# /opt/vinyl-label-printer after "apt remove" does not count.
+DEB_PACKAGE="vinyl-label-printer"
 DEB_INSTALL_DIR="/opt/vinyl-label-printer"
 
 check_deb_package() {
-    [ -d "$DEB_INSTALL_DIR" ] || return 0
+    local status
+    # shellcheck disable=SC2016  # ${Status} is a dpkg-query field, not a variable
+    status=$(dpkg-query -W -f='${Status}' "$DEB_PACKAGE" 2>/dev/null) || return 0
+    [ "$status" = "install ok installed" ] || return 0
 
     warning "The Vinyl Label Printer package (.deb) is installed: $DEB_INSTALL_DIR"
     warning "Installing with this script as well creates a second menu entry"

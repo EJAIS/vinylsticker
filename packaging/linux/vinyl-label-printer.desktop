@@ -6,14 +6,21 @@ GenericName=Label Printer
 GenericName[de]=Etikettendruck
 Comment=Print labels for 7" vinyl records on Avery sheets
 Comment[de]=Etiketten für 7"-Vinyl-Singles auf Avery-Bögen drucken
-Exec=vinyl-label-printer
-TryExec=vinyl-label-printer
+# Absolute paths: install.sh puts its own launcher of the same name into
+# ~/.local/bin, which comes first in PATH on Linux Mint.
+Exec=/usr/bin/vinyl-label-printer
+TryExec=/usr/bin/vinyl-label-printer
 Icon=vinyl-label-printer
 Terminal=false
 Categories=Office;
 Keywords=vinyl;record;label;print;avery;discogs;
 Keywords[de]=Vinyl;Schallplatte;Etikett;Drucken;Avery;Discogs;
 StartupNotify=true
-# WM_CLASS class of the main window: Qt uses QApplication.applicationName()
-# (set in main.py). Keep both in sync.
+# Window matching, keep in sync with main.py:
+# - The file name "vinyl-label-printer.desktop" matches
+#   QGuiApplication.setDesktopFileName("vinyl-label-printer"): the Wayland app_id,
+#   and on X11 _GTK_APPLICATION_ID / _KDE_NET_WM_DESKTOP_FILE.
+# - StartupWMClass is the class part of WM_CLASS on X11, which Qt 6 takes from
+#   QCoreApplication.applicationName() ("Vinyl-Label-Drucker"); the instance part
+#   is the basename of argv[0] ("vinyl-label-printer" for /usr/bin/...).
 StartupWMClass=Vinyl-Label-Drucker

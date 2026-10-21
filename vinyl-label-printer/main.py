@@ -18,7 +18,7 @@ if str(_ROOT) not in sys.path:
 from PyQt6.QtCore import Qt
 
 from __version__ import __version__
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtWidgets import QApplication
 from config.settings import (
     get_theme as get_saved_theme,
@@ -45,6 +45,11 @@ from ui.app import MainWindow
 APP_NAME = "Vinyl Label Printer"
 # Windows taskbar identity; see _set_windows_app_id()
 APP_USER_MODEL_ID = "EJAIS.VinylLabelPrinter"
+# Linux window matching; keep in sync with packaging/linux/vinyl-label-printer.desktop:
+# DESKTOP_FILE_NAME is the basename of the .desktop file (Wayland app_id, X11
+# _GTK_APPLICATION_ID), QT_APP_NAME is the WM_CLASS class on X11 (StartupWMClass=).
+DESKTOP_FILE_NAME = "vinyl-label-printer"
+QT_APP_NAME = "Vinyl-Label-Drucker"
 
 
 def _resolve_theme(app: QApplication, theme: str) -> str:
@@ -169,10 +174,12 @@ def main() -> None:
 
     _set_windows_app_id()
     app = QApplication(sys.argv)
+    QGuiApplication.setDesktopFileName(DESKTOP_FILE_NAME)
     _apply_app_icon(app)
     apply_theme(app, get_saved_theme())
     set_language(get_language_setting())
-    app.setApplicationName("Vinyl-Label-Drucker")
+    # Must stay before the first window is created: Qt reads it for WM_CLASS then.
+    app.setApplicationName(QT_APP_NAME)
     window = MainWindow()   # sets its own title incl. version
     window.show()
     sys.exit(app.exec())
