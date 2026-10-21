@@ -2,7 +2,8 @@
 Filesystem locations used by the application — the single place that knows
 where files live.
 
-  Read-only resources  shipped with the app (resource_path, get_poppler_path).
+  Read-only resources  shipped with the app (resource_path, get_poppler_path,
+                       get_app_icon_file).
                        Works from source and when frozen by PyInstaller.
   User directories     writable per-user folders resolved via platformdirs and
                        created on demand:
@@ -68,6 +69,25 @@ def get_poppler_path() -> str | None:
     """
     poppler_bin = resource_path("poppler/bin")
     return str(poppler_bin) if poppler_bin.is_dir() else None
+
+
+def get_app_icon_file() -> Path | None:
+    """Return the app icon PNG, or None if it is not available.
+
+    Frozen builds and install.sh / install.ps1 installs ship it as
+    icons/vinyl-label-printer.png; a git clone has it in packaging/icons/ in
+    the repository root.
+    """
+    candidates = [resource_path(f"icons/{APP_NAME}.png")]
+    if not getattr(sys, "frozen", False):
+        candidates.append(
+            _RESOURCE_ROOT.parent / "packaging" / "icons" / "hicolor"
+            / "256x256" / "apps" / f"{APP_NAME}.png"
+        )
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
 
 
 # ── User directories (created on demand) ──────────────────────────────────────

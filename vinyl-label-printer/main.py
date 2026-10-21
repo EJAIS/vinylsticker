@@ -18,6 +18,7 @@ if str(_ROOT) not in sys.path:
 from PyQt6.QtCore import Qt
 
 from __version__ import __version__
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 from config.settings import (
     get_theme as get_saved_theme,
@@ -31,6 +32,7 @@ from modules.i18n import set_language
 from modules.logger import setup_logger, get_logger
 from modules.paths import (
     MigrationResult,
+    get_app_icon_file,
     get_config_dir,
     get_data_dir,
     get_cache_dir,
@@ -41,6 +43,8 @@ from modules.paths import (
 from ui.app import MainWindow
 
 APP_NAME = "Vinyl Label Printer"
+# Windows taskbar identity; see _set_windows_app_id()
+APP_USER_MODEL_ID = "EJAIS.VinylLabelPrinter"
 
 
 def _resolve_theme(app: QApplication, theme: str) -> str:
@@ -71,6 +75,31 @@ def _print_version() -> None:
     if sys.stdout is not None:
         print(f"{APP_NAME} {__version__}")
         sys.stdout.flush()
+
+
+def _set_windows_app_id() -> None:
+    """Give the process its own AppUserModelID on Windows.
+
+    Without it, a run from source is grouped under python.exe in the taskbar
+    and shows the Python icon instead of the window icon. Must run before the
+    first window is created. Failures are logged and ignored.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception as exc:
+        get_logger().warning(f"Could not set AppUserModelID: {exc}")
+
+
+def _apply_app_icon(app: QApplication) -> None:
+    """Set the application-wide window icon, if the icon file is available."""
+    icon_file = get_app_icon_file()
+    if icon_file is None:
+        get_logger().warning("App icon not found — using the default icon")
+        return
+    app.setWindowIcon(QIcon(str(icon_file)))
 
 
 def _log_data_setup(
@@ -138,7 +167,9 @@ def main() -> None:
 
     _log_data_setup(migration, seeded, seed_error)
 
+    _set_windows_app_id()
     app = QApplication(sys.argv)
+    _apply_app_icon(app)
     apply_theme(app, get_saved_theme())
     set_language(get_language_setting())
     app.setApplicationName("Vinyl-Label-Drucker")

@@ -3,13 +3,12 @@ name: Build
 on:
   push:
     branches:
-      - feature/packaging
-      - "pkg/**"
+      - main
     tags:
       - "v*"
   pull_request:
     branches:
-      - feature/packaging
+      - main
   workflow_dispatch:
 
 permissions:
@@ -93,6 +92,14 @@ jobs:
             throw "Poppler not bundled"
           }
 
+      - name: Verify app icon
+        run: |
+          python packaging/icons/check_exe_icon.py dist/vinyl-label-printer/vinyl-label-printer.exe
+          if ($LASTEXITCODE -ne 0) { throw "App icon check failed" }
+          if (-not (Test-Path "dist/vinyl-label-printer/_internal/icons/vinyl-label-printer.png")) {
+            throw "Window icon PNG not bundled"
+          }
+
       - uses: actions/upload-artifact@v6
         with:
           name: vinyl-label-printer-${{ steps.version.outputs.version }}-windows
@@ -150,6 +157,7 @@ jobs:
           out=$(dist/vinyl-label-printer/vinyl-label-printer --version)
           echo "Output: $out"
           echo "$out" | grep -F "${{ steps.version.outputs.version }}"
+          test -f dist/vinyl-label-printer/_internal/icons/vinyl-label-printer.png
 
       - name: Create tarball
         id: tarball

@@ -1051,3 +1051,7 @@ install `poppler-utils` as usual. On Windows, extract the `Library/bin` folder o
 [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases) release to
 `packaging/poppler/bin` before building to bundle it; otherwise Poppler is taken from `PATH`.
 The CI workflow `.github/workflows/build.yml` builds both platforms the same way.
+
+The app icon is drawn in `packaging/icons/icon.svg`; the `.ico` and the Linux hicolor PNGs next
+to it are generated from it and committed. After changing the SVG, regenerate them with
+`packaging/icons/build_icons.py` (instructions in its docstring).
