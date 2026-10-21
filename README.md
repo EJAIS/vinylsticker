@@ -24,22 +24,23 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 
 ## Table of Contents
 
-1. [Installation (Linux)](#installation-linux)
-2. [Installation (Windows)](#installation-windows)
+1. [Install on Linux Mint / Ubuntu (.deb)](#install-on-linux-mint--ubuntu-deb)
+2. [Installation (Linux)](#installation-linux)
+3. [Installation (Windows)](#installation-windows)
    - [Install on Windows (Setup.exe)](#install-on-windows-setupexe)
-3. [Where your data is stored](#where-your-data-is-stored)
-4. [User Manual](#user-manual)
+4. [Where your data is stored](#where-your-data-is-stored)
+5. [User Manual](#user-manual)
    - [Requirements](#requirements)
    - [Manual Installation](#manual-installation)
    - [Workflow](#workflow)
    - [Interface Overview](#interface-overview)
    - [Discogs Import](#discogs-import)
-5. [Troubleshooting](#troubleshooting)
+6. [Troubleshooting](#troubleshooting)
    - [Labels are misaligned](#labels-are-misaligned)
    - [PDF preview is blank or missing](#pdf-preview-is-blank-or-missing)
    - [Print dialog does not open](#print-dialog-does-not-open)
    - [Discogs import fails or stalls](#discogs-import-fails-or-stalls)
-6. [Technical Reference](#technical-reference)
+7. [Technical Reference](#technical-reference)
    - [Project Structure](#project-structure)
    - [Dependencies](#dependencies)
    - [Avery 4780 Sheet Dimensions](#avery-4780-sheet-dimensions)
@@ -52,7 +53,113 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 
 ---
 
+## Install on Linux Mint / Ubuntu (.deb)
+
+The `.deb` package contains a self-contained build (its own Python and Qt) and works on
+Linux Mint 21 / 22 and Ubuntu 22.04 / 24.04 (64-bit). It installs the app to
+`/opt/vinyl-label-printer`, the `vinyl-label-printer` command and a menu entry with icon.
+
+### Download
+
+Download `vinyl-label-printer_<version>_amd64.deb` from the
+[Releases](https://github.com/EJAIS/vinylsticker/releases) page. Every build of `main` also
+produces it as the artifact `vinyl-label-printer-<version>-deb` in
+[Actions → Build](https://github.com/EJAIS/vinylsticker/actions/workflows/build.yml)
+(GitHub login required; the artifact is a zip that contains the `.deb`).
+
+### Install
+
+In the folder with the downloaded file (replace the version with the one you downloaded):
+
+```bash
+sudo apt install ./vinyl-label-printer_0.4.0_amd64.deb
+```
+
+`apt` also installs the few system packages the app needs (e.g. `poppler-utils`). Start the app
+from the menu (**Office → Vinyl Label Printer**) or with:
+
+```bash
+vinyl-label-printer
+```
+
+### Update
+
+Install the newer `.deb` over the installed one, the same way:
+
+```bash
+sudo apt install ./vinyl-label-printer_0.5.0_amd64.deb
+```
+
+### Uninstall
+
+```bash
+sudo apt remove vinyl-label-printer
+```
+
+`apt remove` removes the program, the command and the menu entry. Your user data —
+settings and Discogs token in `~/.config/vinyl-label-printer`, the database in
+`~/.local/share/vinyl-label-printer` (see [Where your data is stored](#where-your-data-is-stored))
+— is **never removed by the package**, not even by `sudo apt purge vinyl-label-printer`.
+To delete it as well, remove these folders yourself:
+
+```bash
+rm -rf ~/.config/vinyl-label-printer
+```
+
+```bash
+rm -rf ~/.local/share/vinyl-label-printer
+```
+
+### Switching from the script install (install.sh) to the .deb
+
+Do not keep both: the script install has its own menu entry in
+`~/.local/share/applications`, which hides the package's entry, and its
+`~/.local/bin/vinyl-label-printer` command usually comes first in `PATH`. `install.sh` warns
+and asks before it installs or updates while the package is installed.
+
+Versions installed by the script up to v0.4.0 still keep your data inside the program folder
+`~/vinyl-label-printer`, which `install.sh --uninstall` deletes. So switch in this order:
+
+1. Install the `.deb` as described above:
+
+   ```bash
+   sudo apt install ./vinyl-label-printer_0.4.0_amd64.deb
+   ```
+
+2. Start the package version **once from a terminal with the full path** (the menu entry and
+   the plain `vinyl-label-printer` command still start the script install at this point), then
+   close it. On its first start it copies settings, database and Discogs token from
+   `~/vinyl-label-printer` into `~/.config/vinyl-label-printer` and
+   `~/.local/share/vinyl-label-printer` (see
+   [One-time migration](#one-time-migration-from-older-versions)); data that is already there
+   is not overwritten.
+
+   ```bash
+   /usr/bin/vinyl-label-printer
+   ```
+
+3. Download the install script:
+
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh -o /tmp/install.sh
+   ```
+
+4. Remove the script install. Your data is kept — it now lives in `~/.config` and
+   `~/.local/share`:
+
+   ```bash
+   bash /tmp/install.sh --uninstall
+   ```
+
+From now on the menu entry and the `vinyl-label-printer` command start the package version.
+If a terminal still runs the old command, open a new terminal.
+
+---
+
 ## Installation (Linux)
+
+For Linux Mint and Ubuntu the [.deb package](#install-on-linux-mint--ubuntu-deb) is the easiest
+way. The install script below installs from source into `~/vinyl-label-printer` instead.
 
 ### Schnellinstallation / Quick install
 
@@ -1122,6 +1229,11 @@ install `poppler-utils` as usual. On Windows, extract the `Library/bin` folder o
 [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases) release to
 `packaging/poppler/bin` before building to bundle it; otherwise Poppler is taken from `PATH`.
 The CI workflow `.github/workflows/build.yml` builds both platforms the same way.
+
+On Linux, `packaging/linux/build_deb.sh` turns the bundle into
+`vinyl-label-printer_<version>_amd64.deb` with [fpm](https://fpm.readthedocs.io/). The CI builds
+it on Ubuntu 22.04 and installs it in fresh Ubuntu 22.04 and 24.04 containers as a test; the
+script's header lists its requirements and the package layout.
 
 On Windows, [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3+ turns the bundle into
 `dist\VinylLabelPrinterSetup-<version>.exe`; pass the version from `__version__.py`:

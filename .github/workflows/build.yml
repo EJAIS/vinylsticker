@@ -23,6 +23,8 @@ env:
   # Pinned Poppler build for Windows (https://github.com/oschwartz10612/poppler-windows)
   POPPLER_VERSION: "26.09.0-0"
   POPPLER_SHA256: "7a6f256a0ddf7536182246a5733331bf4677cbcc34f4663774947ad34556c8d0"
+  # Pinned fpm (https://rubygems.org/gems/fpm) for the .deb package
+  FPM_VERSION: "1.17.0"
   # Inno Setup installed via Chocolatey if the runner image has none
   INNOSETUP_VERSION: "6.5.4"
 
@@ -210,6 +212,8 @@ jobs:
     # Build on Ubuntu 22.04 so the bundle links against glibc 2.35 and runs on
     # Linux Mint 21 (22.04 base) and 22 (24.04 base).
     container: ubuntu:22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Install system packages
         env:
@@ -257,6 +261,26 @@ jobs:
           echo "$out" | grep -F "${{ steps.version.outputs.version }}"
           test -f dist/vinyl-label-printer/_internal/icons/vinyl-label-printer.png
 
+      - name: Install fpm ${{ env.FPM_VERSION }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get install -y --no-install-recommends ruby
+          gem install --no-document fpm -v "$FPM_VERSION"
+          fpm --version
+
+      - name: Build .deb
+        id: deb
+        run: |
+          PYTHON=/opt/venv/bin/python packaging/linux/build_deb.sh dist
+          echo "file=vinyl-label-printer_${{ steps.version.outputs.version }}_amd64.deb" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: vinyl-label-printer-${{ steps.version.outputs.version }}-deb
+          path: dist/${{ steps.deb.outputs.file }}
+          if-no-files-found: error
+
       - name: Create tarball
         id: tarball
         run: |
@@ -269,3 +293,84 @@ jobs:
           name: ${{ steps.tarball.outputs.name }}
           path: ${{ steps.tarball.outputs.name }}.tar.gz
           if-no-files-found: error
+
+  deb-install-test:
+    needs: linux
+    name: deb-install-test (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux Mint 21 is based on Ubuntu 22.04, Linux Mint 22 on Ubuntu 24.04.
+        image: ["ubuntu:22.04", "ubuntu:24.04"]
+    # Fresh container: nothing but the .deb and its Depends gets installed
+    # before the checks below.
+    container: ${{ matrix.image }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      DEB_FILE: vinyl-label-printer_${{ needs.linux.outputs.version }}_amd64.deb
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: vinyl-label-printer-${{ needs.linux.outputs.version }}-deb
+
+      - name: Install the .deb
+        run: |
+          apt-get update
+          # Without Recommends, so only the package's Depends can satisfy the
+          # bundle's libraries.
+          apt-get install -y --no-install-recommends "./$DEB_FILE"
+
+      - name: Run --version from /usr/bin
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          test "$(command -v vinyl-label-printer)" = /usr/bin/vinyl-label-printer
+          out=$(vinyl-label-printer --version)
+          echo "Output: $out"
+          echo "$out" | grep -F "${{ needs.linux.outputs.version }}"
+
+      - name: Check that all bundled libraries resolve
+        run: packaging/linux/check_bundle_libs.sh /opt/vinyl-label-printer
+
+      - name: Validate the .desktop file
+        run: |
+          apt-get install -y --no-install-recommends desktop-file-utils
+          desktop-file-validate /usr/share/applications/vinyl-label-printer.desktop
+
+      - name: Start on X11 (Xvfb) and check StartupWMClass
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+        run: |
+          apt-get install -y --no-install-recommends \
+            xvfb x11-utils libgl1-mesa-dri fonts-dejavu-core
+          expected=$(sed -n 's/^StartupWMClass=//p' \
+            /usr/share/applications/vinyl-label-printer.desktop)
+          Xvfb :99 -screen 0 1400x1000x24 & xvfb=$!
+          export DISPLAY=:99
+          for _ in $(seq 1 20); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.5; done
+          QT_QPA_PLATFORM=xcb vinyl-label-printer & app=$!
+          # The main window title is "<app name> v<version>" in every language.
+          for _ in $(seq 1 60); do
+            id=$(xwininfo -root -tree \
+              | awk -v t=" v$VERSION\"" 'index($0, t) && !id {id = $1} END {print id}')
+            [ -n "$id" ] && break
+            kill -0 "$app"   # fails the step if the app has exited
+            sleep 1
+          done
+          test -n "$id"
+          xprop -id "$id" WM_CLASS | tee wm_class.txt
+          grep -F "\"$expected\"" wm_class.txt
+          kill "$app" "$xvfb"
+
+      - name: Remove the package (user data is kept)
+        run: |
+          mkdir -p "$HOME/.config/vinyl-label-printer"
+          echo '{}' > "$HOME/.config/vinyl-label-printer/settings.json"
+          apt-get remove -y vinyl-label-printer
+          test ! -e /usr/bin/vinyl-label-printer
+          test ! -e /opt/vinyl-label-printer
+          test -f "$HOME/.config/vinyl-label-printer/settings.json"

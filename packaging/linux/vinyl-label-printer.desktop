@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=Vinyl Label Printer
+Name[de]=Vinyl-Label-Drucker
+GenericName=Label Printer
+GenericName[de]=Etikettendruck
+Comment=Print labels for 7" vinyl records on Avery sheets
+Comment[de]=Etiketten für 7"-Vinyl-Singles auf Avery-Bögen drucken
+Exec=vinyl-label-printer
+TryExec=vinyl-label-printer
+Icon=vinyl-label-printer
+Terminal=false
+Categories=Office;
+Keywords=vinyl;record;label;print;avery;discogs;
+Keywords[de]=Vinyl;Schallplatte;Etikett;Drucken;Avery;Discogs;
+StartupNotify=true
+# WM_CLASS class of the main window: Qt uses QApplication.applicationName()
+# (set in main.py). Keep both in sync.
+StartupWMClass=Vinyl-Label-Drucker
