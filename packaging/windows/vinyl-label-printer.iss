@@ -1,9 +1,12 @@
 ﻿; Inno Setup script for Vinyl Label Printer (per-user install, no admin rights).
 ;
 ; Build from the repository root after the PyInstaller build, passing the
-; version from vinyl-label-printer/__version__.py (the CI windows job does this):
+; version from vinyl-label-printer/__version__.py:
 ;     ISCC /DAppVersion=0.4.0 packaging\windows\vinyl-label-printer.iss
-; Output: dist\VinylLabelPrinterSetup-<version>.exe
+; The CI windows job passes the package version from packaging/package_version.sh
+; and the plain X.Y.Z separately, e.g. for the tag v1.0.0-rc.1:
+;     ISCC /DAppVersion=1.0.0-rc.1 /DNumericVersion=1.0.0 packaging\windows\vinyl-label-printer.iss
+; Output: dist\VinylLabelPrinterSetup-<AppVersion>.exe
 ;
 ; Requires Inno Setup 6.3 or newer. Saved as UTF-8 with BOM (German umlauts).
 
@@ -13,6 +16,11 @@
 
 #ifndef AppVersion
   #error AppVersion is not set. Pass it on the command line: ISCC /DAppVersion=x.y.z
+#endif
+; Version resource of the setup (file properties): numbers only, so a
+; pre-release AppVersion such as 1.0.0-rc.1 needs NumericVersion=1.0.0.
+#ifndef NumericVersion
+  #define NumericVersion AppVersion
 #endif
 
 #define AppName      "Vinyl Label Printer"
@@ -36,7 +44,7 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}/issues
 AppUpdatesURL={#AppUrl}/releases
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
 
 ; Per-user install: no UAC prompt, everything below the user profile.
 PrivilegesRequired=lowest
