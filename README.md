@@ -38,7 +38,8 @@ the first release after v0.4.0.
 Both packages bring their own Python and Qt and need no administrator rights beyond `apt` on
 Linux. Each release also lists `SHA256SUMS.txt` with the checksums of both files. Releases
 marked *Pre-release* (tags like `v0.5.0-rc.1`) are test versions; the app's update check and the
-install scripts ignore them.
+install scripts ignore them. Their files carry the suffix (`vinyl-label-printer_0.5.0-rc.1_amd64.deb`,
+`VinylLabelPrinterSetup-0.5.0-rc.1.exe`), and `apt` upgrades a pre-release to the final version.
 
 ---
 
@@ -1262,6 +1263,16 @@ On Windows, [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3+ turns the bundl
 ```powershell
 ISCC /DAppVersion=0.4.0 packaging\windows\vinyl-label-printer.iss
 ```
+
+Versions and releases: `__version__.py` always holds a plain `X.Y.Z`. The CI computes the
+package version once with `packaging/package_version.sh` and passes it to both builds. Branch
+and pull request builds and a tag `vX.Y.Z` build `X.Y.Z`; a tag `vX.Y.Z-<suffix>` (e.g.
+`v1.0.0-rc.1`, `X.Y.Z` must match `__version__.py`) builds `1.0.0-rc.1`, with the Debian
+version `1.0.0~rc.1` so it sorts before `1.0.0`. On `v*` tags the release job publishes the
+GitHub Release. Every other run executes it as a dry run (downloads the packages, computes
+`SHA256SUMS.txt`, lists the files in the job summary, creates nothing); a manual run
+(*Actions → Build → Run workflow*) can set `release_dry_run` or simulate a tag with
+`dry_run_tag` to check a release's file names before tagging it.
 
 The app icon is drawn in `packaging/icons/icon.svg`; the `.ico` and the Linux hicolor PNGs next
 to it are generated from it and committed. After changing the SVG, regenerate them with
