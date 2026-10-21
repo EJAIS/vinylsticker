@@ -92,17 +92,32 @@ def _normalize_version(tag: str) -> str:
     return ".".join(str(x) for x in parsed) if parsed else ""
 
 
-def is_update_available(latest_version: str) -> bool:
-    """
-    Return True if latest_version is newer than the current __version__.
+def _compare_with_current(latest_version: str) -> int:
+    """Compare latest_version with the current __version__ (tuple comparison).
 
-    Uses tuple comparison for correct semantic versioning.
+    Returns 1 if latest_version is newer, -1 if it is older, and 0 if both are
+    equal or one of them is a pre-release / unparsable.
     """
     try:
         latest = _version_tuple(latest_version)
         current = _version_tuple(__version__)
         if latest is None or current is None:
-            return False   # pre-release or unparsable — never an update
-        return latest > current
+            return 0
+        return (latest > current) - (latest < current)
     except Exception:
-        return False
+        return 0
+
+
+def is_update_available(latest_version: str) -> bool:
+    """Return True if latest_version is newer than the current __version__."""
+    return _compare_with_current(latest_version) > 0
+
+
+def is_newer_than_latest(latest_version: str) -> bool:
+    """Return True if the current __version__ is newer than latest_version.
+
+    The case for a version installed before its tag is the newest stable
+    release, e.g. 1.0.0 while only the pre-release v1.0.0-rc.1 is newer than
+    the stable v0.4.0 (pre-releases are skipped by get_latest_version()).
+    """
+    return _compare_with_current(latest_version) < 0

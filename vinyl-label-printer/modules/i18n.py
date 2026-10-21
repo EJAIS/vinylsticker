@@ -357,12 +357,21 @@ _STRINGS: dict[str, dict[str, str]] = {
         "will_be_implemented":         "Wird in einer zukünftigen Version implementiert.",
         "checking_version":            "Prüfe auf Updates…",
         "up_to_date":                  "✓ Du nutzt die aktuellste Version.",
+        "newer_than_latest":           (
+            "Sie nutzen eine neuere Version als die neueste stabile Version ({version})."
+        ),
         "update_available":            "↑ Update verfügbar: {version}",
         "check_failed_network":        "Keine Verbindung zu GitHub.",
         "check_failed_error":          "Prüfung fehlgeschlagen.",
         "no_releases_yet":             "Noch kein Release auf GitHub verfügbar.",
         "release_notes":               "Release Notes anzeigen →",
-        "update_run_command":          "Update ausführen im Terminal:",
+        "update_hint_linux":           (
+            "Laden Sie das neue .deb-Paket herunter und installieren Sie es."
+        ),
+        "update_hint_windows":         (
+            "Laden Sie die neue Setup.exe herunter und führen Sie sie aus."
+        ),
+        "update_releases_link":        "Downloads auf GitHub (Releases)",
         "open_github":                 "Projekt auf GitHub öffnen →",
         "settings_license":             "Lizenz",
         "settings_author":              "Autor",
@@ -749,12 +758,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "will_be_implemented":         "Will be implemented in a future version.",
         "checking_version":            "Checking for updates…",
         "up_to_date":                  "✓ You are using the latest version.",
+        "newer_than_latest":           (
+            "You are using a newer version than the latest stable release ({version})."
+        ),
         "update_available":            "↑ Update available: {version}",
         "check_failed_network":        "Could not connect to GitHub.",
         "check_failed_error":          "Version check failed.",
         "no_releases_yet":             "No release published on GitHub yet.",
         "release_notes":               "Show release notes →",
-        "update_run_command":          "Run update in terminal:",
+        "update_hint_linux":           "Download and install the new .deb package.",
+        "update_hint_windows":         "Download and run the new Setup.exe.",
+        "update_releases_link":        "Downloads on GitHub (releases)",
         "open_github":                 "Open project on GitHub →",
         "settings_license":             "License",
         "settings_author":              "Author",

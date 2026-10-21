@@ -16,7 +16,7 @@ Signals emitted to MainWindow:
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QThread
-from PyQt6.QtGui import QDesktopServices, QFont
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -42,7 +42,12 @@ from modules.i18n import t
 from modules.data_source import DataSourceMode
 from modules.discogs_cache import DiscogsCache
 from modules.credentials_manager import CredentialsManager
-from modules.version_checker import get_latest_version, is_update_available
+from modules.version_checker import (
+    GITHUB_RELEASES_URL,
+    get_latest_version,
+    is_newer_than_latest,
+    is_update_available,
+)
 from config.settings import (
     get_theme,
     set_theme,
@@ -1023,17 +1028,18 @@ class SettingsDialog(QDialog):
         )
         layout.addWidget(self._lbl_about_release_notes)
 
-        # Update command box (shown only when an update is available)
-        self._lbl_about_update_cmd = QLabel()
-        self._lbl_about_update_cmd.setVisible(False)
-        self._lbl_about_update_cmd.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse |
-            Qt.TextInteractionFlag.TextSelectableByKeyboard
+        # How to update: download hint + link to the releases page (shown only
+        # when an update is available)
+        self._lbl_about_update_hint = QLabel()
+        self._lbl_about_update_hint.setVisible(False)
+        self._lbl_about_update_hint.setTextFormat(Qt.TextFormat.RichText)
+        self._lbl_about_update_hint.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextBrowserInteraction
         )
-        self._lbl_about_update_cmd.setWordWrap(True)
-        self._lbl_about_update_cmd.setFont(QFont("Courier New", 9))
+        self._lbl_about_update_hint.setOpenExternalLinks(True)
+        self._lbl_about_update_hint.setWordWrap(True)
         if colors:
-            self._lbl_about_update_cmd.setStyleSheet(f"""
+            self._lbl_about_update_hint.setStyleSheet(f"""
                 QLabel {{
                     background-color: {colors.bg_sidebar};
                     border: 1px solid {colors.border};
@@ -1042,7 +1048,7 @@ class SettingsDialog(QDialog):
                     color: {colors.text_secondary};
                 }}
             """)
-        layout.addWidget(self._lbl_about_update_cmd)
+        layout.addWidget(self._lbl_about_update_hint)
 
         # Pre-fill available version from cache (no network call on open)
         cached = get_last_known_version()
@@ -1360,7 +1366,7 @@ class SettingsDialog(QDialog):
                     f"color: {style_color}; background: transparent;"
                 )
             self._lbl_about_update_status.setVisible(True)
-            self._lbl_about_update_cmd.setVisible(False)
+            self._lbl_about_update_hint.setVisible(False)
             return
 
         self._lbl_about_available_val.setText(result["tag_name"])
@@ -1378,33 +1384,33 @@ class SettingsDialog(QDialog):
             self._release_url = result["release_url"]
             self._lbl_about_release_notes.setVisible(True)
             import sys
-            if sys.platform == "win32":
-                cmd = (
-                    "Invoke-WebRequest -Uri \\\n"
-                    "  'https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1' \\\n"
-                    "  -OutFile \"$env:TEMP\\install.ps1\"\n"
-                    "powershell -ExecutionPolicy Bypass \\\n"
-                    "  -File \"$env:TEMP\\install.ps1\""
+            hint_key = "update_hint_windows" if sys.platform == "win32" else "update_hint_linux"
+            link_style = f' style="color: {colors.accent_light};"' if colors else ""
+            self._lbl_about_update_hint.setText(
+                f"{t(hint_key)}<br>"
+                f'<a href="{GITHUB_RELEASES_URL}"{link_style}>{t("update_releases_link")}</a>'
+            )
+            self._lbl_about_update_hint.setVisible(True)
+        elif is_newer_than_latest(result["latest_version"]):
+            self._lbl_about_update_status.setText(
+                t("newer_than_latest", version=result["tag_name"])
+            )
+            if colors:
+                self._lbl_about_update_status.setStyleSheet(
+                    f"color: {colors.success}; background: transparent;"
                 )
-            else:
-                cmd = (
-                    "curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \\\n"
-                    "     -o /tmp/install.sh\n"
-                    "bash /tmp/install.sh"
-                )
-            self._lbl_about_update_cmd.setText(t("update_run_command") + "\n\n" + cmd)
-            self._lbl_about_update_cmd.setVisible(True)
+            self._lbl_about_update_hint.setVisible(False)
         else:
             self._lbl_about_update_status.setText(t("up_to_date"))
             if colors:
                 self._lbl_about_update_status.setStyleSheet(
                     f"color: {colors.success}; background: transparent;"
                 )
-            self._lbl_about_update_cmd.setVisible(False)
+            self._lbl_about_update_hint.setVisible(False)
 
     def _open_release_notes(self) -> None:
         """Open the GitHub release page in the system browser."""
-        url = getattr(self, "_release_url", "https://github.com/EJAIS/vinylsticker/releases")
+        url = getattr(self, "_release_url", GITHUB_RELEASES_URL)
         QDesktopServices.openUrl(QUrl(url))
 
     def _on_logout(self) -> None:
