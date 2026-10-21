@@ -5,7 +5,13 @@ Outputs (all committed, so builds never need this script):
     packaging/icons/icon.ico
         Windows icon with 16, 24, 32, 48, 64, 128 and 256 px images.
     packaging/icons/hicolor/<size>x<size>/apps/vinyl-label-printer.png
-        Linux hicolor theme PNGs for 16, 32, 48, 64, 128, 256 and 512 px.
+        Linux hicolor theme PNGs for 16, 32, 48, 64, 128, 256 and 512 px
+        (installed by the .deb).
+    vinyl-label-printer/icons/vinyl-label-printer.png
+        Window icon (copy of the 256 px PNG), loaded by main.py via
+        resource_path("icons/vinyl-label-printer.png"): from source, in
+        install.sh / install.ps1 installs (they copy vinyl-label-printer/) and
+        in the frozen build.
 
 Elements with class="detail" in the SVG (grooves, label ring) are left out
 up to SMALL_MAX px, where they would only blur into noise.
@@ -18,6 +24,7 @@ Then commit icon.svg together with all generated files.
 """
 
 import io
+import shutil
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -32,6 +39,8 @@ SVG_FILE = ICON_DIR / "icon.svg"
 ICO_FILE = ICON_DIR / "icon.ico"
 HICOLOR_DIR = ICON_DIR / "hicolor"
 APP_ID = "vinyl-label-printer"
+WINDOW_ICON_SIZE = 256
+WINDOW_ICON_FILE = ICON_DIR.parent.parent / APP_ID / "icons" / f"{APP_ID}.png"
 
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 PNG_SIZES = (16, 32, 48, 64, 128, 256, 512)
@@ -81,6 +90,11 @@ def main() -> None:
         out.parent.mkdir(parents=True, exist_ok=True)
         render(size).save(out, optimize=True)
         print(f"wrote {out.relative_to(ICON_DIR)}")
+
+    window_icon = HICOLOR_DIR / f"{WINDOW_ICON_SIZE}x{WINDOW_ICON_SIZE}" / "apps" / f"{APP_ID}.png"
+    WINDOW_ICON_FILE.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(window_icon, WINDOW_ICON_FILE)
+    print(f"wrote {WINDOW_ICON_FILE.relative_to(ICON_DIR.parent.parent)}")
 
     # Pillow builds each ICO entry from append_images when the size matches,
     # so every size is rendered from the SVG instead of being downscaled.

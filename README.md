@@ -1264,5 +1264,7 @@ ISCC /DAppVersion=0.4.0 packaging\windows\vinyl-label-printer.iss
 ```
 
 The app icon is drawn in `packaging/icons/icon.svg`; the `.ico` and the Linux hicolor PNGs next
-to it are generated from it and committed. After changing the SVG, regenerate them with
+to it, plus the window icon `vinyl-label-printer/icons/vinyl-label-printer.png` (a copy of the
+256 px PNG, used from source, by install.sh / install.ps1 installs and in the frozen build), are
+generated from it and committed. After changing the SVG, regenerate them with
 `packaging/icons/build_icons.py` (instructions in its docstring).

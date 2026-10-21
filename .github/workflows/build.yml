@@ -260,6 +260,9 @@ jobs:
           echo "Output: $out"
           echo "$out" | grep -F "${{ steps.version.outputs.version }}"
           test -f dist/vinyl-label-printer/_internal/icons/vinyl-label-printer.png
+          # The committed window icon is the 256 px hicolor PNG (build_icons.py).
+          cmp vinyl-label-printer/icons/vinyl-label-printer.png \
+            packaging/icons/hicolor/256x256/apps/vinyl-label-printer.png
 
       - name: Install fpm ${{ env.FPM_VERSION }}
         env:
@@ -362,6 +365,10 @@ jobs:
             sleep 1
           done
           test -n "$id"
+          # Window icon set from icons/vinyl-label-printer.png (256 px)
+          # shellcheck disable=SC2016  # xprop format, not shell variables
+          xprop -id "$id" -len 16 -f _NET_WM_ICON 32cc ' = $0 x $1' _NET_WM_ICON | tee icon.txt
+          grep -F "= 256 x 256" icon.txt
           xprop -id "$id" WM_CLASS | tee wm_class.txt
           grep -F "\"$expected\"" wm_class.txt
           kill "$app" "$xvfb"

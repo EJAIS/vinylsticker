@@ -294,14 +294,12 @@ function Get-App {
             -Recurse -Force
     }
 
-    # Copy the app icon (window icon and Start Menu shortcut)
+    # Copy the Start Menu shortcut icon (the window icon PNG comes with the app folder)
     $iconSource = Join-Path $extracted.FullName "packaging\icons"
     $iconDir = Join-Path $InstallDir "icons"
     if (Test-Path (Join-Path $iconSource "icon.ico")) {
         New-Item -ItemType Directory -Path $iconDir -Force | Out-Null
         Copy-Item (Join-Path $iconSource "icon.ico") $iconDir -Force
-        Copy-Item (Join-Path $iconSource "hicolor\256x256\apps\vinyl-label-printer.png") `
-            $iconDir -Force
     }
 
     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue

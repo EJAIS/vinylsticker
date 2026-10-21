@@ -27,7 +27,7 @@ datas = [
     (str(APP_DIR / "config" / "credentials.example.json"), "config"),
     (str(REPO_ROOT / "examples"), "examples"),
     # Window icon, loaded by main.py as icons/vinyl-label-printer.png
-    (str(ICON_DIR / "hicolor" / "256x256" / "apps" / "vinyl-label-printer.png"), "icons"),
+    (str(APP_DIR / "icons" / "vinyl-label-printer.png"), "icons"),
 ]
 
 # Windows only: bundle Poppler (pdftoppm/pdfinfo + DLLs) if it was downloaded to
