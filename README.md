@@ -15,15 +15,36 @@ Made with :heart: and ClaudeCode - by a Collector for Collectors.
 
 ![Picture of an example label](https://github.com/EJAIS/vinylsticker/blob/main/examples/label_with_watermark.png)
 
-Currently in BETA status; please get yourself familiar (if you arent already) with the needed tools. Executables are planned, but not ready yet.
+Currently in BETA status. Ready-to-install packages for Linux (.deb) and Windows (Setup.exe) are
+attached to the releases (see [Installation](#installation)).
 Please feel free to contact me for bugs and feature requests.
 
 The application UI is available in **German (DE)** and **English (EN)**, switchable at runtime via **⚙ Settings → Appearance**. This README uses English throughout.
 
 ---
 
+## Installation
+
+Pick one of three ways. Packages are on the
+**[latest release](https://github.com/EJAIS/vinylsticker/releases/latest)** page, starting with
+the first release after v0.4.0.
+
+| Way | For | What you do |
+|---|---|---|
+| **.deb package** | Linux Mint 21 / 22, Ubuntu 22.04 / 24.04 (64-bit) | Download `vinyl-label-printer_<version>_amd64.deb` and install it with `apt`, see [Install on Linux Mint / Ubuntu (.deb)](#install-on-linux-mint--ubuntu-deb) |
+| **Setup.exe** | Windows 10 / 11 (64-bit) | Download `VinylLabelPrinterSetup-<version>.exe` and run it, see [Install on Windows (Setup.exe)](#install-on-windows-setupexe) |
+| **Install script / source** | Developers, other Linux distributions, macOS | `install.sh` / `install.ps1` install the source code with its own Python environment, see [Installation (Linux)](#installation-linux), [Installation (Windows)](#installation-windows) and [Manual Installation](#manual-installation) |
+
+Both packages bring their own Python and Qt and need no administrator rights beyond `apt` on
+Linux. Each release also lists `SHA256SUMS.txt` with the checksums of both files. Releases
+marked *Pre-release* (tags like `v0.5.0-rc.1`) are test versions; the app's update check and the
+install scripts ignore them.
+
+---
+
 ## Table of Contents
 
+0. [Installation](#installation) (overview)
 1. [Install on Linux Mint / Ubuntu (.deb)](#install-on-linux-mint--ubuntu-deb)
 2. [Installation (Linux)](#installation-linux)
 3. [Installation (Windows)](#installation-windows)
@@ -62,7 +83,7 @@ Linux Mint 21 / 22 and Ubuntu 22.04 / 24.04 (64-bit). It installs the app to
 ### Download
 
 Download `vinyl-label-printer_<version>_amd64.deb` from the
-[Releases](https://github.com/EJAIS/vinylsticker/releases) page. Every build of `main` also
+[latest release](https://github.com/EJAIS/vinylsticker/releases/latest). Every build of `main` also
 produces it as the artifact `vinyl-label-printer-<version>-deb` in
 [Actions → Build](https://github.com/EJAIS/vinylsticker/actions/workflows/build.yml)
 (GitHub login required; the artifact is a zip that contains the `.deb`).
@@ -241,7 +262,7 @@ Python required) and installs without administrator rights, for the current user
 #### Download
 
 Download `VinylLabelPrinterSetup-<version>.exe` from the
-[Releases](https://github.com/EJAIS/vinylsticker/releases) page. Every build of `main` also
+[latest release](https://github.com/EJAIS/vinylsticker/releases/latest). Every build of `main` also
 produces it as the artifact `vinyl-label-printer-<version>-setup` in
 [Actions → Build](https://github.com/EJAIS/vinylsticker/actions/workflows/build.yml)
 (GitHub login required; the artifact is a zip that contains the setup).
