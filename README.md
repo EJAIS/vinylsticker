@@ -23,46 +23,24 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 
 ---
 
-## Installation
-
-Pick one of three ways. Packages are on the
-**[latest release](https://github.com/EJAIS/vinylsticker/releases/latest)** page, starting with
-the first release after v0.4.0.
-
-| Way | For | What you do |
-|---|---|---|
-| **.deb package** | Linux Mint 21 / 22, Ubuntu 22.04 / 24.04 (64-bit) | Download `vinyl-label-printer_<version>_amd64.deb` and install it with `apt`, see [Install on Linux Mint / Ubuntu (.deb)](#install-on-linux-mint--ubuntu-deb) |
-| **Setup.exe** | Windows 10 / 11 (64-bit) | Download `VinylLabelPrinterSetup-<version>.exe` and run it, see [Install on Windows (Setup.exe)](#install-on-windows-setupexe) |
-| **Install script / source** | Developers, other Linux distributions, macOS | `install.sh` / `install.ps1` install the source code with its own Python environment, see [Installation (Linux)](#installation-linux), [Installation (Windows)](#installation-windows) and [Manual Installation](#manual-installation) |
-
-Both packages bring their own Python and Qt and need no administrator rights beyond `apt` on
-Linux. Each release also lists `SHA256SUMS.txt` with the checksums of both files. Releases
-marked *Pre-release* (tags like `v0.5.0-rc.1`) are test versions; the app's update check and the
-install scripts ignore them. Their files carry the suffix (`vinyl-label-printer_0.5.0-rc.1_amd64.deb`,
-`VinylLabelPrinterSetup-0.5.0-rc.1.exe`), and `apt` upgrades a pre-release to the final version.
-
----
-
 ## Table of Contents
 
-0. [Installation](#installation) (overview)
-1. [Install on Linux Mint / Ubuntu (.deb)](#install-on-linux-mint--ubuntu-deb)
-2. [Installation (Linux)](#installation-linux)
-3. [Installation (Windows)](#installation-windows)
-   - [Install on Windows (Setup.exe)](#install-on-windows-setupexe)
+1. [Installation](#installation)
+2. [Update](#update)
+3. [Uninstall](#uninstall)
 4. [Where your data is stored](#where-your-data-is-stored)
-5. [User Manual](#user-manual)
-   - [Requirements](#requirements)
-   - [Manual Installation](#manual-installation)
+5. [Switching from the old script install](#switching-from-the-old-script-install)
+6. [Run from source (developers)](#run-from-source-developers)
+7. [User Manual](#user-manual)
    - [Workflow](#workflow)
    - [Interface Overview](#interface-overview)
    - [Discogs Import](#discogs-import)
-6. [Troubleshooting](#troubleshooting)
+8. [Troubleshooting](#troubleshooting)
    - [Labels are misaligned](#labels-are-misaligned)
    - [PDF preview is blank or missing](#pdf-preview-is-blank-or-missing)
    - [Print dialog does not open](#print-dialog-does-not-open)
    - [Discogs import fails or stalls](#discogs-import-fails-or-stalls)
-7. [Technical Reference](#technical-reference)
+9. [Technical Reference](#technical-reference)
    - [Project Structure](#project-structure)
    - [Dependencies](#dependencies)
    - [Avery 4780 Sheet Dimensions](#avery-4780-sheet-dimensions)
@@ -75,26 +53,37 @@ install scripts ignore them. Their files carry the suffix (`vinyl-label-printer_
 
 ---
 
-## Install on Linux Mint / Ubuntu (.deb)
+## Installation
 
-The `.deb` package contains a self-contained build (its own Python and Qt) and works on
-Linux Mint 21 / 22 and Ubuntu 22.04 / 24.04 (64-bit). It installs the app to
-`/opt/vinyl-label-printer`, the `vinyl-label-printer` command and a menu entry with icon.
+The app is installed from a package. Both packages bring their own Python and Qt; download them
+from the **[latest release](https://github.com/EJAIS/vinylsticker/releases/latest)**.
 
-### Download
+| System | Package |
+|---|---|
+| Linux Mint 21 / 22, Ubuntu 22.04 / 24.04 (64-bit) | `vinyl-label-printer_<version>_amd64.deb`, see [Linux Mint / Ubuntu (.deb)](#linux-mint--ubuntu-deb) |
+| Windows 10 / 11 (64-bit) | `VinylLabelPrinterSetup-<version>.exe`, see [Windows (Setup.exe)](#windows-setupexe) |
 
-Download `vinyl-label-printer_<version>_amd64.deb` from the
-[latest release](https://github.com/EJAIS/vinylsticker/releases/latest). Every build of `main` also
-produces it as the artifact `vinyl-label-printer-<version>-deb` in
+Each release also lists `SHA256SUMS.txt` with the checksums of both files. Releases marked
+*Pre-release* (tags like `v1.1.0-rc.1`) are test versions; the app's update check ignores them.
+Their files carry the suffix (`vinyl-label-printer_1.1.0-rc.1_amd64.deb`,
+`VinylLabelPrinterSetup-1.1.0-rc.1.exe`), and `apt` upgrades a pre-release to the final version.
+
+Every build of `main` also produces both packages as artifacts in
 [Actions → Build](https://github.com/EJAIS/vinylsticker/actions/workflows/build.yml)
-(GitHub login required; the artifact is a zip that contains the `.deb`).
+(GitHub login required; each artifact is a zip that contains the package).
 
-### Install
+Other Linux distributions and macOS: see [Run from source (developers)](#run-from-source-developers).
+If you installed the app with the old `install.sh` / `install.ps1` scripts, see
+[Switching from the old script install](#switching-from-the-old-script-install).
 
-In the folder with the downloaded file (replace the version with the one you downloaded):
+### Linux Mint / Ubuntu (.deb)
+
+The package installs the app to `/opt/vinyl-label-printer`, the `vinyl-label-printer` command
+and a menu entry with icon. In the folder with the downloaded file (replace the version with the
+one you downloaded):
 
 ```bash
-sudo apt install ./vinyl-label-printer_0.4.0_amd64.deb
+sudo apt install ./vinyl-label-printer_1.0.0_amd64.deb
 ```
 
 `apt` also installs the few system packages the app needs (e.g. `poppler-utils`). Start the app
@@ -104,15 +93,41 @@ from the menu (**Office → Vinyl Label Printer**) or with:
 vinyl-label-printer
 ```
 
-### Update
+### Windows (Setup.exe)
 
-Install the newer `.deb` over the installed one, the same way:
+The setup installs without administrator rights, for the current user only, to
+`%LOCALAPPDATA%\Programs\Vinyl Label Printer`. It adds a Start Menu folder
+**Vinyl Label Printer** and, if you tick the box, a desktop shortcut.
+
+Run `VinylLabelPrinterSetup-<version>.exe` and follow the wizard (English or German).
+
+> **SmartScreen warning:** the installer is not code-signed, so Windows may show
+> *"Windows protected your PC"* with *Publisher: Unknown publisher*. Click **More info**, then
+> **Run anyway**. (German Windows: *„Der Computer wurde durch Windows geschützt"* →
+> **Weitere Informationen** → **Trotzdem ausführen**.)
+
+---
+
+## Update
+
+**⚙ Settings → About → Check for updates** shows whether a newer release exists and links to
+the [releases page](https://github.com/EJAIS/vinylsticker/releases). Your data is not touched
+by an update.
+
+**Linux:** download the newer `.deb` and install it over the installed one, the same way:
 
 ```bash
-sudo apt install ./vinyl-label-printer_0.5.0_amd64.deb
+sudo apt install ./vinyl-label-printer_1.1.0_amd64.deb
 ```
 
-### Uninstall
+**Windows:** download and run the newer `VinylLabelPrinterSetup-<version>.exe`. It replaces the
+installed version in the same folder; if the app is still running, the setup offers to close it.
+
+---
+
+## Uninstall
+
+### Linux
 
 ```bash
 sudo apt remove vinyl-label-printer
@@ -120,9 +135,8 @@ sudo apt remove vinyl-label-printer
 
 `apt remove` removes the program, the command and the menu entry. Your user data —
 settings and Discogs token in `~/.config/vinyl-label-printer`, the database in
-`~/.local/share/vinyl-label-printer` (see [Where your data is stored](#where-your-data-is-stored))
-— is **never removed by the package**, not even by `sudo apt purge vinyl-label-printer`.
-To delete it as well, remove these folders yourself:
+`~/.local/share/vinyl-label-printer` — is **never removed by the package**, not even by
+`sudo apt purge vinyl-label-printer`. To delete it as well, remove these folders yourself:
 
 ```bash
 rm -rf ~/.config/vinyl-label-printer
@@ -132,263 +146,15 @@ rm -rf ~/.config/vinyl-label-printer
 rm -rf ~/.local/share/vinyl-label-printer
 ```
 
-### Switching from the script install (install.sh) to the .deb
-
-Do not keep both: the script install has its own menu entry in
-`~/.local/share/applications`, which hides the package's entry, and its
-`~/.local/bin/vinyl-label-printer` command usually comes first in `PATH`. `install.sh` warns
-and asks before it installs or updates while the package is installed.
-
-Versions installed by the script up to v0.4.0 still keep your data inside the program folder
-`~/vinyl-label-printer`, which `install.sh --uninstall` deletes. So switch in this order:
-
-1. Install the `.deb` as described above:
-
-   ```bash
-   sudo apt install ./vinyl-label-printer_0.4.0_amd64.deb
-   ```
-
-2. Start the package version **once from a terminal with the full path** (the menu entry and
-   the plain `vinyl-label-printer` command still start the script install at this point), then
-   close it. On its first start it copies settings, database and Discogs token from
-   `~/vinyl-label-printer` into `~/.config/vinyl-label-printer` and
-   `~/.local/share/vinyl-label-printer` (see
-   [One-time migration](#one-time-migration-from-older-versions)); data that is already there
-   is not overwritten.
-
-   ```bash
-   /usr/bin/vinyl-label-printer
-   ```
-
-3. Download the install script:
-
-   ```bash
-   curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh -o /tmp/install.sh
-   ```
-
-4. Remove the script install. Your data is kept — it now lives in `~/.config` and
-   `~/.local/share`:
-
-   ```bash
-   bash /tmp/install.sh --uninstall
-   ```
-
-From now on the menu entry and the `vinyl-label-printer` command start the package version.
-If a terminal still runs the old command, open a new terminal.
-
----
-
-## Installation (Linux)
-
-For Linux Mint and Ubuntu the [.deb package](#install-on-linux-mint--ubuntu-deb) is the easiest
-way. The install script below installs from source into `~/vinyl-label-printer` instead.
-
-### Schnellinstallation / Quick install
-
-```bash
-curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash
-```
-
-### Update
-
-```bash
-curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash
-```
-
-> **Note:** When updating via `curl | bash`, the script runs non-interactively
-> and updates automatically without a confirmation prompt.
-> To update interactively (with confirmation prompt):
->
->     curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \
->          -o /tmp/install.sh && bash /tmp/install.sh
-
-The script automatically detects whether an installation already
-exists and performs a fresh install or an update accordingly.
-Your user data (database, settings, Discogs token) is stored outside
-the program folder and is not touched by updates (see
-[Where your data is stored](#where-your-data-is-stored)).
-
-### Uninstall
-
-If you have `install.sh` saved locally:
-
-```bash
-bash install.sh --uninstall
-```
-
-Via curl (recommended):
-
-```bash
-curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \
-     -o /tmp/install.sh && bash /tmp/install.sh --uninstall
-```
-
-> Your user data (database.xlsx, settings, Discogs token) is stored outside
-> the program folder and is not removed (see
-> [Where your data is stored](#where-your-data-is-stored)). Files left in the
-> program folder by older versions are backed up first; the backup location
-> is shown at the end.
-
-### Voraussetzungen / Prerequisites
-
-- Linux Mint, Ubuntu 22.04+ oder Debian 12+
-- Python 3.10+
-- Internetverbindung (für Download)
-- sudo-Rechte (nur für System-Pakete)
-
-Poppler and the required Qt system libraries are installed automatically via `apt` during setup.
-
-### Database
-
-The app ships with an example database that is copied automatically on first start
-to `~/.local/share/vinyl-label-printer/database.xlsx` (see
-[Where your data is stored](#where-your-data-is-stored)). If the file is missing, restart the
-app and it is created again.
-
-### Manual installation (other Linux distributions)
-
-For distributions the script doesn't target, or to run from source, see [Manual Installation](#manual-installation) below.
-
----
-
-## Installation (Windows)
-
-### Install on Windows (Setup.exe)
-
-The easiest way on Windows 10 / 11 (64-bit): the setup contains everything the app needs (no
-Python required) and installs without administrator rights, for the current user only, to
-`%LOCALAPPDATA%\Programs\Vinyl Label Printer`. It adds a Start Menu folder
-**Vinyl Label Printer** and, if you tick the box, a desktop shortcut.
-
-#### Download
-
-Download `VinylLabelPrinterSetup-<version>.exe` from the
-[latest release](https://github.com/EJAIS/vinylsticker/releases/latest). Every build of `main` also
-produces it as the artifact `vinyl-label-printer-<version>-setup` in
-[Actions → Build](https://github.com/EJAIS/vinylsticker/actions/workflows/build.yml)
-(GitHub login required; the artifact is a zip that contains the setup).
-
-#### Install
-
-Run `VinylLabelPrinterSetup-<version>.exe` and follow the wizard (English or German).
-
-> **SmartScreen warning:** the installer is not code-signed, so Windows may show
-> *"Windows protected your PC"* with *Publisher: Unknown publisher*. Click **More info**, then
-> **Run anyway**. (German Windows: *„Der Computer wurde durch Windows geschützt"* →
-> **Weitere Informationen** → **Trotzdem ausführen**.)
-
-#### Update
-
-Download and run the newer `VinylLabelPrinterSetup-<version>.exe`. It replaces the installed
-version in the same folder; if the app is still running, the setup offers to close it. Your
-data is not touched.
-
-#### Uninstall
+### Windows
 
 Open **Settings → Apps → Installed apps** (Windows 10: **Settings → Apps → Apps & features**),
 find **Vinyl Label Printer**, click **⋯** / the entry and choose **Uninstall**.
 
-The uninstaller removes only the program folder and the shortcuts. Your data is **kept**:
-
-| Folder | Content |
-|---|---|
-| `%APPDATA%\vinyl-label-printer` | settings, Discogs token, your `database.xlsx` |
-| `%LOCALAPPDATA%\vinyl-label-printer` | Discogs cache, generated PDFs, log file |
-
-Delete these folders yourself if you want to remove your data as well (see
+The uninstaller removes only the program folder and the shortcuts. Your data in
+`%APPDATA%\vinyl-label-printer` and `%LOCALAPPDATA%\vinyl-label-printer` is **kept**; delete
+these folders yourself if you want to remove it as well (see
 [Where your data is stored](#where-your-data-is-stored)).
-
-#### Switching from the script install (install.ps1)
-
-The two installations are independent; `install.ps1` warns when it finds the Setup.exe
-installation. Versions installed by `install.ps1` up to v0.4.0 keep your data inside
-`%LOCALAPPDATA%\vinyl-label-printer`, which `install.ps1 -Uninstall` deletes. So switch in this
-order:
-
-1. Install with `VinylLabelPrinterSetup-<version>.exe`.
-2. Start the new app once from the Start Menu folder **Vinyl Label Printer** and close it. On
-   its first start it copies settings, database and Discogs token into
-   `%APPDATA%\vinyl-label-printer` (see
-   [One-time migration](#one-time-migration-from-older-versions)).
-3. Remove the script installation. Its Start Menu entry **Vinyl Label Printer** outside the
-   folder goes away with it; the app's cache and log file in
-   `%LOCALAPPDATA%\vinyl-label-printer` are deleted too and simply recreated:
-
-   ```powershell
-   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1" -Uninstall
-   ```
-
-### Install with the script (install.ps1)
-
-The alternative to the setup: installs the source code with its own Python environment to
-`%LOCALAPPDATA%\vinyl-label-printer` (requires Python, see the prerequisites below).
-
-### Schnellinstallation / Quick install
-
-Open PowerShell, then run:
-
-```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1"
-```
-
-### Update
-
-Run the same command again:
-
-```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1"
-```
-
-The script automatically detects whether an installation already
-exists and performs a fresh install or an update accordingly.
-Your user data (database, settings, Discogs token) is stored outside
-the program folder and is not touched by updates (see
-[Where your data is stored](#where-your-data-is-stored)).
-
-> **Note:** The Windows installer always runs interactively
-> and will ask for confirmation before updating.
-> There is no silent/pipe mode on Windows.
-
-### Uninstall
-
-If you have `install.ps1` saved locally:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
-```
-
-Via web (recommended):
-
-```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1" -Uninstall
-```
-
-> Your user data (database.xlsx, settings, Discogs token) is stored outside
-> the program folder and is not removed (see
-> [Where your data is stored](#where-your-data-is-stored)). Files left in the
-> program folder by older versions are backed up first; the backup location
-> is shown at the end.
-
-### Voraussetzungen / Prerequisites
-
-- Windows 10 oder Windows 11
-- Python 3.10+ (<https://www.python.org/downloads/>)
-  → Check "Add Python to PATH" during installation!
-- PowerShell 5.1+ (pre-installed)
-- Internetverbindung
-
-Poppler for the PDF preview is downloaded and configured automatically.
-
-### Database
-
-The app ships with an example database that is copied automatically on first start
-to `%APPDATA%\vinyl-label-printer\database.xlsx` (see
-[Where your data is stored](#where-your-data-is-stored)). If the file is missing, restart the
-app and it is created again.
-
-### Manual installation (macOS / running from source)
-
-To run from source instead of using the installer, see [Manual Installation](#manual-installation) below.
 
 ---
 
@@ -412,7 +178,7 @@ To edit your database in Excel or LibreOffice Calc, open **⚙ Settings → Data
 **Data folder** section shows the path and has an **Open folder** button.
 
 If no `database.xlsx` exists when the app starts, the example database is copied into the
-data folder automatically.
+data folder automatically. Replace it with your own file.
 
 ### One-time migration from older versions
 
@@ -420,9 +186,9 @@ Older versions kept all files next to the program code (`config/`, `data/`). On 
 of a newer version the app **copies** `settings.json`, `credentials.json`, `database.xlsx` and
 `discogs_cache.db` into the folders above. It looks in:
 
-1. the program folder itself (git clone or `install.sh` / `install.ps1` installation),
-2. the default `install.sh` folder `~/vinyl-label-printer` (Linux) or the `install.ps1` folder
-   `%LOCALAPPDATA%\vinyl-label-printer` (Windows).
+1. the program folder itself (git clone or an old script install up to v0.4.0),
+2. the program folder of the old script installs up to v0.4.0: `~/vinyl-label-printer` (Linux)
+   or `%LOCALAPPDATA%\vinyl-label-printer` (Windows).
 
 The original files are left untouched and existing files are never overwritten. Logs are not
 migrated. The migration runs once — a marker file `legacy-migration.json` in the settings folder
@@ -431,191 +197,119 @@ app (files that already exist in the new folders are still never overwritten).
 
 ---
 
-## User Manual
+## Switching from the old script install
 
-### Requirements
+Up to v1.0.0-rc.1 the app could also be installed with the scripts `install.sh` (Linux) and
+`install.ps1` (Windows). They are no longer part of the project; the packages above replace
+them. Do not keep both installations.
 
-| Component | Details |
-|---|---|
-| Operating system | Windows 10/11, or Linux Mint / Ubuntu 22.04+ / Debian 12+ |
-| Python | 3.10 or newer |
-| Poppler | Required for PDF preview — installed automatically by the installer, or manually for [source installs](#manual-installation) |
+Old script installs up to v0.4.0 keep your data inside their program folder, and the old
+uninstaller deletes that folder. So switch **in exactly this order**: the package version has to
+copy your data out (see [One-time migration](#one-time-migration-from-older-versions)) before
+the old uninstaller runs.
 
-### Manual Installation
+### Linux
 
-> Most users should use the automated installer instead — see [Installation (Linux)](#installation-linux) or [Installation (Windows)](#installation-windows) above; it installs the app, creates the launcher/start script and desktop entry, and handles updates automatically.
-> Use the steps below only to run from source — for development, contributing, or a platform the installer doesn't cover (e.g. macOS or an unsupported Linux distribution).
+1. Install the `.deb` (replace the version with the one you downloaded):
 
----
+   ```bash
+   sudo apt install ./vinyl-label-printer_1.0.0_amd64.deb
+   ```
 
-#### Manual Installation — Windows
+2. Start the package version **once from a terminal with the full path** — the old menu entry
+   and the `vinyl-label-printer` command in `~/.local/bin` still start the script install at this
+   point:
 
-##### Prerequisites (Windows)
+   ```bash
+   /usr/bin/vinyl-label-printer
+   ```
 
-+ Python 3.10+ — <https://www.python.org/downloads/>
-  Important: check "Add Python to PATH" during installation!
-+ Git — <https://git-scm.com>
+   Check that your library is there (your database, and the Discogs account if you use it), then
+   close the app.
 
-##### Setup (Windows)
+3. Download the old uninstaller (the tag `v1.0.0-rc.1` is the last version that contains it):
 
-```powershell
-git clone https://github.com/EJAIS/vinylsticker.git
-cd vinylsticker/vinyl-label-printer
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/v1.0.0-rc.1/install.sh -o /tmp/install.sh
+   ```
 
-python -m venv venv
-venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
+   Then remove the script install. It asks for confirmation; your data now lives in `~/.config`
+   and `~/.local/share` and is kept:
 
-If `Activate.ps1` fails:
+   ```bash
+   bash /tmp/install.sh --uninstall
+   ```
 
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-venv\Scripts\Activate.ps1
-```
+From now on the menu entry and the `vinyl-label-printer` command start the package version.
+If a terminal still runs the old command, open a new terminal.
 
-##### Install Poppler (Windows)
+### Windows
 
-Required for PDF preview.
+1. Install with `VinylLabelPrinterSetup-<version>.exe`.
 
-1. Download: <https://github.com/oschwartz10612/poppler-windows/releases>
-2. Extract to: `C:\poppler`
-3. Add to PATH: Search → "Environment Variables" → Path → New: `C:\poppler\Library\bin`
+2. Start the new app once from the new Start Menu folder **Vinyl Label Printer** (the old
+   **Vinyl Label Printer** entry directly in the Start Menu still starts the script install).
+   Check that your library is there (your database, and the Discogs account if you use it), then
+   close the app.
 
-##### Create start.bat (Windows)
+3. Download the old uninstaller in PowerShell (the tag `v1.0.0-rc.1` is the last version that
+   contains it):
 
-`start.bat` is **not** included in the repository — create it manually. Add a file
-`start.bat` in the `vinyl-label-printer/` folder with the following content:
+   ```powershell
+   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/v1.0.0-rc.1/install.ps1" -OutFile "$env:TEMP\install.ps1"
+   ```
 
-```bat
-@echo off
-cd /d "%~dp0"
-call venv\Scripts\activate.bat
-python main.py
-echo.
-echo === App closed. Press any key to exit ===
-pause
-```
+   Then remove the script install. It asks for confirmation; its Start Menu entry goes away
+   with it, and the app's cache and log file in `%LOCALAPPDATA%\vinyl-label-printer` are deleted
+   too and simply recreated:
 
-##### Start the app (Windows)
-
-```powershell
-venv\Scripts\Activate.ps1
-python main.py
-```
-
-Or double-click `start.bat` (created above).
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1" -Uninstall
+   ```
 
 ---
 
-#### Manual Installation — Linux (Ubuntu/Debian/Mint)
+## Run from source (developers)
 
-##### Prerequisites (Linux)
-
-```bash
-sudo apt install python3 python3-venv python3-pip
-sudo apt install poppler-utils libxcb-cursor0
-```
-
-##### Setup (Linux)
+For development, other Linux distributions or macOS. Requires Python 3.10+ and Git.
 
 ```bash
 git clone https://github.com/EJAIS/vinylsticker.git
-cd vinylsticker/vinyl-label-printer
-
+cd vinylsticker
 python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+source venv/bin/activate          # Windows: venv\Scripts\Activate.ps1
+pip install -r vinyl-label-printer/requirements.txt
+python vinyl-label-printer/main.py
 ```
 
-##### Create start.sh (Linux)
+The PDF preview needs **Poppler** as a system package:
 
-`start.sh` is **not** included in the repository — create it manually. Add a file
-`start.sh` in the `vinyl-label-printer/` folder with the following content:
+- Linux (Debian/Ubuntu/Mint): `sudo apt install poppler-utils` (Qt also needs `libxcb-cursor0`)
+- macOS: `brew install poppler`
+- Windows: extract a [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases)
+  release and add its `Library\bin` folder to `PATH`
 
-```bash
-#!/bin/bash
-cd "$(dirname "$0")"
-source venv/bin/activate
-python3 main.py
-echo ""
-echo "=== App closed. Press Enter to exit ==="
-read
-```
-
-Make executable:
-
-```bash
-chmod +x start.sh
-```
-
-##### Start the app (Linux)
-
-```bash
-source venv/bin/activate
-python3 main.py
-```
-
-Or: `./start.sh` — or double-click in the file manager.
-
-##### Linux Desktop Shortcut (optional)
-
-For an entry in the application menu, create
-`~/.local/share/applications/vinyl-label-printer.desktop`:
-
-```ini
-[Desktop Entry]
-Name=Vinyl Label Printer
-Comment=Print 7" vinyl record labels
-Exec=/bin/bash -c "cd /PATH/TO/vinyl-label-printer && source venv/bin/activate && python3 main.py"
-Icon=printer
-Terminal=false
-Type=Application
-Categories=Utility;
-```
-
-Replace `/PATH/TO` with the actual path, e.g.:
-`/home/alexander/Coding_Local/vinylsticker/vinyl-label-printer`
+Building the packages is described in [Building from source (PyInstaller)](#building-from-source-pyinstaller).
 
 ---
 
-> **Note on `pip`:** Always activate the venv first — then `pip` works identically on both
-> platforms. On Linux without a venv, use `pip3` instead.
-
-#### Place your Excel file
-
-On first start the app copies the example from the `/examples` folder into its data folder.
-Replace that `database.xlsx` with your own file — **⚙ Settings → Data source → Open folder**
-opens the folder (see [Where your data is stored](#where-your-data-is-stored)).
-
----
+## User Manual
 
 ### Workflow
 
 #### Choosing a data source
 
-At the top of the left panel, the **Data source** group lets you choose between two modes:
+The app reads the print queue from one of two sources. Choose it in
+**⚙ Settings → Data source**:
 
 | Mode | Description |
 |---|---|
 | **Local database** | Reads the print queue from the Excel file (`database.xlsx` in the [data folder](#where-your-data-is-stored)). This is the default. |
-| **Discogs** | Fetches your 7" singles from your Discogs collection. The **Load from Discogs** button is enabled only in this mode. |
+| **Discogs** | Imports your 7" singles from your Discogs collection into the print queue. |
 
-The selected mode is **persisted across sessions**.
-
-**Switching to Discogs:**
-
-- If no Discogs credentials are saved yet, a setup dialog appears. You can set up the token immediately or cancel — the switch is reverted on cancel.
-- If the local print queue already contains entries, a confirmation dialog points out that the queue will be changed by the next import. When you confirm an import, the app asks whether to **Append** the new entries or **Replace** the queue (see [Discogs Import](#discogs-import)).
-
-**Switching back to Local database:**
-
-- An informational message confirms the switch. The existing print queue is preserved; no data is deleted.
-
-**Status bar** at the bottom of the window reflects the active mode:
-
-- Local: 🗄 Local database | N entries
-- Discogs: 🌐 Discogs | Signed in as _username_ | N entries
+The selected mode is **persisted across sessions** and shown in the footer bar, together with
+the Discogs connection status. If you select Discogs before a token is saved, the app says so
+and opens the **Discogs account** tab (see [Discogs Import](#discogs-import)).
 
 ---
 
@@ -639,43 +333,49 @@ Files created before column G existed still load — the catalog number is simpl
 
 The **Database** sheet is a read-only master reference and is never written to by the application.
 
-##### Open the database file
-
-On first run click **Open file …** and navigate to your `database.xlsx`. The chosen path is remembered for future sessions. Use **Reload** to re-read the file after editing it externally (e.g. after adding new rows in LibreOffice Calc or Excel while the app is open).
+The app always uses the `database.xlsx` in the [data folder](#where-your-data-is-stored);
+**⚙ Settings → Data source → Open folder** opens it in the file manager. After editing the file
+externally (e.g. in LibreOffice Calc or Excel while the app is open), click **Load data** in
+the sidebar to read it again.
 
 ---
 
 #### Option B — Discogs import
 
-Switch the **Data source** toggle to **Discogs**, then click **Load from Discogs** to fetch your 7" singles directly from your Discogs collection. See [Discogs Import](#discogs-import) for a full walkthrough. After confirming the import the print queue is written automatically — no manual Excel editing required.
+Select **Discogs** in **⚙ Settings → Data source**, then click **Load data** in the sidebar to fetch your 7" singles directly from your Discogs collection. See [Discogs Import](#discogs-import) for a full walkthrough. After confirming the import the print queue is written automatically — no manual Excel editing required.
 
 ---
 
-**Step 2 — Set a start position (optional)**
+**Step 2 — Check the queue (optional)**
 
-If you are printing onto a partially used label sheet, click the desired starting cell in the **Start position** grid:
+The **Queue** entry in the sidebar shows how many labels are queued. Click it to review and
+edit the queue in the Review dialog (see [Step 5 — Review and confirm](#step-5--review-and-confirm));
+confirming there replaces the queue with the edited list.
 
-- **Grey cells** — skipped (already used on the physical sheet)
+**Step 3 — Set a start position (optional)**
+
+If you are printing onto a partially used label sheet, click **Start position** in the sidebar
+and pick the first free cell in the grid:
+
+- **Dark grey cells** — skipped (already used on the physical sheet)
 - **Green cells** — will receive a printed label
-- **White cells** — empty (no label queued)
+- **Light grey cells** — empty (no label queued)
 
 The grid always shows 4 columns × 10 rows, mirroring the physical Avery 4780 sheet. Labels fill left-to-right, top-to-bottom from the chosen cell. If more labels are queued than slots remain on the first sheet, additional pages are generated automatically.
 
-**Step 3 — Set a watermark (optional)**
+Changing the start position after a PDF has been generated automatically regenerates the PDF and updates the preview.
 
-Click **Watermark …** to select a PNG or JPG image. It will be printed as a faint background graphic on every label (approximately 10 % opacity), behind all text. The selected file path is saved permanently.
+**Step 4 — Set a watermark (optional)**
 
-Click **Remove** to remove the watermark.
+In **⚙ Settings → Appearance → Watermark**, click **Select file...** to choose a PNG or JPG image. It will be printed as a faint background graphic on every label (approximately 10 % opacity), behind all text. The selected file path is saved permanently. Click **Remove** to remove the watermark.
 
 > If the watermark file has been moved or deleted since it was selected, the application will show an error when you try to generate a PDF and will not proceed until the issue is resolved.
 
-**Step 4 — Generate the PDF**
+**Step 5 — Create the PDF**
 
-Click **Generate PDF**. The PDF is saved to `output/labels.pdf` in the [cache folder](#where-your-data-is-stored) and immediately displayed in the preview panel on the right.
+Click **Create PDF**. The PDF is saved to `output/labels.pdf` in the [cache folder](#where-your-data-is-stored) and immediately displayed in the preview panel on the right.
 
-Changing the start position after a PDF has been generated automatically regenerates the PDF and updates the preview.
-
-**Step 5 — Print**
+**Step 6 — Print**
 
 Click **Print** to send the PDF to your printer.
 
@@ -689,33 +389,29 @@ Click **Print** to send the PDF to your printer.
 ### Interface Overview
 
 ```
-┌──────────────────────────────────┬──────────────────────────────────────┐
-│ ┌─ Data source ────────────────┐ │                                      │
-│ │  ○ Local database  ● Discogs │ │                                      │
-│ └──────────────────────────────┘ │                                      │
-│ [Open file…] [Reload]            │                                      │
-│ [Load from Discogs]  (disabled   │           PDF preview                │
-│                       in Local)  │                                      │
-│ ┌─ Print queue ────────────────┐ │                                      │
-│ │  2 labels in queue           │ │                                      │
-│ └──────────────────────────────┘ │                                      │
-│ ┌─ Start position ─────────────┐ │                                      │
-│ │  [ ][ ][ ][ ]                │ │                                      │
-│ │  [ ][ ][ ][ ]   (4×10 grid)  │ │                                      │
-│ │  ...                         │ │                                      │
-│ └──────────────────────────────┘ │                                      │
-│ ┌─ Watermark ──────────────────┐ │                                      │
-│ │  logo.png                    │ │    [ ← Back ]  Page 1 of 1          │
-│ │  [Watermark …]  [Remove]     │ │                          [Next → ]  │
-│ └──────────────────────────────┘ │                                      │
-│ [ Generate PDF ]                 │                                      │
-│ [ Print        ]                 │                                      │
-└──────────────────────────────────┴──────────────────────────────────────┘
-
-Footer bar (not shown above): **⚙ Settings** button on the left opens the Settings dialog
-(**Appearance** — theme + language, **Data source**, **Discogs account**, **About**);
-the Discogs connection status and active mode badge are shown on the right.
+┌──────────────────────────┬──────────────────────────────────────────────┐
+│ Vinyl Label Printer      │                                              │
+│                          │                                              │
+│ DATA                     │                                              │
+│  Load data               │                                              │
+│    Local / Discogs mode  │               PDF preview                    │
+│  Queue                   │                                              │
+│    12 labels ready       │                                              │
+│                          │                                              │
+│ PRINT                    │                                              │
+│  Start position          │                                              │
+│    Label 1 (R1 C1)       │                                              │
+│  Create PDF              │      [ ← Back ]  Page 1 of 1  [ Next → ]     │
+│    Ready                 │                                              │
+│  [ Print ]               │                                              │
+├──────────────────────────┴──────────────────────────────────────────────┤
+│ ⚙ Settings                                  ● Discogs status   Mode     │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
+
+The **⚙ Settings** button in the footer opens the Settings dialog: **Appearance** (theme,
+language, watermark, printer calibration, debug logging), **Data source**, **Discogs account**
+and **About** (version check).
 
 ### Discogs Import
 
@@ -730,11 +426,12 @@ The app can fetch your 7" singles directly from your Discogs collection (includi
 
 #### Step 2 — Switch to Discogs mode and enter credentials
 
-1. Select **Discogs** in the **Data source** group at the top of the left panel.
-   - If no credentials are saved yet, the setup dialog opens automatically.
-2. Enter your Discogs username and the token.
-3. Click **Verify and save token**.
+1. Open **⚙ Settings → Discogs account** and click **Change token** — the setup panel of the
+   Discogs dialog opens.
+2. Enter your Discogs username and the token and click **Verify and save token**.
    The app verifies the token against the Discogs API once and saves it locally.
+3. Select **Discogs** in **⚙ Settings → Data source**, then click **Load data** in the sidebar
+   to open the Discogs dialog.
 
 After a successful verification the dialog switches automatically to the collection panel. On subsequent opens the saved credentials are used directly — the setup panel is skipped.
 
@@ -853,7 +550,9 @@ If some rows are correct but others are not, the issue is mechanical (paper feed
 
 ### PDF preview is blank or missing
 
-The preview panel requires **Poppler** to convert PDF pages to images.
+The preview panel requires **Poppler** to convert PDF pages to images. The `.deb` installs it
+(`poppler-utils`) and the Setup.exe bundles it; only when running from source you install it
+yourself:
 
 | Platform | Fix |
 |---|---|
@@ -896,9 +595,8 @@ Restart the application after installing Poppler. If the preview still does not 
 ```
 vinyl-label-printer/
 ├── main.py                        # Entry point — creates QApplication and MainWindow
-├── __version__.py                 # App version string — read by the installer and version_checker.py
+├── __version__.py                 # App version string — read by the CI build and version_checker.py
 ├── requirements.txt                # pip dependencies
-├── start.sh                       # Linux launcher (generated by install.sh; create manually for source installs)
 ├── config/
 │   ├── avery_formats.py           # Avery sheet dimensions and coordinate helpers
 │   ├── settings.py                # Persistent JSON settings (watermark path, data source mode, theme, ...)
@@ -906,6 +604,7 @@ vinyl-label-printer/
 │   ├── themes.py                  # ThemeColors dataclass — dark/light color palettes
 │   └── credentials.example.json   # Committed template — values intentionally empty
 ├── modules/
+│   ├── child_env.py               # Environment for started programs (frozen Linux build)
 │   ├── data_source.py             # DataSourceMode enum (LOCAL / DISCOGS)
 │   ├── excel_reader.py            # openpyxl — loads/writes Print sheet, loads Database
 │   ├── logger.py                  # Centralised rotating-file logger; debug toggle
@@ -1119,9 +818,22 @@ The toggle is exposed in **Settings → Appearance → Developer → Debug loggi
 | Symbol | Description |
 |---|---|
 | `GITHUB_API_URL` | Endpoint: `GET /repos/EJAIS/vinylsticker/releases` — called with `per_page=10`; the newest release with a plain `MAJOR.MINOR.PATCH` tag (optional `v` / `v.`) is used — pre-release tags such as `v0.4.0-rc1` are never reported as an update |
-| `GITHUB_RELEASES_URL` | Fallback URL opened when `release_url` is unavailable |
+| `GITHUB_RELEASES_URL` | Releases page: linked in the update hint, and the fallback when `release_url` is unavailable |
 | `get_latest_version(timeout)` | Fetches the newest release; returns a dict with `success`, `latest_version`, `tag_name`, `release_url`, `error` (`"network"` / `"api"` / `"no_releases"` / `"unknown"`) |
 | `is_update_available(latest_version)` | Compares `latest_version` against the running `__version__` using tuple comparison; returns `True` if an update exists |
+| `is_newer_than_latest(latest_version)` | `True` if the running `__version__` is newer than the latest stable release (e.g. 1.0.0 while only `v1.0.0-rc.1` is newer than `v0.4.0`); the About tab then says so instead of "latest version" |
+
+#### `modules/child_env.py`
+
+`restore_user_environment()` runs first in `main()`. In the frozen Linux build it gives the
+programs the app starts (`xdg-open` → file manager / browser / PDF viewer, `QDesktopServices`,
+pdf2image's `pdfinfo` / `pdftoppm`) the environment the user started the app with:
+`LD_LIBRARY_PATH` is restored from `LD_LIBRARY_PATH_ORIG` (or removed), and the bundle-only
+variables `LD_LIBRARY_PATH_ORIG`, `QT_PLUGIN_PATH`, `QML2_IMPORT_PATH` and `_PYI_*` are removed.
+Otherwise these programs load the bundle's older libraries and crash. The running app is not
+affected (glibc reads `LD_LIBRARY_PATH` only at process start). From source and on Windows it
+does nothing. `main.py --print-child-env` (hidden, used by CI) prints the resulting environment
+and runs the preview's Poppler call once.
 
 #### `modules/printer.py`
 
@@ -1135,7 +847,7 @@ Before opening the OS print dialog, `print_pdf()` shows a one-time `QMessageBox`
 
 #### `ui/styles.py`
 
-`apply_table_style(table)` and `apply_search_style(widget)` — kept as no-op call sites in `discogs_dialog.py` and `review_widget.py` for backward compatibility. Table and search-field styling (border, grid colour, hover/selected states, focus ring) is now generated globally by `config/stylesheet.py` and applies automatically; these functions no longer do anything.
+`apply_table_style(table)` and `apply_search_style(widget)` — kept as no-op call sites in `review_widget.py` for backward compatibility. Table and search-field styling (border, grid colour, hover/selected states, focus ring) is now generated globally by `config/stylesheet.py` and applies automatically; these functions no longer do anything.
 
 #### `ui/settings_dialog.py`
 
@@ -1276,6 +988,6 @@ GitHub Release. Every other run executes it as a dry run (downloads the packages
 
 The app icon is drawn in `packaging/icons/icon.svg`; the `.ico` and the Linux hicolor PNGs next
 to it, plus the window icon `vinyl-label-printer/icons/vinyl-label-printer.png` (a copy of the
-256 px PNG, used from source, by install.sh / install.ps1 installs and in the frozen build), are
+256 px PNG, used from source and in the frozen build), are
 generated from it and committed. After changing the SVG, regenerate them with
 `packaging/icons/build_icons.py` (instructions in its docstring).
