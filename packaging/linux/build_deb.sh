@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build vinyl-label-printer_<version>_amd64.deb from the PyInstaller onedir bundle.
+# Build vinyl-label-printer_<package version>_amd64.deb from the PyInstaller
+# onedir bundle.
 #
 # Run after the PyInstaller build, on the system the bundle was built on
 # (the linux job of .github/workflows/build.yml, Ubuntu 22.04):
@@ -8,7 +9,15 @@
 #
 # Requirements: fpm, dpkg, and in $PYTHON (default: python3) the packages that
 # were bundled (the build venv), used to collect their licence files.
-# Output: OUTPUT_DIR/vinyl-label-printer_<version>_amd64.deb (default: dist/).
+#
+# Version: PACKAGE_VERSION and DEB_VERSION from packaging/package_version.sh
+# (the CI passes both), e.g. 1.0.0-rc.1 and 1.0.0~rc.1 for the tag v1.0.0-rc.1.
+# Without them, both are __version__ from vinyl-label-printer/__version__.py.
+#
+# Output: OUTPUT_DIR/vinyl-label-printer_<PACKAGE_VERSION>_amd64.deb (default:
+# dist/). The file name uses PACKAGE_VERSION, never the "~" of DEB_VERSION
+# (GitHub renames release assets with special characters). If $GITHUB_OUTPUT is
+# set, "file=<file name>" is appended to it.
 #
 # Package layout:
 #   /opt/vinyl-label-printer/                       PyInstaller bundle
@@ -68,12 +77,19 @@ DEPENDS=(
 command -v fpm >/dev/null || die "fpm not found (gem install fpm)"
 command -v dpkg >/dev/null || die "dpkg not found (needed to locate licence files)"
 
-VERSION="$("$PYTHON" -c "import runpy, sys; \
+if [ -z "${PACKAGE_VERSION:-}" ]; then
+    [ -z "${DEB_VERSION:-}" ] || die "DEB_VERSION is set, but PACKAGE_VERSION is not"
+    PACKAGE_VERSION="$("$PYTHON" -c "import runpy, sys; \
 print(runpy.run_path(sys.argv[1])['__version__'])" \
-    "$REPO_ROOT/$NAME/__version__.py")"
-[ -n "$VERSION" ] || die "could not read the version"
-DEB_FILE="$OUTPUT_DIR/${NAME}_${VERSION}_amd64.deb"
-echo "Building $DEB_FILE"
+        "$REPO_ROOT/$NAME/__version__.py")"
+    [ -n "$PACKAGE_VERSION" ] || die "could not read the version"
+    DEB_VERSION="$PACKAGE_VERSION"
+fi
+[ -n "${DEB_VERSION:-}" ] || die "PACKAGE_VERSION is set, but DEB_VERSION is not"
+[[ "$PACKAGE_VERSION" =~ ^[0-9A-Za-z.-]+$ ]] \
+    || die "PACKAGE_VERSION '$PACKAGE_VERSION' is not usable in a file name"
+DEB_FILE="$OUTPUT_DIR/${NAME}_${PACKAGE_VERSION}_amd64.deb"
+echo "Building $DEB_FILE (Debian version $DEB_VERSION)"
 
 STAGING="$(mktemp -d)"
 trap 'rm -rf "$STAGING"' EXIT
@@ -184,7 +200,7 @@ done
 rm -f "$DEB_FILE"
 fpm -s dir -t deb \
     --name "$NAME" \
-    --version "$VERSION" \
+    --version "$DEB_VERSION" \
     --architecture amd64 \
     --maintainer "Alexander <125554454+EJAIS@users.noreply.github.com>" \
     --vendor "EJAIS" \
@@ -206,4 +222,11 @@ The package contains a self-contained build with its own Python and Qt 6." \
     -C "$STAGING" \
     opt usr
 
+built_version="$(dpkg-deb --field "$DEB_FILE" Version)"
+[ "$built_version" = "$DEB_VERSION" ] \
+    || die "package has Debian version '$built_version', expected '$DEB_VERSION'"
+
 echo "Built $DEB_FILE"
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "file=$(basename "$DEB_FILE")" >> "$GITHUB_OUTPUT"
+fi

@@ -18,19 +18,32 @@ OPTIONAL_RE='/(platformthemes/libqgtk3|platforms/libqlinuxfb)\.so$'
 export LD_LIBRARY_PATH="$BUNDLE/_internal:$BUNDLE/_internal/PyQt6/Qt6/lib"
 
 checked=0
+static=0
 failed=0
 while IFS= read -r -d '' file; do
     head -c 4 "$file" | grep -q 'ELF' || continue
     checked=$((checked + 1))
-    missing="$(ldd "$file" 2>/dev/null | awk '/not found/ {print $1}' | sort -u | tr '\n' ' ')"
+    rel="${file#"$BUNDLE"/}"
+    # ldd exits non-zero for a static binary ("not a dynamic executable") and
+    # for files it cannot handle; neither may end the script (set -e).
+    if ! out="$(ldd "$file" 2>&1)"; then
+        if [[ "$out" == *"not a dynamic executable"* ]]; then
+            static=$((static + 1))   # no shared libraries, nothing to check
+        else
+            echo "ERROR:    $rel: ldd failed: ${out//$'\n'/ }"
+            failed=$((failed + 1))
+        fi
+        continue
+    fi
+    missing="$(awk '/not found/ {print $1}' <<<"$out" | sort -u | tr '\n' ' ')"
     [ -n "$missing" ] || continue
     if [[ "$file" =~ $OPTIONAL_RE ]]; then
-        echo "optional: ${file#"$BUNDLE"/} needs $missing"
+        echo "optional: $rel needs $missing"
     else
-        echo "MISSING:  ${file#"$BUNDLE"/} needs $missing"
+        echo "MISSING:  $rel needs $missing"
         failed=$((failed + 1))
     fi
 done < <(find "$BUNDLE" -type f \( -name '*.so*' -o -perm -u+x \) -print0)
 
-echo "$checked ELF files checked, $failed with unresolved libraries"
+echo "$checked ELF files checked ($static not dynamic), $failed failed"
 [ "$failed" -eq 0 ]
