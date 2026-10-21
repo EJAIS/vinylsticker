@@ -1,7 +1,7 @@
 """
 Secure credential storage for Discogs API access.
 
-Credentials are kept in config/credentials.json (never committed).
+Credentials are kept in credentials.json in the user config dir (modules.paths).
 On first run the file is created from credentials.example.json.
 After each write the file permissions are set to 0o600 (owner r/w only).
 On Windows os.chmod is accepted by the OS but has no effect — acceptable
@@ -12,12 +12,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
-from modules.paths import resource_path
+from modules.paths import get_credentials_file, resource_path
 
-_CONFIG_DIR = Path(__file__).parent.parent / "config"
-_CREDENTIALS_FILE = _CONFIG_DIR / "credentials.json"
 _EXAMPLE_FILE = resource_path("config/credentials.example.json")
 
 _EMPTY: dict = {"discogs_username": "", "discogs_token": ""}
@@ -32,14 +29,15 @@ class CredentialsManager:
         If credentials.json does not exist it is created from the example
         template (or from scratch if the template is also missing).
         """
-        if not _CREDENTIALS_FILE.exists():
+        credentials_file = get_credentials_file()
+        if not credentials_file.exists():
             if _EXAMPLE_FILE.exists():
                 data = json.loads(_EXAMPLE_FILE.read_text(encoding="utf-8"))
             else:
                 data = dict(_EMPTY)
             self._write(data)
         try:
-            return json.loads(_CREDENTIALS_FILE.read_text(encoding="utf-8"))
+            return json.loads(credentials_file.read_text(encoding="utf-8"))
         except Exception:
             return dict(_EMPTY)
 
@@ -59,12 +57,12 @@ class CredentialsManager:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _write(self, data: dict) -> None:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        _CREDENTIALS_FILE.write_text(
+        credentials_file = get_credentials_file()
+        credentials_file.write_text(
             json.dumps(data, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
         try:
-            os.chmod(_CREDENTIALS_FILE, 0o600)
+            os.chmod(credentials_file, 0o600)
         except NotImplementedError:
             pass  # Some platforms may not support chmod

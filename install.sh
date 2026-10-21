@@ -37,6 +37,16 @@ error()   { echo -e "${RED}✗${NC}  $*" >&2; }
 header()  { echo -e "\n${BOLD}$*${NC}"; }
 die()     { error "$*"; exit 1; }
 
+# ── Data layout ───────────────────────────────────────────────
+# Newer app versions keep user data outside the install dir (see
+# modules/paths.py) and copy files from $INSTALL_DIR/config and data/ there
+# once. Older versions still store everything inside $INSTALL_DIR.
+USER_DATA_HINT="~/.config/vinyl-label-printer (settings) and ~/.local/share/vinyl-label-printer (database.xlsx)"
+
+uses_user_dirs() {
+    grep -qs "user_data_dir" "$INSTALL_DIR/modules/paths.py"
+}
+
 # ── Version helpers ───────────────────────────────────────────
 get_installed_version() {
     local ver_file="$INSTALL_DIR/__version__.py"
@@ -143,7 +153,7 @@ install_system_packages() {
 
 # ── Backup user data ──────────────────────────────────────────
 backup_user_data() {
-    header "💾 Backing up user data..."
+    header "💾 Backing up user data from the install folder..."
 
     mkdir -p "$BACKUP_DIR"
 
@@ -219,7 +229,7 @@ restore_user_data() {
     fi
 
     if [ $restored -gt 0 ]; then
-        success "$restored file(s) restored"
+        success "$restored file(s) restored to the install folder"
     fi
 
     info "Backup kept at: $BACKUP_DIR"
@@ -364,6 +374,12 @@ EOF
 setup_example_database() {
     local db_path="$INSTALL_DIR/data/database.xlsx"
 
+    # Newer versions create the example database in the user data folder
+    # themselves on first start.
+    if uses_user_dirs; then
+        return
+    fi
+
     if [ ! -f "$db_path" ]; then
         mkdir -p "$INSTALL_DIR/data"
         local example="$INSTALL_DIR/examples/database.xlsx"
@@ -402,6 +418,10 @@ uninstall() {
     [[ "$confirm" =~ ^[yYjJ]$ ]] || { info "Cancelled."; exit 0; }
 
     # Backup user data before uninstall
+    local user_dirs=false
+    if uses_user_dirs; then
+        user_dirs=true
+    fi
     backup_user_data
 
     rm -rf "$INSTALL_DIR"
@@ -409,7 +429,12 @@ uninstall() {
     rm -f "$DESKTOP_DIR/vinyl-label-printer.desktop"
 
     success "Uninstall complete."
-    info "Your data was backed up to: $BACKUP_DIR"
+    if [ "$user_dirs" = true ]; then
+        info "Your data was not removed: $USER_DATA_HINT"
+        info "Files from the install folder were backed up to: $BACKUP_DIR"
+    else
+        info "Your data was backed up to: $BACKUP_DIR"
+    fi
 }
 
 # ── Main ──────────────────────────────────────────────────────
@@ -525,6 +550,9 @@ main() {
 
     if [ "$IS_UPDATE" = true ] && [ -d "$BACKUP_DIR" ]; then
         info "Data backup location: $BACKUP_DIR"
+    fi
+    if uses_user_dirs; then
+        info "Your data is stored in: $USER_DATA_HINT"
     fi
 
     echo ""

@@ -61,8 +61,8 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Ziel:    {path}\n\n"
             "Download:\n"
             "  https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx\n\n"
-            "Oder Installationsskript erneut ausführen:\n"
-            "  curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash"
+            "Oder die App neu starten — fehlt die Datei, wird die "
+            "Beispieldatenbank automatisch angelegt."
         ),
         "err_print":         "Druckfehler:\n{detail}",
 
@@ -327,6 +327,13 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Beim Wechsel des Modus werden vorhandene "
             "Warteschlangen-Daten überschrieben."
         ),
+        "settings_data_folder":         "Datenordner",
+        "settings_data_folder_info":    (
+            "Hier liegt Ihre database.xlsx. Bearbeiten Sie sie mit "
+            "Excel oder LibreOffice Calc."
+        ),
+        "settings_open_folder":         "Ordner öffnen",
+        "err_open_folder":              "Ordner konnte nicht geöffnet werden:\n{path}\n\n{detail}",
 
         # Settings dialog — Discogs account tab
         "settings_discogs_connected":   "Verbunden",
@@ -452,8 +459,8 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Target: {path}\n\n"
             "Download:\n"
             "  https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx\n\n"
-            "Or re-run the install script:\n"
-            "  curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh | bash"
+            "Or restart the app — if the file is missing, the example "
+            "database is created automatically."
         ),
         "err_print":         "Print error:\n{detail}",
 
@@ -712,6 +719,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_mode_switch_warn":    (
             "When switching modes, existing queue data may be overwritten."
         ),
+        "settings_data_folder":         "Data folder",
+        "settings_data_folder_info":    (
+            "Your database.xlsx is stored here. Edit it with "
+            "Excel or LibreOffice Calc."
+        ),
+        "settings_open_folder":         "Open folder",
+        "err_open_folder":              "Could not open the folder:\n{path}\n\n{detail}",
 
         # Settings dialog — Discogs account tab
         "settings_discogs_connected":   "Connected",
