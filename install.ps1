@@ -40,6 +40,18 @@ function Write-Err     { param($msg) Write-Host "  x  $msg" -ForegroundColor Red
 function Write-Header  { param($msg) Write-Host "`n$msg" -ForegroundColor White }
 function Stop-Install  { param($msg) Write-Err $msg; exit 1 }
 
+# ── Data layout ────────────────────────────────────────────────
+# Newer app versions keep user data outside the install dir (see
+# modules\paths.py) and copy files from config\ and data\ there once.
+# Older versions still store everything inside $InstallDir.
+$UserDataHint = Join-Path $env:APPDATA "vinyl-label-printer"
+
+function Test-UserDataDirs {
+    $pathsFile = Join-Path $InstallDir "modules\paths.py"
+    if (-not (Test-Path $pathsFile)) { return $false }
+    return [bool](Select-String -Path $pathsFile -Pattern "user_data_dir" -Quiet)
+}
+
 # ── Version helpers ────────────────────────────────────────────
 function Get-InstalledVersion {
     $verFile = Join-Path $InstallDir "__version__.py"
@@ -169,7 +181,7 @@ function Install-Poppler {
 
 # ── Backup user data ───────────────────────────────────────────
 function Backup-UserData {
-    Write-Header "Backing up user data..."
+    Write-Header "Backing up user data from the install folder..."
 
     New-Item -ItemType Directory -Path $BackupDir `
         -Force | Out-Null
@@ -228,7 +240,7 @@ function Restore-UserData {
     }
 
     if ($restored -gt 0) {
-        Write-Success "$restored file(s) restored"
+        Write-Success "$restored file(s) restored to the install folder"
     }
     Write-Info "Backup kept at: $BackupDir"
 }
@@ -374,6 +386,10 @@ function New-StartMenuShortcut {
 function Initialize-Database {
     $dbPath = Join-Path $InstallDir "data\database.xlsx"
 
+    # Newer versions create the example database in the user data folder
+    # themselves on first start.
+    if (Test-UserDataDirs) { return }
+
     if (-not (Test-Path $dbPath)) {
         New-Item -ItemType Directory `
             -Path (Join-Path $InstallDir "data") `
@@ -411,13 +427,19 @@ function Remove-App {
         exit 0
     }
 
+    $userDirs = Test-UserDataDirs
     Backup-UserData
 
     Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item $ShortcutPath -Force -ErrorAction SilentlyContinue
 
     Write-Success "Uninstall complete."
-    Write-Info "Your data was backed up to: $BackupDir"
+    if ($userDirs) {
+        Write-Info "Your data was not removed: $UserDataHint"
+        Write-Info "Files from the install folder were backed up to: $BackupDir"
+    } else {
+        Write-Info "Your data was backed up to: $BackupDir"
+    }
 }
 
 # ── Main ───────────────────────────────────────────────────────
@@ -501,6 +523,9 @@ function Main {
 
     if ($isUpdate -and (Test-Path $BackupDir)) {
         Write-Info "Data backup location: $BackupDir"
+    }
+    if (Test-UserDataDirs) {
+        Write-Info "Your data is stored in: $UserDataHint"
     }
 
     Write-Host ""
