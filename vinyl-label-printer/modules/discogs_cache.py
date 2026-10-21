@@ -21,14 +21,13 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Iterator
 
 from modules.logger import get_logger
+from modules.paths import get_discogs_cache_file
 
 logger = get_logger()
 
-DB_PATH             = Path(__file__).parent.parent / "data" / "discogs_cache.db"
 CACHE_MAX_AGE_HOURS = 6
 
 # Fields from the collection endpoint — refreshed by every full sync
@@ -45,14 +44,14 @@ class DiscogsCache:
     """
 
     def __init__(self) -> None:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self._db_path = get_discogs_cache_file()
         self._init_db()
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
     def _get_connection(self) -> sqlite3.Connection:
         """Open and return a new SQLite connection. Never store this as an instance var."""
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -75,7 +74,7 @@ class DiscogsCache:
 
     def _init_db(self) -> None:
         """Create tables and indexes if they don't exist."""
-        logger.debug(f"Cache DB path: {DB_PATH}")
+        logger.debug(f"Cache DB path: {self._db_path}")
         with self._connection() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS releases (

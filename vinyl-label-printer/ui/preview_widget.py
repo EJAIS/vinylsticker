@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from modules.i18n import t
+from modules.paths import get_poppler_path
 
 
 class PreviewWidget(QWidget):
@@ -46,7 +47,9 @@ class PreviewWidget(QWidget):
         """
         try:
             from pdf2image import convert_from_path  # imported lazily
-            self._pages = convert_from_path(str(pdf_path), dpi=self._PREVIEW_DPI)
+            self._pages = convert_from_path(
+                str(pdf_path), dpi=self._PREVIEW_DPI, poppler_path=get_poppler_path(),
+            )
         except Exception as exc:
             if "poppler" in str(exc).lower() or isinstance(exc, ImportError):
                 QMessageBox.critical(self, t("app_title"), t("err_poppler"))

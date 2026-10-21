@@ -1,8 +1,8 @@
 import logging
 import logging.handlers
-from pathlib import Path
 
-LOG_FILE = Path(__file__).parent.parent / "logs" / "app.log"
+from modules.paths import get_log_file
+
 LOG_FORMAT = "%(asctime)s [%(levelname)-8s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -15,15 +15,13 @@ def setup_logger(debug: bool = False) -> logging.Logger:
     debug=True  — level DEBUG, logs to file + console
     debug=False — level WARNING, logs to file only
     """
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-
     logger = logging.getLogger("vinyl_label_printer")
     logger.setLevel(logging.DEBUG if debug else logging.WARNING)
     logger.handlers.clear()
 
     # Rotating file handler — always active
     file_handler = logging.handlers.RotatingFileHandler(
-        LOG_FILE,
+        get_log_file(),
         maxBytes=MAX_BYTES,
         backupCount=BACKUP_COUNT,
         encoding="utf-8",

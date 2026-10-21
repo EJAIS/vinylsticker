@@ -13,21 +13,21 @@ import json
 from pathlib import Path
 
 from modules.data_source import DataSourceMode
-
-_SETTINGS_FILE = Path(__file__).parent / "settings.json"
+from modules.paths import get_settings_file
 
 
 def _load() -> dict:
-    if _SETTINGS_FILE.exists():
+    settings_file = get_settings_file()
+    if settings_file.exists():
         try:
-            return json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+            return json.loads(settings_file.read_text(encoding="utf-8"))
         except Exception:
             return {}
     return {}
 
 
 def _save(data: dict) -> None:
-    _SETTINGS_FILE.write_text(
+    get_settings_file().write_text(
         json.dumps(data, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )

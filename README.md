@@ -26,18 +26,19 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 
 1. [Installation (Linux)](#installation-linux)
 2. [Installation (Windows)](#installation-windows)
-3. [User Manual](#user-manual)
+3. [Where your data is stored](#where-your-data-is-stored)
+4. [User Manual](#user-manual)
    - [Requirements](#requirements)
    - [Manual Installation](#manual-installation)
    - [Workflow](#workflow)
    - [Interface Overview](#interface-overview)
    - [Discogs Import](#discogs-import)
-4. [Troubleshooting](#troubleshooting)
+5. [Troubleshooting](#troubleshooting)
    - [Labels are misaligned](#labels-are-misaligned)
    - [PDF preview is blank or missing](#pdf-preview-is-blank-or-missing)
    - [Print dialog does not open](#print-dialog-does-not-open)
    - [Discogs import fails or stalls](#discogs-import-fails-or-stalls)
-5. [Technical Reference](#technical-reference)
+6. [Technical Reference](#technical-reference)
    - [Project Structure](#project-structure)
    - [Dependencies](#dependencies)
    - [Avery 4780 Sheet Dimensions](#avery-4780-sheet-dimensions)
@@ -46,6 +47,7 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
    - [Printer Calibration](#printer-calibration)
    - [Calibration PDF](#calibration-pdf)
    - [Adding a Language](#adding-a-language)
+   - [Building from source (PyInstaller)](#building-from-source-pyinstaller)
 
 ---
 
@@ -72,8 +74,9 @@ curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh |
 
 The script automatically detects whether an installation already
 exists and performs a fresh install or an update accordingly.
-Your user data (database, settings, Discogs token) is backed up
-and restored automatically in the process.
+Your user data (database, settings, Discogs token) is stored outside
+the program folder and is not touched by updates (see
+[Where your data is stored](#where-your-data-is-stored)).
 
 ### Uninstall
 
@@ -90,8 +93,11 @@ curl -sSL https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.sh \
      -o /tmp/install.sh && bash /tmp/install.sh --uninstall
 ```
 
-> Your user data (database.xlsx, settings, Discogs token) is automatically
-> backed up before uninstalling. The backup location is shown at the end.
+> Your user data (database.xlsx, settings, Discogs token) is stored outside
+> the program folder and is not removed (see
+> [Where your data is stored](#where-your-data-is-stored)). Files left in the
+> program folder by older versions are backed up first; the backup location
+> is shown at the end.
 
 ### Voraussetzungen / Prerequisites
 
@@ -104,15 +110,10 @@ Poppler and the required Qt system libraries are installed automatically via `ap
 
 ### Database
 
-The app ships with an example database that is copied automatically on first install.
-
-If the database is missing, copy it manually:
-
-```bash
-mkdir -p ~/vinyl-label-printer/data
-curl -L https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx \
-     -o ~/vinyl-label-printer/data/database.xlsx
-```
+The app ships with an example database that is copied automatically on first start
+to `~/.local/share/vinyl-label-printer/database.xlsx` (see
+[Where your data is stored](#where-your-data-is-stored)). If the file is missing, restart the
+app and it is created again.
 
 ### Manual installation (other Linux distributions)
 
@@ -140,8 +141,9 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/mai
 
 The script automatically detects whether an installation already
 exists and performs a fresh install or an update accordingly.
-Your user data (database, settings, Discogs token) is backed up
-and restored automatically in the process.
+Your user data (database, settings, Discogs token) is stored outside
+the program folder and is not touched by updates (see
+[Where your data is stored](#where-your-data-is-stored)).
 
 > **Note:** The Windows installer always runs interactively
 > and will ask for confirmation before updating.
@@ -161,8 +163,11 @@ Via web (recommended):
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1" -Uninstall
 ```
 
-> Your user data (database.xlsx, settings, Discogs token) is automatically
-> backed up before uninstalling. The backup location is shown at the end.
+> Your user data (database.xlsx, settings, Discogs token) is stored outside
+> the program folder and is not removed (see
+> [Where your data is stored](#where-your-data-is-stored)). Files left in the
+> program folder by older versions are backed up first; the backup location
+> is shown at the end.
 
 ### Voraussetzungen / Prerequisites
 
@@ -176,20 +181,53 @@ Poppler for the PDF preview is downloaded and configured automatically.
 
 ### Database
 
-The app ships with an example database that is copied automatically on first install.
-
-If the database is missing, copy it manually:
-
-```powershell
-New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\vinyl-label-printer\data"
-Invoke-WebRequest `
-    -Uri "https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx" `
-    -OutFile "$env:LOCALAPPDATA\vinyl-label-printer\data\database.xlsx"
-```
+The app ships with an example database that is copied automatically on first start
+to `%APPDATA%\vinyl-label-printer\database.xlsx` (see
+[Where your data is stored](#where-your-data-is-stored)). If the file is missing, restart the
+app and it is created again.
 
 ### Manual installation (macOS / running from source)
 
 To run from source instead of using the installer, see [Manual Installation](#manual-installation) below.
+
+---
+
+## Where your data is stored
+
+The app keeps your files in per-user folders, separate from the program itself, so updating,
+reinstalling or uninstalling the app never touches them. The folders are created on first use.
+
+| Content | Linux | Windows |
+|---|---|---|
+| Settings (`settings.json`), Discogs credentials (`credentials.json`) | `~/.config/vinyl-label-printer/` | `%APPDATA%\vinyl-label-printer\` |
+| Your database (`database.xlsx`) | `~/.local/share/vinyl-label-printer/` | `%APPDATA%\vinyl-label-printer\` |
+| Discogs cache (`discogs_cache.db`), generated PDFs (`output/`) | `~/.cache/vinyl-label-printer/` | `%LOCALAPPDATA%\vinyl-label-printer\Cache\` |
+| Log file (`app.log`) | `~/.local/state/vinyl-label-printer/log/` | `%LOCALAPPDATA%\vinyl-label-printer\Logs\` |
+
+On Linux the `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` and `XDG_STATE_HOME`
+variables are respected. On Windows, `%APPDATA%` is `C:\Users\<you>\AppData\Roaming` and
+`%LOCALAPPDATA%` is `C:\Users\<you>\AppData\Local`.
+
+To edit your database in Excel or LibreOffice Calc, open **⚙ Settings → Data source** — the
+**Data folder** section shows the path and has an **Open folder** button.
+
+If no `database.xlsx` exists when the app starts, the example database is copied into the
+data folder automatically.
+
+### One-time migration from older versions
+
+Older versions kept all files next to the program code (`config/`, `data/`). On the first start
+of a newer version the app **copies** `settings.json`, `credentials.json`, `database.xlsx` and
+`discogs_cache.db` into the folders above. It looks in:
+
+1. the program folder itself (git clone or `install.sh` / `install.ps1` installation),
+2. the default `install.sh` folder `~/vinyl-label-printer` (Linux) or the `install.ps1` folder
+   `%LOCALAPPDATA%\vinyl-label-printer` (Windows).
+
+The original files are left untouched and existing files are never overwritten. Logs are not
+migrated. The migration runs once — a marker file `legacy-migration.json` in the settings folder
+records what was copied. To run it again, close the app, delete that marker file and start the
+app (files that already exist in the new folders are still never overwritten).
 
 ---
 
@@ -346,8 +384,9 @@ Replace `/PATH/TO` with the actual path, e.g.:
 
 #### Place your Excel file
 
-Put your `database.xlsx` at `data/database.xlsx` inside the project folder, or select it later using the **Open file …** button inside the app.
-You can find an example in the `/examples` folder.
+On first start the app copies the example from the `/examples` folder into its data folder.
+Replace that `database.xlsx` with your own file — **⚙ Settings → Data source → Open folder**
+opens the folder (see [Where your data is stored](#where-your-data-is-stored)).
 
 ---
 
@@ -359,7 +398,7 @@ At the top of the left panel, the **Data source** group lets you choose between 
 
 | Mode | Description |
 |---|---|
-| **Local database** | Reads the print queue from the Excel file (`data/database.xlsx`). This is the default. |
+| **Local database** | Reads the print queue from the Excel file (`database.xlsx` in the [data folder](#where-your-data-is-stored)). This is the default. |
 | **Discogs** | Fetches your 7" singles from your Discogs collection. The **Load from Discogs** button is enabled only in this mode. |
 
 The selected mode is **persisted across sessions**.
@@ -432,7 +471,7 @@ Click **Remove** to remove the watermark.
 
 **Step 4 — Generate the PDF**
 
-Click **Generate PDF**. The PDF is saved to `output/labels.pdf` and immediately displayed in the preview panel on the right.
+Click **Generate PDF**. The PDF is saved to `output/labels.pdf` in the [cache folder](#where-your-data-is-stored) and immediately displayed in the preview panel on the right.
 
 Changing the start position after a PDF has been generated automatically regenerates the PDF and updates the preview.
 
@@ -503,7 +542,7 @@ After a successful verification the dialog switches automatically to the collect
 
 Click **Load 7" Singles**. The app fetches all releases from your Discogs collection (all pages) and filters automatically for 7" format singles. A progress indicator shows the current page being loaded.
 
-> The collection list is **cached locally in a SQLite database** (`data/discogs_cache.db`, not committed to version control). Re-opening the dialog reuses the cached data as long as it is less than 6 hours old — no API call is made. Once the cache expires, the status bar shows a warning and a **Aktualisieren / Reload** button appears. This behaviour is required by the Discogs API Terms of Use.
+> The collection list is **cached locally in a SQLite database** (`discogs_cache.db` in the [cache folder](#where-your-data-is-stored)). Re-opening the dialog reuses the cached data as long as it is less than 6 hours old — no API call is made. Once the cache expires, the status bar shows a warning and a **Aktualisieren / Reload** button appears. This behaviour is required by the Discogs API Terms of Use.
 >
 > The cache belongs to one Discogs account: logging out clears it, and a cache created for a different username is discarded.
 
@@ -566,10 +605,9 @@ Opening the queue for editing via the sidebar never asks — there the edited li
 
 #### Privacy & security
 
-- The token is stored exclusively in `config/credentials.json` on your local machine.
-- The credentials file is listed in `.gitignore` and is never committed to version control.
+- The token is stored exclusively in `credentials.json` in the [settings folder](#where-your-data-is-stored) on your local machine — outside the program folder, so it can never be committed to version control.
 - On Linux/macOS file permissions are set to `600` (owner read/write only) automatically.
-- The Discogs collection cache (`data/discogs_cache.db`) is also gitignored and stays local.
+- The Discogs collection cache (`discogs_cache.db`) stays local as well.
 - Click **Log out** (collection panel or **Settings → Discogs account**) to delete the stored credentials and the local collection cache immediately.
 
 ---
@@ -622,7 +660,7 @@ The preview panel requires **Poppler** to convert PDF pages to images.
 | Linux | `sudo apt install poppler-utils` |
 | Windows | Download from [github.com/oschwartz10612/poppler-windows](https://github.com/oschwartz10612/poppler-windows/releases), extract to `C:\poppler`, and add `C:\poppler\Library\bin` to the system PATH. |
 
-Restart the application after installing Poppler. If the preview still does not appear, enable **Debug logging** under **Settings → Appearance → Developer** and check `logs/app.log` for a Poppler-related error.
+Restart the application after installing Poppler. If the preview still does not appear, enable **Debug logging** under **Settings → Appearance → Developer** and check `app.log` in the [log folder](#where-your-data-is-stored) for a Poppler-related error.
 
 ---
 
@@ -661,33 +699,24 @@ vinyl-label-printer/
 ├── __version__.py                 # App version string — read by the installer and version_checker.py
 ├── requirements.txt                # pip dependencies
 ├── start.sh                       # Linux launcher (generated by install.sh; create manually for source installs)
-├── data/
-│   ├── database.xlsx              # Excel workbook (user-supplied; a starter copy ships in examples/)
-│   └── discogs_cache.db           # SQLite Discogs cache (auto-created; gitignored)
-├── output/
-│   ├── labels.pdf                 # Generated PDF (created on first run)
-│   └── calibration_avery4780.pdf  # Calibration sheet (generated on demand)
 ├── config/
 │   ├── avery_formats.py           # Avery sheet dimensions and coordinate helpers
 │   ├── settings.py                # Persistent JSON settings (watermark path, data source mode, theme, ...)
-│   ├── settings.json              # Personal settings — NOT shipped; created on first save (gitignored)
 │   ├── stylesheet.py              # Global in-house QSS stylesheet builder (dark/light theming)
 │   ├── themes.py                  # ThemeColors dataclass — dark/light color palettes
-│   ├── credentials.example.json   # Committed template — values intentionally empty
-│   └── credentials.json           # Real credentials — NOT committed (see .gitignore)
-├── logs/
-│   └── app.log                    # Rotating log file (auto-created; max 2 MB × 3 backups)
+│   └── credentials.example.json   # Committed template — values intentionally empty
 ├── modules/
 │   ├── data_source.py             # DataSourceMode enum (LOCAL / DISCOGS)
 │   ├── excel_reader.py            # openpyxl — loads/writes Print sheet, loads Database
 │   ├── logger.py                  # Centralised rotating-file logger; debug toggle
+│   ├── paths.py                   # All file locations: bundled resources, user dirs, legacy migration
 │   ├── pdf_generator.py           # ReportLab — renders labels to PDF, dynamic font sizing
 │   ├── printer.py                 # Cross-platform OS print dialog trigger
 │   ├── i18n.py                    # All UI strings, language switching (DE / EN)
 │   ├── discogs_client.py          # Discogs REST API client (verify, collection, release details; global throttle)
 │   ├── discogs_cache.py           # SQLite cache: collection fields + per-release details (6 h ToU each)
 │   ├── version_checker.py         # GitHub release check + semantic version comparison
-│   └── credentials_manager.py     # Load/save/clear config/credentials.json
+│   └── credentials_manager.py     # Load/save/clear credentials.json
 └── ui/
     ├── app.py                     # QMainWindow — wires all components together (no menu bar)
     ├── styles.py                  # Table/search-field style helpers used by dialogs
@@ -699,6 +728,10 @@ vinyl-label-printer/
     ├── discogs_dialog.py          # QDialog — Discogs import (setup + collection panels)
     └── review_widget.py           # QDialog — editable review table before queue write
 ```
+
+User files (`settings.json`, `credentials.json`, `database.xlsx`, `discogs_cache.db`, generated
+PDFs, `app.log`) are not part of the project tree — see
+[Where your data is stored](#where-your-data-is-stored).
 
 ### Dependencies
 
@@ -762,7 +795,7 @@ The five-line block is vertically centred inside the label cell. If a watermark 
 
 #### `config/settings.py`
 
-Reads and writes `config/settings.json`. The file is not shipped with the app — missing keys (or a missing file) fall back to defaults, and the file is created on the first save. Keys:
+Reads and writes `settings.json` in the config folder (`modules.paths.get_settings_file()`). The file is not shipped with the app — missing keys (or a missing file) fall back to defaults, and the file is created on the first save. Keys:
 
 | Key | Type | Description |
 |---|---|---|
@@ -799,7 +832,7 @@ Reads and writes `config/settings.json`. The file is not shipped with the app �
 | Symbol | Description |
 |---|---|
 | `generate_pdf(records, output_path, format_name, start_position, watermark_path, debug_frames)` | Renders all records to a multi-page PDF; returns the resolved output path |
-| `generate_calibration_pdf(output_path, fmt)` | Renders a diagnostic calibration sheet with row/column indices, expected X/Y ranges, crosshairs, corner marks, and mm rulers; saved to `output/calibration_avery4780.pdf` |
+| `generate_calibration_pdf(output_path, fmt)` | Renders a diagnostic calibration sheet with row/column indices, expected X/Y ranges, crosshairs, corner marks, and mm rulers; saved to `output/calibration_avery4780.pdf` in the cache folder |
 | `fit_text_to_width(c, text, max_width, font_name, size_max, size_min, step)` | Returns the largest font size ≤ `size_max` at which `text` fits within `max_width`; floors at `size_min` (the caller then truncates with `…` if needed) |
 | `_WATERMARK_ALPHA` | Module constant (default `25`, range 0–255) — controls watermark opacity |
 
@@ -830,7 +863,7 @@ SQLite-based persistent cache for Discogs data. Enforces the Discogs API Terms o
 
 | Symbol | Description |
 |---|---|
-| `DiscogsCache()` | Opens (or creates) `data/discogs_cache.db`; runs schema migrations (adding `catno` invalidates the cache once so the next sync fills it) |
+| `DiscogsCache()` | Opens (or creates) `discogs_cache.db` in the cache folder; runs schema migrations (adding `catno` invalidates the cache once so the next sync fills it) |
 | `get_cache_status()` | Returns `has_cache`, `is_valid`, `cached_at`, `age_hours`, `total_items`, `items_7inch`, `username` |
 | `get_7inch_releases()` | Returns all 7" releases ordered by `date_added DESC`; raises `RuntimeError` if cache is expired |
 | `sync_releases(releases, username)` | Three-way diff on all collection fields: INSERT new, UPDATE changed (collection fields only — details are never touched), DELETE removed; returns `{"added", "updated", "removed", "unchanged"}` |
@@ -845,7 +878,7 @@ Timestamps are stored as timezone-aware UTC ISO strings; naive values from older
 
 | Symbol | Description |
 |---|---|
-| `CredentialsManager()` | Reads/writes `config/credentials.json`; copies from `credentials.example.json` if missing |
+| `CredentialsManager()` | Reads/writes `credentials.json` in the config folder; copies from the bundled `credentials.example.json` if missing |
 | `load()` | Returns `{"discogs_username": str, "discogs_token": str}` |
 | `save(username, token)` | Writes credentials and sets file permissions to `600` on Linux/macOS |
 | `are_valid()` | Returns `True` if both username and token are non-empty |
@@ -864,12 +897,22 @@ Timestamps are stored as timezone-aware UTC ISO strings; naive values from older
 
 | Symbol | Description |
 |---|---|
-| `setup_logger(debug)` | Called once at startup; creates a `RotatingFileHandler` for `logs/app.log` (2 MB max, 3 backups) and, when `debug=True`, a `StreamHandler` for the console |
+| `setup_logger(debug)` | Called once at startup; creates a `RotatingFileHandler` for `app.log` in the log folder (2 MB max, 3 backups) and, when `debug=True`, a `StreamHandler` for the console |
 | `get_logger()` | Returns the named logger (`"vinyl_label_printer"`) for use in any module |
 | `set_debug_mode(enabled)` | Switches the log level at runtime (WARNING ↔ DEBUG) without a restart; adds/removes the console handler accordingly; called when the user toggles the setting |
-| `LOG_FILE` | `Path` to `logs/app.log` (relative to the project root) |
 
 The toggle is exposed in **Settings → Appearance → Developer → Debug logging**. When active, a red badge appears in the footer; clicking it reopens the settings dialog on the Appearance tab.
+
+#### `modules/paths.py`
+
+| Symbol | Description |
+|---|---|
+| `resource_path(relative)` | Absolute path of a read-only resource shipped with the app — relative to `vinyl-label-printer/` when running from source, relative to the PyInstaller bundle (`sys._MEIPASS`) when frozen |
+| `get_poppler_path()` | Bundled Poppler `bin` folder (Windows builds only) or `None`, in which case pdf2image uses Poppler from the system `PATH` |
+| `get_config_dir()` / `get_data_dir()` / `get_cache_dir()` / `get_log_dir()` | Per-user directories via [platformdirs](https://github.com/tox-dev/platformdirs) (app name `vinyl-label-printer`, no author folder), created on demand; config and data use the roaming profile on Windows |
+| `get_settings_file()`, `get_credentials_file()`, `get_database_file()`, `get_discogs_cache_file()`, `get_output_dir()`, `get_log_file()` | Locations of the individual user files |
+| `migrate_legacy_data()` | One-time copy of user files from the legacy app-relative layout; never overwrites, never raises; writes `legacy-migration.json` into the config dir on success |
+| `seed_example_database()` | Copies the bundled example `database.xlsx` into the data dir if none exists |
 
 #### `modules/version_checker.py`
 
@@ -955,15 +998,15 @@ If printed labels are slightly offset from the physical sheet, open **Settings �
 | **Horizontal (X) in mm** | Shifts all labels left (negative) or right (positive). Range: −5.0 to +5.0 mm, step 0.5 mm. |
 | **Vertical (Y) in mm** | Shifts all labels up (positive) or down (negative). Range: −5.0 to +5.0 mm, step 0.5 mm. |
 | **Reset** | Sets both values back to 0.0. |
-| **Generate calibration PDF** | Creates `output/calibration_avery4780.pdf` and opens it immediately (see below). |
+| **Generate calibration PDF** | Creates `output/calibration_avery4780.pdf` in the cache folder and opens it immediately (see below). |
 
 Values are applied to every generated PDF in real time and persisted to `settings.json` as `calibration_x_mm` and `calibration_y_mm`.
 
-Use `debug_frames=True` in `generate_pdf()` (from a Python script or temporary code change) to render thin red rectangles around each label cell, which makes alignment errors clearly visible. When debug logging is enabled (**Settings → Appearance → Developer**), each PDF generation also logs all format values and a width/height consistency check to `logs/app.log`.
+Use `debug_frames=True` in `generate_pdf()` (from a Python script or temporary code change) to render thin red rectangles around each label cell, which makes alignment errors clearly visible. When debug logging is enabled (**Settings → Appearance → Developer**), each PDF generation also logs all format values and a width/height consistency check to `app.log`.
 
 ### Calibration PDF
 
-Click **Generate calibration PDF** in the Printer Calibration section to produce a diagnostic sheet (`output/calibration_avery4780.pdf`). The PDF opens automatically in the system viewer after generation.
+Click **Generate calibration PDF** in the Printer Calibration section to produce a diagnostic sheet (`output/calibration_avery4780.pdf` in the cache folder). The PDF opens automatically in the system viewer after generation.
 
 Each of the 40 label cells contains:
 
@@ -990,3 +1033,21 @@ Left-margin and top-margin mm rulers are printed along the page edges.
 2. Copy the `"DE"` block and paste it with a new ISO 639-1 key (e.g., `"FR"`).
 3. Translate all string values.
 4. The new language will automatically appear in **⚙ Settings → Appearance** at next launch — no other code changes are needed.
+
+### Building from source (PyInstaller)
+
+The app can be bundled into a self-contained folder with [PyInstaller](https://pyinstaller.org/)
+using the spec file in `packaging/`. Run from the repository root with the app's requirements
+installed:
+
+```bash
+pip install -r vinyl-label-printer/requirements.txt pyinstaller
+pyinstaller --noconfirm --clean packaging/vinyl-label-printer.spec
+dist/vinyl-label-printer/vinyl-label-printer --version
+```
+
+The result is `dist/vinyl-label-printer/` (onedir build). On Linux, Poppler is not bundled —
+install `poppler-utils` as usual. On Windows, extract the `Library/bin` folder of a
+[Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases) release to
+`packaging/poppler/bin` before building to bundle it; otherwise Poppler is taken from `PATH`.
+The CI workflow `.github/workflows/build.yml` builds both platforms the same way.

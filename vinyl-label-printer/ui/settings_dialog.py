@@ -3,7 +3,7 @@ Settings dialog — 4-tab panel for app configuration.
 
 Tabs (left nav):
   0  Appearance   — theme + language
-  1  Data source  — LOCAL vs DISCOGS mode
+  1  Data source  — LOCAL vs DISCOGS mode + data folder location
   2  Discogs      — token management + account status
   3  About        — app info, license, author, version check, GitHub link
 
@@ -62,6 +62,7 @@ from config.settings import (
     set_calibration_y,
 )
 from modules.logger import set_debug_mode
+from modules.paths import get_data_dir, get_database_file, get_log_file, get_output_dir
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
@@ -604,7 +605,7 @@ class SettingsDialog(QDialog):
         debug_row_layout.addWidget(self._chk_debug)
         layout.addWidget(debug_row)
 
-        self._lbl_log_path = QLabel("Log: logs/app.log")
+        self._lbl_log_path = QLabel(f"Log: {get_log_file()}")
         log_path_font = self._lbl_log_path.font()
         log_path_font.setPixelSize(10)
         log_path_font.setFamily("Courier New")
@@ -676,6 +677,37 @@ class SettingsDialog(QDialog):
                 f"color: {colors.text_muted}; background: transparent;"
             )
         layout.addWidget(warn_box)
+
+        # ── Data folder section ────────────────────────────────────────────
+        self._lbl_sec_data_folder = _make_section_label(t("settings_data_folder"))
+        layout.addWidget(self._lbl_sec_data_folder)
+
+        self._lbl_data_folder_info = QLabel(t("settings_data_folder_info"))
+        self._lbl_data_folder_info.setWordWrap(True)
+        data_info_font = self._lbl_data_folder_info.font()
+        data_info_font.setPixelSize(11)
+        self._lbl_data_folder_info.setFont(data_info_font)
+        if colors:
+            self._lbl_data_folder_info.setStyleSheet(
+                f"color: {colors.text_muted}; background: transparent;"
+            )
+        layout.addWidget(self._lbl_data_folder_info)
+
+        data_folder_row = QHBoxLayout()
+        # Read-only line edit: the path can be selected and copied
+        self._edit_data_folder = QLineEdit(str(get_data_dir()))
+        self._edit_data_folder.setReadOnly(True)
+        self._edit_data_folder.setCursorPosition(0)
+        self._edit_data_folder.setToolTip(str(get_data_dir()))
+        self._edit_data_folder.setFixedHeight(30)
+        self._btn_open_data_folder = QPushButton(t("settings_open_folder"))
+        self._btn_open_data_folder.setFixedHeight(30)
+        self._btn_open_data_folder.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_open_data_folder.clicked.connect(self._on_open_data_folder)
+        data_folder_row.addWidget(self._edit_data_folder, 1)
+        data_folder_row.addWidget(self._btn_open_data_folder)
+        layout.addLayout(data_folder_row)
+
         layout.addStretch()
 
         self._inner_datasource = inner
@@ -1174,12 +1206,10 @@ class SettingsDialog(QDialog):
         import os
         import sys
         import subprocess
-        from pathlib import Path
         from config.avery_formats import get_format
         from modules.pdf_generator import generate_calibration_pdf
 
-        base_dir = Path(__file__).parent.parent
-        out_path = base_dir / "output" / "calibration_avery4780.pdf"
+        out_path = get_output_dir() / "calibration_avery4780.pdf"
         fmt = get_format("4780")
         try:
             pdf = generate_calibration_pdf(out_path, fmt)
@@ -1231,6 +1261,26 @@ class SettingsDialog(QDialog):
 
     # ── Data source handlers ───────────────────────────────────────────────────
 
+    def _on_open_data_folder(self) -> None:
+        """Open the data folder (database.xlsx) in the system file manager."""
+        import os
+        import sys
+        import subprocess
+
+        folder = get_data_dir()
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(folder))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(folder)])
+            else:
+                subprocess.Popen(["xdg-open", str(folder)])
+        except Exception as exc:
+            QMessageBox.warning(
+                self, t("app_title"),
+                t("err_open_folder", path=str(folder), detail=str(exc)),
+            )
+
     def _on_mode_card(self, mode: DataSourceMode) -> None:
         if mode == get_data_source_mode():
             return
@@ -1261,8 +1311,7 @@ class SettingsDialog(QDialog):
         from ui.discogs_dialog import DiscogsDialog
         db_path = self._db_path
         if db_path is None:
-            from pathlib import Path
-            db_path = Path(__file__).parent.parent / "data" / "database.xlsx"
+            db_path = get_database_file()
         dlg = DiscogsDialog(db_path, parent=self)
         dlg.exec()
         dlg.deleteLater()
@@ -1520,6 +1569,9 @@ class SettingsDialog(QDialog):
         self._card_local.set_subtitle(t("settings_mode_local_sub"))
         self._card_discogs.set_subtitle(t("settings_mode_discogs_sub"))
         self._lbl_mode_warn.setText(t("settings_mode_switch_warn"))
+        self._lbl_sec_data_folder.setText(t("settings_data_folder").upper())
+        self._lbl_data_folder_info.setText(t("settings_data_folder_info"))
+        self._btn_open_data_folder.setText(t("settings_open_folder"))
 
         # Discogs tab
         self._lbl_sec_token.setText(t("discogs_lbl_token").upper())
