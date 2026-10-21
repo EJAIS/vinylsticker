@@ -1,0 +1,373 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Vinyl Label Printer
+Upstream-Contact: https://github.com/EJAIS/vinylsticker/issues
+Source: https://github.com/EJAIS/vinylsticker
+Comment:
+ Binary package built from a PyInstaller bundle. Files paths are relative to
+ /opt/vinyl-label-printer. The bundle contains third-party components; their
+ verbatim licence texts are installed next to this file:
+   third-party/python/<distribution>-<version>/   licence files of the bundled
+                                                  Python distributions
+   third-party/debian/<package>.copyright         Debian copyright files of
+                                                  the bundled Ubuntu 22.04
+                                                  libraries
+ build_deb.sh fails if the bundle contains a Debian package or Python
+ distribution that is not named below (first word of an indented line).
+ .
+ Source code: the application at https://github.com/EJAIS/vinylsticker; the
+ bundled Ubuntu libraries via "apt-get source <package>" (Ubuntu 22.04);
+ Python distributions on https://pypi.org; Qt 6 at https://download.qt.io.
+
+Files: *
+Copyright: 2026 Alexander (EJAIS) <125554454+EJAIS@users.noreply.github.com>
+License: GPL-3.0-or-later
+
+Files: vinyl-label-printer
+Copyright: 2010-2026 PyInstaller Development Team
+           2005-2009 Giovanni Bajo
+           The authors of the Python distributions listed below
+License: GPL-2.0-or-later WITH Bootloader-exception and Apache-2.0 and MIT and BSD-3-Clause
+Comment: The executable is the PyInstaller bootloader (GPL-2.0-or-later WITH
+ Bootloader-exception) with an archive of the application code and of these
+ pure-Python distributions; their licence files are in third-party/python/:
+ pyinstaller (bootloader)
+ requests (Apache-2.0)
+ urllib3 (MIT)
+ idna (BSD-3-Clause)
+ openpyxl (MIT)
+ et-xmlfile (MIT)
+ pdf2image (MIT)
+ platformdirs (MIT)
+ reportlab (BSD-3-Clause)
+
+Files: _internal/base_library.zip
+       _internal/python3.10/*
+       _internal/libpython3.10.so.*
+Copyright: 2001-2022 Python Software Foundation
+License: PSF-2.0
+Comment: Python 3.10 runtime and standard library from Ubuntu 22.04:
+ libpython3.10
+ libpython3.10-stdlib
+
+Files: _internal/PyQt6/*.so
+Copyright: 2026 Riverbank Computing Limited
+License: GPL-3.0-only
+Comment: Python distribution:
+ pyqt6
+
+Files: _internal/PyQt6/sip*
+Copyright: 2026 Phil Thompson
+License: BSD-2-Clause
+Comment: Python distribution:
+ pyqt6-sip
+
+Files: _internal/PyQt6/Qt6/*
+       _internal/libQt6*
+Copyright: The Qt Company Ltd. and other contributors
+License: LGPL-3.0-only
+Comment: Qt 6 libraries and plugins from the PyQt6-Qt6 wheel. Qt contains
+ third-party code under permissive licences (e.g. HarfBuzz, PCRE2, md4c,
+ double-conversion, PDFium), listed at
+ https://doc.qt.io/qt-6/licenses-used-in-qt.html. Python distribution:
+ pyqt6-qt6
+
+Files: _internal/PyQt6/Qt6/lib/libicu*
+       _internal/libicu*
+Copyright: 2016-2023 Unicode, Inc. and others
+License: Unicode-DFS-2016
+Comment: ICU 73, shipped with the PyQt6-Qt6 wheel.
+
+Files: _internal/PIL/*
+Copyright: 1997-2011 Secret Labs AB
+           1995-2011 Fredrik Lundh and contributors
+           2010 Jeffrey A. Clark and contributors
+License: MIT-CMU
+Comment: Python distribution:
+ pillow
+
+Files: _internal/pillow.libs/*
+       _internal/*-????????.so.*
+Copyright: The respective authors
+License: BSD-2-Clause and BSD-3-Clause and IJG and Zlib and MIT and libtiff and 0BSD and X11
+Comment: Libraries vendored in the Pillow wheel: libavif (BSD-2-Clause),
+ libjpeg-turbo (IJG and BSD-3-Clause and Zlib), Little-CMS (MIT), liblzma
+ (0BSD), OpenJPEG (BSD-2-Clause), libwebp / libsharpyuv (BSD-3-Clause),
+ libtiff (libtiff), libxcb / libXau (X11), zstd (BSD-3-Clause). Their full
+ licence texts are part of Pillow's LICENSE file in third-party/python/.
+
+Files: _internal/certifi/*
+Copyright: Kenneth Reitz
+License: MPL-2.0
+Comment: Python distribution:
+ certifi
+
+Files: _internal/charset_normalizer/*
+Copyright: 2025 TAHRI Ahmed R.
+License: MIT
+Comment: Python distribution:
+ charset-normalizer
+
+Files: _internal/config/*
+       _internal/examples/*
+       _internal/icons/*
+Copyright: 2026 Alexander (EJAIS) <125554454+EJAIS@users.noreply.github.com>
+License: GPL-3.0-or-later
+
+Files: _internal/libglib-2.0.so.* _internal/libgio-2.0.so.* _internal/libgmodule-2.0.so.*
+       _internal/libgobject-2.0.so.* _internal/libgthread-2.0.so.*
+       _internal/libsystemd.so.* _internal/libblkid.so.* _internal/libmount.so.*
+       _internal/libgcrypt.so.* _internal/libgpg-error.so.* _internal/libkeyutils.so.*
+Copyright: The respective authors, see third-party/debian/
+License: LGPL-2.1-or-later and LGPL-2.0-or-later
+Comment: Ubuntu 22.04 libraries:
+ libglib2.0-0 (LGPL-2.1-or-later)
+ libsystemd0 (LGPL-2.1-or-later)
+ libblkid1 (LGPL-2.1-or-later)
+ libmount1 (LGPL-2.1-or-later)
+ libgcrypt20 (LGPL-2.1-or-later)
+ libgpg-error0 (LGPL-2.1-or-later)
+ libkeyutils1 (LGPL-2.0-or-later)
+
+Files: _internal/libdbus-1.so.*
+Copyright: The D-Bus authors, see third-party/debian/
+License: AFL-2.1 or GPL-2.0-or-later
+Comment: Ubuntu 22.04 library:
+ libdbus-1-3
+
+Files: _internal/libreadline.so.*
+Copyright: 1987-2020 Free Software Foundation, Inc.
+License: GPL-3.0-or-later
+Comment: Ubuntu 22.04 library:
+ libreadline8
+
+Files: _internal/libgcc_s.so.* _internal/libstdc++.so.*
+Copyright: Free Software Foundation, Inc.
+License: GPL-3.0-or-later WITH GCC-exception-3.1
+Comment: Ubuntu 22.04 libraries:
+ libgcc-s1
+ libstdc++6
+
+Files: _internal/libfreetype.so.*
+Copyright: 1996-2022 David Turner, Robert Wilhelm, Werner Lemberg
+License: FTL or GPL-2.0-or-later
+Comment: Ubuntu 22.04 library:
+ libfreetype6
+
+Files: _internal/libzstd.so.* _internal/libcap.so.*
+Copyright: The respective authors, see third-party/debian/
+License: BSD-3-Clause or GPL-2.0-only
+Comment: Ubuntu 22.04 libraries:
+ libzstd1
+ libcap2
+
+Files: _internal/libssl.so.* _internal/libcrypto.so.*
+Copyright: 1998-2022 The OpenSSL Project Authors
+License: Apache-2.0
+Comment: Ubuntu 22.04 library:
+ libssl3
+
+Files: _internal/libX11.so.* _internal/libX11-xcb.so.* _internal/libXau.so.*
+       _internal/libXdmcp.so.* _internal/libxcb-*.so.* _internal/libxkbcommon*.so.*
+       _internal/libffi.so.* _internal/libexpat.so.* _internal/libbrotli*.so.*
+       _internal/libtinfo.so.* _internal/libfontconfig.so.*
+       _internal/libgssapi_krb5.so.* _internal/libk5crypto.so.* _internal/libkrb5.so.*
+       _internal/libkrb5support.so.* _internal/libcom_err.so.*
+Copyright: The respective authors, see third-party/debian/
+License: X11 and MIT and HPND-sell-variant and MIT-style
+Comment: Ubuntu 22.04 libraries under MIT/X11-style permissive licences:
+ libx11-6 (X11)
+ libx11-xcb1 (X11)
+ libxau6 (MIT)
+ libxdmcp6 (MIT)
+ libxcb-cursor0 (X11)
+ libxcb-glx0 (X11)
+ libxcb-icccm4 (X11)
+ libxcb-image0 (X11)
+ libxcb-keysyms1 (X11)
+ libxcb-randr0 (X11)
+ libxcb-render-util0 (X11)
+ libxcb-render0 (X11)
+ libxcb-shape0 (X11)
+ libxcb-shm0 (X11)
+ libxcb-sync1 (X11)
+ libxcb-util1 (X11)
+ libxcb-xfixes0 (X11)
+ libxcb-xkb1 (X11)
+ libxkbcommon0 (MIT)
+ libxkbcommon-x11-0 (MIT)
+ libffi8 (MIT)
+ libexpat1 (MIT)
+ libbrotli1 (MIT)
+ libtinfo6 (X11)
+ libfontconfig1 (HPND-sell-variant)
+ libgssapi-krb5-2 (MIT-style, MIT Kerberos)
+ libk5crypto3 (MIT-style, MIT Kerberos)
+ libkrb5-3 (MIT-style, MIT Kerberos)
+ libkrb5support0 (MIT-style, MIT Kerberos)
+ libcom-err2 (MIT-style)
+
+Files: _internal/libuuid.so.* _internal/libpcre.so.* _internal/libpcre2-8.so.*
+       _internal/libbsd.so.* _internal/libmd.so.* _internal/libmpdec.so.*
+       _internal/liblz4.so.*
+Copyright: The respective authors, see third-party/debian/
+License: BSD-2-Clause and BSD-3-Clause and ISC and public-domain
+Comment: Ubuntu 22.04 libraries under BSD-style licences:
+ libuuid1 (BSD-3-Clause)
+ libpcre3 (BSD-3-Clause)
+ libpcre2-8-0 (BSD-3-Clause WITH PCRE2-exception)
+ libbsd0 (BSD-2-Clause and BSD-3-Clause and ISC)
+ libmd0 (BSD-3-Clause and ISC and public-domain)
+ libmpdec3 (BSD-2-Clause)
+ liblz4-1 (BSD-2-Clause)
+
+Files: _internal/libz.so.* _internal/libbz2.so.* _internal/liblzma.so.*
+       _internal/libpng16.so.* _internal/libsqlite3.so.* _internal/libselinux.so.*
+Copyright: The respective authors, see third-party/debian/
+License: Zlib and bzip2-1.0.6 and Libpng and public-domain
+Comment: Ubuntu 22.04 libraries:
+ zlib1g (Zlib)
+ libbz2-1.0 (bzip2-1.0.6)
+ liblzma5 (public-domain)
+ libpng16-16 (Libpng)
+ libsqlite3-0 (public-domain)
+ libselinux1 (public-domain)
+
+License: GPL-3.0-or-later
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License as published by the Free
+ Software Foundation, either version 3 of the License, or (at your option)
+ any later version.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ more details.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: GPL-3.0-only
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: GPL-2.0-or-later WITH Bootloader-exception
+ PyInstaller is licensed under the terms of the GNU General Public License as
+ published by the Free Software Foundation; either version 2 of the License,
+ or (at your option) any later version.
+ .
+ Bootloader Exception: In addition to the permissions in the GNU General
+ Public License, the authors give you unlimited permission to link or embed
+ compiled bootloader and related files into combinations with other
+ programs, and to distribute those combinations without any restriction
+ coming from the use of those files. (The General Public License
+ restrictions do apply in other respects; for example, they cover
+ modification of the files, and distribution when not linked into a
+ combined executable.)
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 2 can be found in "/usr/share/common-licenses/GPL-2".
+
+License: GPL-2.0-or-later
+ On Debian systems, the complete text of the GNU General Public License
+ version 2 can be found in "/usr/share/common-licenses/GPL-2".
+
+License: GPL-2.0-only
+ On Debian systems, the complete text of the GNU General Public License
+ version 2 can be found in "/usr/share/common-licenses/GPL-2".
+
+License: GPL-3.0-or-later WITH GCC-exception-3.1
+ GCC runtime libraries: GNU General Public License version 3 or later with
+ the GCC Runtime Library Exception 3.1. The exception text is part of
+ third-party/debian/libgcc-s1.copyright. On Debian systems, the complete
+ text of the GNU General Public License version 3 can be found in
+ "/usr/share/common-licenses/GPL-3".
+
+License: LGPL-3.0-only
+ On Debian systems, the complete text of the GNU Lesser General Public
+ License version 3 can be found in "/usr/share/common-licenses/LGPL-3".
+
+License: LGPL-2.1-or-later
+ On Debian systems, the complete text of the GNU Lesser General Public
+ License version 2.1 can be found in "/usr/share/common-licenses/LGPL-2.1".
+
+License: LGPL-2.0-or-later
+ On Debian systems, the complete text of the GNU Library General Public
+ License version 2 can be found in "/usr/share/common-licenses/LGPL-2".
+
+License: Apache-2.0
+ On Debian systems, the complete text of the Apache License version 2.0 can
+ be found in "/usr/share/common-licenses/Apache-2.0".
+
+License: MPL-2.0
+ On Debian systems, the complete text of the Mozilla Public License version
+ 2.0 can be found in "/usr/share/common-licenses/MPL-2.0".
+
+License: PSF-2.0
+ Python Software Foundation License Version 2. The complete text is part of
+ third-party/debian/libpython3.10.copyright.
+
+License: AFL-2.1
+ Academic Free License version 2.1. The complete text is part of
+ third-party/debian/libdbus-1-3.copyright.
+
+License: FTL
+ The FreeType Project License. The complete text is part of
+ third-party/debian/libfreetype6.copyright.
+
+License: Unicode-DFS-2016
+ Unicode License Agreement - Data Files and Software (2016), the licence of
+ ICU 73. The complete text is at
+ https://github.com/unicode-org/icu/blob/release-73-2/LICENSE.
+
+License: MIT-CMU
+ The complete text is in third-party/python/pillow-*/LICENSE.
+
+License: MIT
+ The complete text of each component's MIT licence is in its licence file
+ under third-party/python/ or third-party/debian/.
+
+License: MIT-style
+ Permissive MIT-style licences (MIT Kerberos, com_err). The complete texts
+ are in third-party/debian/<package>.copyright.
+
+License: X11
+ The complete texts are in third-party/debian/<package>.copyright.
+
+License: HPND-sell-variant
+ The complete text is in third-party/debian/libfontconfig1.copyright.
+
+License: BSD-2-Clause
+ The complete text of each component's licence is in its licence file under
+ third-party/python/ or third-party/debian/.
+
+License: BSD-3-Clause
+ The complete text of each component's licence is in its licence file under
+ third-party/python/ or third-party/debian/.
+
+License: ISC
+ The complete texts are in third-party/debian/<package>.copyright.
+
+License: 0BSD
+ liblzma from XZ Utils 5.6 and later (Pillow's LICENSE file still carries
+ the older public-domain notice). The complete text is at
+ https://github.com/tukaani-project/xz/blob/master/COPYING.0BSD.
+
+License: IJG
+ The complete text is part of Pillow's LICENSE file in third-party/python/.
+
+License: libtiff
+ The complete text is part of Pillow's LICENSE file in third-party/python/.
+
+License: Zlib
+ The complete texts are in third-party/debian/zlib1g.copyright and Pillow's
+ LICENSE file in third-party/python/.
+
+License: bzip2-1.0.6
+ The complete text is in third-party/debian/libbz2-1.0.copyright.
+
+License: Libpng
+ The complete text is in third-party/debian/libpng16-16.copyright.
+
+License: public-domain
+ The respective components are in the public domain; see
+ third-party/debian/<package>.copyright.
