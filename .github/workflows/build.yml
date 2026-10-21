@@ -118,8 +118,9 @@ jobs:
             choco install innosetup --version $env:INNOSETUP_VERSION -y --no-progress
             if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed" }
           }
-          Write-Host "ISCC $((Get-Item $iscc).VersionInfo.ProductVersion)"
-          & $iscc /Qp "/DAppVersion=${{ steps.version.outputs.version }}" `
+          # Not quiet: the log shows "Compiler engine version" (ISCC.exe itself
+          # carries no version resource) and every file packed into the setup.
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" `
             packaging/windows/vinyl-label-printer.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
           $file = "VinylLabelPrinterSetup-${{ steps.version.outputs.version }}.exe"
