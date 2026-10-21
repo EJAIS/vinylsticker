@@ -10,6 +10,19 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      release_dry_run:
+        description: >-
+          Release dry run: prepare the release (artifacts, SHA256SUMS, file list) but
+          do not create it, even when run on a v* tag.
+        type: boolean
+        default: false
+      dry_run_tag:
+        description: >-
+          Optional, implies a dry run: build as if for this tag (e.g. v1.0.0-rc.1) to
+          check the package version and file names of a release before tagging it.
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -29,12 +42,80 @@ env:
   INNOSETUP_VERSION: "6.5.4"
 
 jobs:
+  version:
+    # Computes the versions once for all builds (packaging/package_version.sh)
+    # and fails fast, before anything is built, on a tag that does not match
+    # __version__.py.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # X.Y.Z from __version__.py (app --version, Windows VersionInfoVersion)
+      version: ${{ steps.version.outputs.version }}
+      # X.Y.Z or X.Y.Z-<suffix> (file names, AppVersion)
+      package_version: ${{ steps.version.outputs.package_version }}
+      # X.Y.Z or X.Y.Z~<suffix> (Debian version, sorts before X.Y.Z)
+      deb_version: ${{ steps.version.outputs.deb_version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      # "false" only for a v* tag without a dry run requested
+      dry_run: ${{ steps.version.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Test the version mapping
+        run: packaging/test_package_version.sh
+
+      - name: Compute the package version
+        id: version
+        env:
+          RELEASE_DRY_RUN: ${{ inputs.release_dry_run }}
+          DRY_RUN_TAG: ${{ inputs.dry_run_tag }}
+        run: |
+          ref="$GITHUB_REF"
+          if [ -n "$DRY_RUN_TAG" ]; then
+            if [[ "$DRY_RUN_TAG" != v* ]]; then
+              echo "::error::dry_run_tag must be a v* tag, e.g. v1.0.0-rc.1"
+              exit 1
+            fi
+            ref="refs/tags/$DRY_RUN_TAG"
+          fi
+          version=$(python3 -c "import runpy; print(runpy.run_path('vinyl-label-printer/__version__.py')['__version__'])")
+          result=$(packaging/package_version.sh "$version" "$ref")
+          echo "$result" >> "$GITHUB_OUTPUT"
+
+          # Only a real v* tag publishes a release.
+          dry_run=true
+          if [[ "$GITHUB_REF" == refs/tags/v* && -z "$DRY_RUN_TAG" \
+                && "$RELEASE_DRY_RUN" != true ]]; then
+            dry_run=false
+          fi
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+          echo "Ref: $ref"
+          echo "$result"
+          echo "dry_run=$dry_run"
+
+          deb_version=$(sed -n 's/^deb_version=//p' <<<"$result")
+          if [ "$deb_version" != "$version" ]; then
+            # A pre-release must sort before its final release, or apt would
+            # treat the final X.Y.Z as already installed.
+            dpkg --compare-versions "$deb_version" lt "$version"
+            echo "dpkg: $deb_version < $version"
+          fi
+
   windows:
+    needs: version
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PACKAGE_VERSION: ${{ needs.version.outputs.package_version }}
+      SETUP_ARTIFACT: vinyl-label-printer-${{ needs.version.outputs.package_version }}-setup
+    outputs:
+      setup_file: ${{ steps.setup.outputs.file }}
+      setup_artifact: ${{ env.SETUP_ARTIFACT }}
     steps:
       - uses: actions/checkout@v5
 
@@ -43,13 +124,6 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: vinyl-label-printer/requirements.txt
-
-      - name: Read version
-        id: version
-        run: |
-          $version = python -c "import runpy; print(runpy.run_path('vinyl-label-printer/__version__.py')['__version__'])"
-          "version=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Version: $version"
 
       - name: Install dependencies
         run: |
@@ -89,7 +163,7 @@ jobs:
           $text = (Get-Content $out -Raw)
           Write-Host "Output: $text"
           if ($p.ExitCode -ne 0) { throw "Exit code $($p.ExitCode)" }
-          if ($text -notmatch [regex]::Escape("${{ steps.version.outputs.version }}")) {
+          if ($text -notmatch [regex]::Escape($env:VERSION)) {
             throw "Version string not found in output"
           }
           if (-not (Test-Path "dist/vinyl-label-printer/_internal/poppler/bin/pdftoppm.exe")) {
@@ -104,9 +178,9 @@ jobs:
             throw "Window icon PNG not bundled"
           }
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
-          name: vinyl-label-printer-${{ steps.version.outputs.version }}-windows
+          name: vinyl-label-printer-${{ env.PACKAGE_VERSION }}-windows
           path: dist/vinyl-label-printer
           if-no-files-found: error
 
@@ -120,18 +194,23 @@ jobs:
             choco install innosetup --version $env:INNOSETUP_VERSION -y --no-progress
             if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed" }
           }
+          Remove-Item dist/VinylLabelPrinterSetup-*.exe -ErrorAction SilentlyContinue
           # Not quiet: the log shows "Compiler engine version" (ISCC.exe itself
           # carries no version resource) and every file packed into the setup.
-          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" `
+          # AppVersion may carry a pre-release suffix; the version resource
+          # (VersionInfoVersion) must be numeric.
+          & $iscc "/DAppVersion=$env:PACKAGE_VERSION" "/DNumericVersion=$env:VERSION" `
             packaging/windows/vinyl-label-printer.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
-          $file = "VinylLabelPrinterSetup-${{ steps.version.outputs.version }}.exe"
-          if (-not (Test-Path "dist/$file")) { throw "dist/$file not found" }
+          # Report the file ISCC actually wrote; later steps and jobs use this name.
+          $built = @(Get-ChildItem dist -Filter "VinylLabelPrinterSetup-*.exe")
+          if ($built.Count -ne 1) { throw "Expected one setup in dist, found $($built.Count)" }
+          $file = $built[0].Name
+          Write-Host "Built dist/$file"
           "file=$file" >> $env:GITHUB_OUTPUT
 
-      - name: Install test (silent install, upgrade, --version, uninstall)
+      - name: Install test (silent install, upgrade, --version, uninstall, foreign folder)
         run: |
-          $version = "${{ steps.version.outputs.version }}"
           $setup = (Resolve-Path "dist/${{ steps.setup.outputs.file }}").Path
           $appDir = Join-Path $env:LOCALAPPDATA "Programs\Vinyl Label Printer"
           $exe = Join-Path $appDir "vinyl-label-printer.exe"
@@ -155,19 +234,49 @@ jobs:
           }
           $silent = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/NORESTART")
 
+          # Waits for an uninstaller: it restarts itself from %TEMP% and
+          # returns at once.
+          function Wait-Gone($path, $seconds) {
+            $deadline = (Get-Date).AddSeconds($seconds)
+            while ((Test-Path $path) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          }
+
+          # Get-SetupInstallDir of install.ps1, loaded with its settings but
+          # without running the script (it starts Main at the end).
+          function Get-Ps1SetupInstallDir {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path install.ps1).Path, [ref]$null, [ref]$null)
+            $code = @("Set-StrictMode -Version Latest")
+            foreach ($st in $ast.EndBlock.Statements) {
+              if (($st -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                   $st.Left.Extent.Text -in '$SetupUninstallKey', '$SetupInstallDir') -or
+                  ($st -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                   $st.Name -eq 'Get-SetupInstallDir')) {
+                $code += $st.Extent.Text
+              }
+            }
+            if ($code.Count -ne 4) { throw "install.ps1: Get-SetupInstallDir or its settings not found" }
+            & ([scriptblock]::Create(($code + "Get-SetupInstallDir") -join "`n"))
+          }
+
           # Fresh install, then the same setup again over it (upgrade path:
-          # same AppId, files replaced, still one uninstall entry).
+          # same AppId, files replaced, still one uninstall entry). A stale file
+          # in _internal stands for a library of the old version: the upgrade
+          # must remove it ([InstallDelete]).
+          $stale = Join-Path $appDir "_internal\stale-from-old-version.txt"
           foreach ($run in 1, 2) {
             $log = Join-Path $env:RUNNER_TEMP "setup-$run.log"
             Invoke-WithTimeout $setup ($silent + "/LOG=`"$log`"") 300 $log
             Write-Host "Install run $run finished"
+            if ($run -eq 1) { Set-Content -Path $stale -Value "stale" }
           }
+          if (Test-Path $stale) { throw "Upgrade did not remove the old _internal: $stale" }
           if (-not (Test-Path $exe)) { throw "Installed exe not found: $exe" }
           if (-not (Test-Path $shortcut)) { throw "Start Menu shortcut not found: $shortcut" }
           if (Test-Path (Join-Path $appDir "unins001.exe")) { throw "Second uninstaller: upgrade created a new installation" }
           $entry = Get-ItemProperty $uninstKey
           Write-Host "Uninstall entry: $($entry.DisplayName) $($entry.DisplayVersion)"
-          if ($entry.DisplayVersion -ne $version) { throw "Unexpected DisplayVersion" }
+          if ($entry.DisplayVersion -ne $env:PACKAGE_VERSION) { throw "Unexpected DisplayVersion" }
 
           # --version of the installed exe (same method as the smoke test)
           $out = Join-Path $env:RUNNER_TEMP "installed-version.txt"
@@ -178,19 +287,20 @@ jobs:
           $text = (Get-Content $out -Raw)
           Write-Host "Output: $text"
           if ($p.ExitCode -ne 0) { throw "Exit code $($p.ExitCode)" }
-          if ($text -notmatch [regex]::Escape($version)) { throw "Version string not found" }
+          if ($text -notmatch [regex]::Escape($env:VERSION)) { throw "Version string not found" }
+
+          $detected = Get-Ps1SetupInstallDir
+          Write-Host "install.ps1 detects the Setup.exe install in: $detected"
+          if ($detected -ne $appDir) { throw "install.ps1 detected '$detected', expected '$appDir'" }
 
           # User data must survive the uninstall.
           New-Item -ItemType Directory -Force -Path (Split-Path $dataFile) | Out-Null
           Set-Content -Path $dataFile -Value "{}"
 
-          # The uninstaller restarts itself from %TEMP% and returns at once, so
-          # wait for the program folder to disappear.
           $log = Join-Path $env:RUNNER_TEMP "uninstall.log"
           Invoke-WithTimeout (Join-Path $appDir "unins000.exe") `
             @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"$log`"") 120 $log
-          $deadline = (Get-Date).AddSeconds(120)
-          while ((Test-Path $appDir) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          Wait-Gone $appDir 120
           if (Test-Path $appDir) {
             Get-ChildItem -Recurse $appDir | Select-Object -First 20 | ForEach-Object { $_.FullName }
             throw "Program folder still exists after uninstall: $appDir"
@@ -200,20 +310,52 @@ jobs:
           if (-not (Test-Path $dataFile)) { throw "User data was deleted by the uninstaller" }
           Write-Host "Uninstall OK: program folder, shortcut and uninstall entry removed, user data kept"
 
-      - uses: actions/upload-artifact@v6
+          # Install into a folder that holds another app's _internal (no
+          # vinyl-label-printer.exe): its files must survive install and uninstall.
+          $otherDir = Join-Path $env:RUNNER_TEMP "Other App"
+          $keep = Join-Path $otherDir "_internal\keep.txt"
+          New-Item -ItemType Directory -Force -Path (Split-Path $keep) | Out-Null
+          Set-Content -Path $keep -Value "not ours"
+          $log = Join-Path $env:RUNNER_TEMP "setup-other.log"
+          Invoke-WithTimeout $setup ($silent + "/DIR=`"$otherDir`"" + "/LOG=`"$log`"") 300 $log
+          $otherExe = Join-Path $otherDir "vinyl-label-printer.exe"
+          if (-not (Test-Path $otherExe)) { throw "Installed exe not found: $otherExe" }
+          if (-not (Test-Path $keep)) { throw "Install deleted the foreign _internal: $keep" }
+          $detected = Get-Ps1SetupInstallDir
+          Write-Host "install.ps1 detects the Setup.exe install in: $detected"
+          if ($detected -ne $otherDir) { throw "install.ps1 detected '$detected', expected '$otherDir'" }
+
+          $log = Join-Path $env:RUNNER_TEMP "uninstall-other.log"
+          Invoke-WithTimeout (Join-Path $otherDir "unins000.exe") `
+            @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"$log`"") 120 $log
+          Wait-Gone $otherExe 120
+          Wait-Gone (Join-Path $otherDir "unins000.exe") 60
+          if (Test-Path $otherExe) { throw "Exe still exists after uninstall: $otherExe" }
+          if (-not (Test-Path $keep)) { throw "Uninstall deleted the foreign _internal: $keep" }
+          if ($null -ne (Get-Ps1SetupInstallDir)) { throw "install.ps1 still detects a Setup.exe install" }
+          Write-Host "Foreign folder OK: _internal\keep.txt kept through install and uninstall"
+
+      - uses: actions/upload-artifact@v7
         with:
-          name: vinyl-label-printer-${{ steps.version.outputs.version }}-setup
+          name: ${{ env.SETUP_ARTIFACT }}
           path: dist/${{ steps.setup.outputs.file }}
           if-no-files-found: error
 
   linux:
+    needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Build on Ubuntu 22.04 so the bundle links against glibc 2.35 and runs on
     # Linux Mint 21 (22.04 base) and 22 (24.04 base).
     container: ubuntu:22.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PACKAGE_VERSION: ${{ needs.version.outputs.package_version }}
+      DEB_VERSION: ${{ needs.version.outputs.deb_version }}
+      DEB_ARTIFACT: vinyl-label-printer-${{ needs.version.outputs.package_version }}-deb
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      deb_file: ${{ steps.deb.outputs.file }}
+      deb_artifact: ${{ env.DEB_ARTIFACT }}
     steps:
       - name: Install system packages
         env:
@@ -236,13 +378,6 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      - name: Read version
-        id: version
-        run: |
-          version=$(python3 -c "import runpy; print(runpy.run_path('vinyl-label-printer/__version__.py')['__version__'])")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Version: $version"
-
       - name: Install dependencies
         run: |
           python3 -m venv /opt/venv
@@ -258,7 +393,7 @@ jobs:
         run: |
           out=$(dist/vinyl-label-printer/vinyl-label-printer --version)
           echo "Output: $out"
-          echo "$out" | grep -F "${{ steps.version.outputs.version }}"
+          echo "$out" | grep -F "$VERSION"
           test -f dist/vinyl-label-printer/_internal/icons/vinyl-label-printer.png
           # The committed window icon is the 256 px hicolor PNG (build_icons.py).
           cmp vinyl-label-printer/icons/vinyl-label-printer.png \
@@ -274,31 +409,30 @@ jobs:
 
       - name: Build .deb
         id: deb
-        run: |
-          PYTHON=/opt/venv/bin/python packaging/linux/build_deb.sh dist
-          echo "file=vinyl-label-printer_${{ steps.version.outputs.version }}_amd64.deb" >> "$GITHUB_OUTPUT"
+        # Uses PACKAGE_VERSION / DEB_VERSION and writes file=<name> to GITHUB_OUTPUT.
+        run: PYTHON=/opt/venv/bin/python packaging/linux/build_deb.sh dist
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
-          name: vinyl-label-printer-${{ steps.version.outputs.version }}-deb
+          name: ${{ env.DEB_ARTIFACT }}
           path: dist/${{ steps.deb.outputs.file }}
           if-no-files-found: error
 
       - name: Create tarball
         id: tarball
         run: |
-          name="vinyl-label-printer-${{ steps.version.outputs.version }}-linux-x86_64"
+          name="vinyl-label-printer-$PACKAGE_VERSION-linux-x86_64"
           tar -czf "$name.tar.gz" -C dist vinyl-label-printer
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.tarball.outputs.name }}
           path: ${{ steps.tarball.outputs.name }}.tar.gz
           if-no-files-found: error
 
   deb-install-test:
-    needs: linux
+    needs: [version, linux]
     name: deb-install-test (${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -312,13 +446,15 @@ jobs:
     container: ${{ matrix.image }}
     env:
       DEBIAN_FRONTEND: noninteractive
-      DEB_FILE: vinyl-label-printer_${{ needs.linux.outputs.version }}_amd64.deb
+      DEB_FILE: ${{ needs.linux.outputs.deb_file }}
+      VERSION: ${{ needs.version.outputs.version }}
+      DEB_VERSION: ${{ needs.version.outputs.deb_version }}
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
-          name: vinyl-label-printer-${{ needs.linux.outputs.version }}-deb
+          name: ${{ needs.linux.outputs.deb_artifact }}
 
       - name: Install the .deb
         run: |
@@ -326,6 +462,9 @@ jobs:
           # Without Recommends, so only the package's Depends can satisfy the
           # bundle's libraries.
           apt-get install -y --no-install-recommends "./$DEB_FILE"
+          installed=$(dpkg-query -W -f='${Version}' vinyl-label-printer)
+          echo "Installed Debian version: $installed"
+          test "$installed" = "$DEB_VERSION"
 
       - name: Run --version from /usr/bin
         env:
@@ -334,7 +473,7 @@ jobs:
           test "$(command -v vinyl-label-printer)" = /usr/bin/vinyl-label-printer
           out=$(vinyl-label-printer --version)
           echo "Output: $out"
-          echo "$out" | grep -F "${{ needs.linux.outputs.version }}"
+          echo "$out" | grep -F "$VERSION"
 
       - name: Check that all bundled libraries resolve
         run: packaging/linux/check_bundle_libs.sh /opt/vinyl-label-printer
@@ -344,18 +483,23 @@ jobs:
           apt-get install -y --no-install-recommends desktop-file-utils
           desktop-file-validate /usr/share/applications/vinyl-label-printer.desktop
 
-      - name: Start on X11 (Xvfb) and check StartupWMClass
+      - name: Start from the menu entry on X11 (Xvfb) and check the window matching
         env:
-          VERSION: ${{ needs.linux.outputs.version }}
+          DESKTOP_FILE: /usr/share/applications/vinyl-label-printer.desktop
         run: |
           apt-get install -y --no-install-recommends \
             xvfb x11-utils libgl1-mesa-dri fonts-dejavu-core
-          expected=$(sed -n 's/^StartupWMClass=//p' \
-            /usr/share/applications/vinyl-label-printer.desktop)
+          # Absolute paths, so a launcher of install.sh in ~/.local/bin (first in
+          # PATH on Linux Mint) cannot be started instead.
+          exec_cmd=$(sed -n 's/^Exec=//p' "$DESKTOP_FILE")
+          test "$exec_cmd" = /usr/bin/vinyl-label-printer
+          test "$(sed -n 's/^TryExec=//p' "$DESKTOP_FILE")" = /usr/bin/vinyl-label-printer
+          expected_class=$(sed -n 's/^StartupWMClass=//p' "$DESKTOP_FILE")
+          desktop_id=$(basename "$DESKTOP_FILE" .desktop)
           Xvfb :99 -screen 0 1400x1000x24 & xvfb=$!
           export DISPLAY=:99
           for _ in $(seq 1 20); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.5; done
-          QT_QPA_PLATFORM=xcb vinyl-label-printer & app=$!
+          QT_QPA_PLATFORM=xcb "$exec_cmd" & app=$!
           # The main window title is "<app name> v<version>" in every language.
           for _ in $(seq 1 60); do
             id=$(xwininfo -root -tree \
@@ -365,16 +509,38 @@ jobs:
             sleep 1
           done
           test -n "$id"
-          # Window icon set from icons/vinyl-label-printer.png (256 px)
+          # Window icon set from icons/vinyl-label-printer.png (256 px). The
+          # custom xprop format prints no trailing newline, hence the echo.
           # shellcheck disable=SC2016  # xprop format, not shell variables
           xprop -id "$id" -len 16 -f _NET_WM_ICON 32cc ' = $0 x $1' _NET_WM_ICON | tee icon.txt
-          grep -F "= 256 x 256" icon.txt
+          echo
+          grep -qF "= 256 x 256" icon.txt
+          # WM_CLASS(STRING) = "<instance>", "<class>"; StartupWMClass is the class.
           xprop -id "$id" WM_CLASS | tee wm_class.txt
-          grep -F "\"$expected\"" wm_class.txt
+          test "$(awk -F'"' '{print $4}' wm_class.txt)" = "$expected_class"
+          # setDesktopFileName() in main.py: Qt sets _GTK_APPLICATION_ID (and the
+          # Wayland app_id) to it; it must name this .desktop file.
+          xprop -id "$id" _GTK_APPLICATION_ID | tee app_id.txt
+          test "$(awk -F'"' '{print $2}' app_id.txt)" = "$desktop_id"
           kill "$app" "$xvfb"
 
-      - name: Remove the package (user data is kept)
+      - name: Remove the package (user data is kept, install.sh follows the dpkg status)
         run: |
+          # check_deb_package of install.sh, non-interactive (as with curl | bash):
+          # fails while the package is installed, passes otherwise.
+          check_deb_package() {
+            bash -c '
+              warning() { echo "W: $*"; }; info() { :; }; error() { echo "E: $*"; }
+              IS_PIPE=true
+              eval "$(sed -n "/^DEB_PACKAGE=/p; /^DEB_INSTALL_DIR=/p;
+                              /^check_deb_package() {/,/^}/p" install.sh)"
+              check_deb_package'
+          }
+          if check_deb_package; then
+            echo "::error::install.sh does not detect the installed package"
+            exit 1
+          fi
+
           mkdir -p "$HOME/.config/vinyl-label-printer"
           echo '{}' > "$HOME/.config/vinyl-label-printer/settings.json"
           apt-get remove -y vinyl-label-printer
@@ -382,50 +548,93 @@ jobs:
           test ! -e /opt/vinyl-label-printer
           test -f "$HOME/.config/vinyl-label-printer/settings.json"
 
+          # A leftover folder after "apt remove" must not block install.sh.
+          mkdir -p /opt/vinyl-label-printer/leftover
+          check_deb_package
+
   release:
-    # Only for version tags; branch pushes and pull requests stop after the tests.
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, linux, deb-install-test]
+    # Runs for every build. On a v* tag it publishes the GitHub Release. Pull
+    # requests, pushes to main and workflow_dispatch runs with release_dry_run or
+    # dry_run_tag run it as a dry run: the same downloads, SHA256SUMS and file
+    # list, but no release is created. So a broken release job shows up before
+    # the first real tag.
+    needs: [version, windows, linux, deb-install-test]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The only job that may write: creating the release and uploading its assets.
+    # The only job that may write: creating the release and uploading its assets
+    # (skipped in a dry run).
     permissions:
       contents: write
     env:
-      TAG: ${{ github.ref_name }}
-      VERSION: ${{ needs.linux.outputs.version }}
+      DRY_RUN: ${{ needs.version.outputs.dry_run }}
+      TAG: ${{ needs.version.outputs.release_tag }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      # File names as reported by the builds; nothing below builds one itself.
+      DEB_FILE: ${{ needs.linux.outputs.deb_file }}
+      SETUP_FILE: ${{ needs.windows.outputs.setup_file }}
     steps:
-      - name: Check the tag against __version__.py
-        run: |
-          # "v1.2.3" -> "1.2.3" (older tags look like "v.0.2.0"), and a
-          # pre-release suffix is cut off: "v1.2.3-rc.1" -> "1.2.3".
-          tag_version="${TAG#v}"
-          tag_version="${tag_version#.}"
-          tag_version="${tag_version%%-*}"
-          echo "Tag $TAG -> $tag_version, __version__.py: $VERSION"
-          if [ "$tag_version" != "$VERSION" ]; then
-            echo "::error::Tag $TAG does not match __version__.py ($VERSION)"
-            exit 1
-          fi
-
       - uses: actions/download-artifact@v8
         with:
-          name: vinyl-label-printer-${{ env.VERSION }}-deb
+          name: ${{ needs.linux.outputs.deb_artifact }}
           path: release
 
       - uses: actions/download-artifact@v8
         with:
-          name: vinyl-label-printer-${{ env.VERSION }}-setup
+          name: ${{ needs.windows.outputs.setup_artifact }}
           path: release
 
       - name: Create SHA256SUMS.txt
         working-directory: release
         run: |
-          sha256sum "vinyl-label-printer_${VERSION}_amd64.deb" \
-            "VinylLabelPrinterSetup-${VERSION}.exe" > SHA256SUMS.txt
+          sha256sum "$DEB_FILE" "$SETUP_FILE" > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: List the release files
+        id: files
+        run: |
+          files=("release/$DEB_FILE" "release/$SETUP_FILE" release/SHA256SUMS.txt)
+          for f in "${files[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f not found"
+              exit 1
+            fi
+            # GitHub renames release assets with special characters (e.g. "~").
+            if [[ ! "$(basename "$f")" =~ ^[A-Za-z0-9._-]+$ ]]; then
+              echo "::error::$f: asset names may only contain letters, digits, '.', '_' and '-'"
+              exit 1
+            fi
+          done
+          {
+            echo "files<<EOF_FILES"
+            printf '%s\n' "${files[@]}"
+            echo "EOF_FILES"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$DRY_RUN" = false ]; then
+            echo "Creating or updating the release for $TAG with:"
+          else
+            echo "Dry run, no release is created. A release for tag ${TAG:-<none>}" \
+              "(prerelease: $PRERELEASE) would get:"
+          fi
+          ls -l "${files[@]}"
+          {
+            if [ "$DRY_RUN" = false ]; then
+              echo "### Release $TAG"
+            else
+              echo "### Release dry run (tag: ${TAG:-none}, no release created)"
+            fi
+            echo
+            echo "Pre-release: $PRERELEASE"
+            echo
+            echo "| File | Size (bytes) | SHA-256 |"
+            echo "|---|---:|---|"
+            for f in "${files[@]}"; do
+              echo "| $(basename "$f") | $(stat -c %s "$f") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Create or update the GitHub Release
+        if: env.DRY_RUN == 'false'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ env.TAG }}
@@ -434,10 +643,7 @@ jobs:
           # update check (modules/version_checker.py) and install.sh /
           # install.ps1 only accept plain vX.Y.Z tags, so a pre-release is never
           # offered as an update. Keep it that way.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ env.PRERELEASE == 'true' }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: |
-            release/vinyl-label-printer_${{ env.VERSION }}_amd64.deb
-            release/VinylLabelPrinterSetup-${{ env.VERSION }}.exe
-            release/SHA256SUMS.txt
+          files: ${{ steps.files.outputs.files }}
