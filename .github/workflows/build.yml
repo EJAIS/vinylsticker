@@ -374,3 +374,63 @@ jobs:
           test ! -e /usr/bin/vinyl-label-printer
           test ! -e /opt/vinyl-label-printer
           test -f "$HOME/.config/vinyl-label-printer/settings.json"
+
+  release:
+    # Only for version tags; branch pushes and pull requests stop after the tests.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux, deb-install-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The only job that may write: creating the release and uploading its assets.
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.linux.outputs.version }}
+    steps:
+      - name: Check the tag against __version__.py
+        run: |
+          # "v1.2.3" -> "1.2.3" (older tags look like "v.0.2.0"), and a
+          # pre-release suffix is cut off: "v1.2.3-rc.1" -> "1.2.3".
+          tag_version="${TAG#v}"
+          tag_version="${tag_version#.}"
+          tag_version="${tag_version%%-*}"
+          echo "Tag $TAG -> $tag_version, __version__.py: $VERSION"
+          if [ "$tag_version" != "$VERSION" ]; then
+            echo "::error::Tag $TAG does not match __version__.py ($VERSION)"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: vinyl-label-printer-${{ env.VERSION }}-deb
+          path: release
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: vinyl-label-printer-${{ env.VERSION }}-setup
+          path: release
+
+      - name: Create SHA256SUMS.txt
+        working-directory: release
+        run: |
+          sha256sum "vinyl-label-printer_${VERSION}_amd64.deb" \
+            "VinylLabelPrinterSetup-${VERSION}.exe" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or update the GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Vinyl Label Printer ${{ env.TAG }}
+          # Tags with a suffix (v1.0.0-rc.1) become pre-releases. The in-app
+          # update check (modules/version_checker.py) and install.sh /
+          # install.ps1 only accept plain vX.Y.Z tags, so a pre-release is never
+          # offered as an update. Keep it that way.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release/vinyl-label-printer_${{ env.VERSION }}_amd64.deb
+            release/VinylLabelPrinterSetup-${{ env.VERSION }}.exe
+            release/SHA256SUMS.txt
