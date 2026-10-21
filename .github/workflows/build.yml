@@ -25,6 +25,8 @@ env:
   POPPLER_SHA256: "7a6f256a0ddf7536182246a5733331bf4677cbcc34f4663774947ad34556c8d0"
   # Pinned fpm (https://rubygems.org/gems/fpm) for the .deb package
   FPM_VERSION: "1.17.0"
+  # Inno Setup installed via Chocolatey if the runner image has none
+  INNOSETUP_VERSION: "6.5.4"
 
 jobs:
   windows:
@@ -106,6 +108,102 @@ jobs:
         with:
           name: vinyl-label-printer-${{ steps.version.outputs.version }}-windows
           path: dist/vinyl-label-printer
+          if-no-files-found: error
+
+      - name: Build installer (Inno Setup)
+        id: setup
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (Test-Path $iscc) {
+            Write-Host "Using preinstalled Inno Setup"
+          } else {
+            choco install innosetup --version $env:INNOSETUP_VERSION -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed" }
+          }
+          # Not quiet: the log shows "Compiler engine version" (ISCC.exe itself
+          # carries no version resource) and every file packed into the setup.
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" `
+            packaging/windows/vinyl-label-printer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          $file = "VinylLabelPrinterSetup-${{ steps.version.outputs.version }}.exe"
+          if (-not (Test-Path "dist/$file")) { throw "dist/$file not found" }
+          "file=$file" >> $env:GITHUB_OUTPUT
+
+      - name: Install test (silent install, upgrade, --version, uninstall)
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $setup = (Resolve-Path "dist/${{ steps.setup.outputs.file }}").Path
+          $appDir = Join-Path $env:LOCALAPPDATA "Programs\Vinyl Label Printer"
+          $exe = Join-Path $appDir "vinyl-label-printer.exe"
+          $shortcut = Join-Path $env:APPDATA `
+            "Microsoft\Windows\Start Menu\Programs\Vinyl Label Printer\Vinyl Label Printer.lnk"
+          $uninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
+            "{BFCF8A94-71A8-4613-99F2-B65DB1EA679E}_is1"
+          $dataFile = Join-Path $env:APPDATA "vinyl-label-printer\settings.json"
+
+          # Runs a process with a timeout so a hanging dialog cannot block the job.
+          function Invoke-WithTimeout($file, $arguments, $seconds, $log) {
+            $p = Start-Process -FilePath $file -ArgumentList $arguments -PassThru
+            $null = $p.Handle  # needed so ExitCode is available after exit
+            if (-not $p.WaitForExit($seconds * 1000)) {
+              $p.Kill(); throw "$file timed out after $seconds s"
+            }
+            if ($p.ExitCode -ne 0) {
+              if ($log -and (Test-Path $log)) { Get-Content $log -Tail 40 }
+              throw "$file exited with code $($p.ExitCode)"
+            }
+          }
+          $silent = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/NORESTART")
+
+          # Fresh install, then the same setup again over it (upgrade path:
+          # same AppId, files replaced, still one uninstall entry).
+          foreach ($run in 1, 2) {
+            $log = Join-Path $env:RUNNER_TEMP "setup-$run.log"
+            Invoke-WithTimeout $setup ($silent + "/LOG=`"$log`"") 300 $log
+            Write-Host "Install run $run finished"
+          }
+          if (-not (Test-Path $exe)) { throw "Installed exe not found: $exe" }
+          if (-not (Test-Path $shortcut)) { throw "Start Menu shortcut not found: $shortcut" }
+          if (Test-Path (Join-Path $appDir "unins001.exe")) { throw "Second uninstaller: upgrade created a new installation" }
+          $entry = Get-ItemProperty $uninstKey
+          Write-Host "Uninstall entry: $($entry.DisplayName) $($entry.DisplayVersion)"
+          if ($entry.DisplayVersion -ne $version) { throw "Unexpected DisplayVersion" }
+
+          # --version of the installed exe (same method as the smoke test)
+          $out = Join-Path $env:RUNNER_TEMP "installed-version.txt"
+          $p = Start-Process -FilePath $exe -ArgumentList "--version" -NoNewWindow `
+            -RedirectStandardOutput $out -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "--version timed out" }
+          $text = (Get-Content $out -Raw)
+          Write-Host "Output: $text"
+          if ($p.ExitCode -ne 0) { throw "Exit code $($p.ExitCode)" }
+          if ($text -notmatch [regex]::Escape($version)) { throw "Version string not found" }
+
+          # User data must survive the uninstall.
+          New-Item -ItemType Directory -Force -Path (Split-Path $dataFile) | Out-Null
+          Set-Content -Path $dataFile -Value "{}"
+
+          # The uninstaller restarts itself from %TEMP% and returns at once, so
+          # wait for the program folder to disappear.
+          $log = Join-Path $env:RUNNER_TEMP "uninstall.log"
+          Invoke-WithTimeout (Join-Path $appDir "unins000.exe") `
+            @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"$log`"") 120 $log
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path $appDir) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (Test-Path $appDir) {
+            Get-ChildItem -Recurse $appDir | Select-Object -First 20 | ForEach-Object { $_.FullName }
+            throw "Program folder still exists after uninstall: $appDir"
+          }
+          if (Test-Path $shortcut) { throw "Start Menu shortcut still exists after uninstall" }
+          if (Test-Path $uninstKey) { throw "Uninstall entry still exists after uninstall" }
+          if (-not (Test-Path $dataFile)) { throw "User data was deleted by the uninstaller" }
+          Write-Host "Uninstall OK: program folder, shortcut and uninstall entry removed, user data kept"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: vinyl-label-printer-${{ steps.version.outputs.version }}-setup
+          path: dist/${{ steps.setup.outputs.file }}
           if-no-files-found: error
 
   linux:

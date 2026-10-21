@@ -27,6 +27,7 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
 1. [Install on Linux Mint / Ubuntu (.deb)](#install-on-linux-mint--ubuntu-deb)
 2. [Installation (Linux)](#installation-linux)
 3. [Installation (Windows)](#installation-windows)
+   - [Install on Windows (Setup.exe)](#install-on-windows-setupexe)
 4. [Where your data is stored](#where-your-data-is-stored)
 5. [User Manual](#user-manual)
    - [Requirements](#requirements)
@@ -229,6 +230,76 @@ For distributions the script doesn't target, or to run from source, see [Manual 
 ---
 
 ## Installation (Windows)
+
+### Install on Windows (Setup.exe)
+
+The easiest way on Windows 10 / 11 (64-bit): the setup contains everything the app needs (no
+Python required) and installs without administrator rights, for the current user only, to
+`%LOCALAPPDATA%\Programs\Vinyl Label Printer`. It adds a Start Menu folder
+**Vinyl Label Printer** and, if you tick the box, a desktop shortcut.
+
+#### Download
+
+Download `VinylLabelPrinterSetup-<version>.exe` from the
+[Releases](https://github.com/EJAIS/vinylsticker/releases) page. Every build of `main` also
+produces it as the artifact `vinyl-label-printer-<version>-setup` in
+[Actions → Build](https://github.com/EJAIS/vinylsticker/actions/workflows/build.yml)
+(GitHub login required; the artifact is a zip that contains the setup).
+
+#### Install
+
+Run `VinylLabelPrinterSetup-<version>.exe` and follow the wizard (English or German).
+
+> **SmartScreen warning:** the installer is not code-signed, so Windows may show
+> *"Windows protected your PC"* with *Publisher: Unknown publisher*. Click **More info**, then
+> **Run anyway**. (German Windows: *„Der Computer wurde durch Windows geschützt"* →
+> **Weitere Informationen** → **Trotzdem ausführen**.)
+
+#### Update
+
+Download and run the newer `VinylLabelPrinterSetup-<version>.exe`. It replaces the installed
+version in the same folder; if the app is still running, the setup offers to close it. Your
+data is not touched.
+
+#### Uninstall
+
+Open **Settings → Apps → Installed apps** (Windows 10: **Settings → Apps → Apps & features**),
+find **Vinyl Label Printer**, click **⋯** / the entry and choose **Uninstall**.
+
+The uninstaller removes only the program folder and the shortcuts. Your data is **kept**:
+
+| Folder | Content |
+|---|---|
+| `%APPDATA%\vinyl-label-printer` | settings, Discogs token, your `database.xlsx` |
+| `%LOCALAPPDATA%\vinyl-label-printer` | Discogs cache, generated PDFs, log file |
+
+Delete these folders yourself if you want to remove your data as well (see
+[Where your data is stored](#where-your-data-is-stored)).
+
+#### Switching from the script install (install.ps1)
+
+The two installations are independent; `install.ps1` warns when it finds the Setup.exe
+installation. Versions installed by `install.ps1` up to v0.4.0 keep your data inside
+`%LOCALAPPDATA%\vinyl-label-printer`, which `install.ps1 -Uninstall` deletes. So switch in this
+order:
+
+1. Install with `VinylLabelPrinterSetup-<version>.exe`.
+2. Start the new app once from the Start Menu folder **Vinyl Label Printer** and close it. On
+   its first start it copies settings, database and Discogs token into
+   `%APPDATA%\vinyl-label-printer` (see
+   [One-time migration](#one-time-migration-from-older-versions)).
+3. Remove the script installation. Its Start Menu entry **Vinyl Label Printer** outside the
+   folder goes away with it; the app's cache and log file in
+   `%LOCALAPPDATA%\vinyl-label-printer` are deleted too and simply recreated:
+
+   ```powershell
+   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EJAIS/vinylsticker/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1" -Uninstall
+   ```
+
+### Install with the script (install.ps1)
+
+The alternative to the setup: installs the source code with its own Python environment to
+`%LOCALAPPDATA%\vinyl-label-printer` (requires Python, see the prerequisites below).
 
 ### Schnellinstallation / Quick install
 
@@ -1163,6 +1234,13 @@ On Linux, `packaging/linux/build_deb.sh` turns the bundle into
 `vinyl-label-printer_<version>_amd64.deb` with [fpm](https://fpm.readthedocs.io/). The CI builds
 it on Ubuntu 22.04 and installs it in fresh Ubuntu 22.04 and 24.04 containers as a test; the
 script's header lists its requirements and the package layout.
+
+On Windows, [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3+ turns the bundle into
+`dist\VinylLabelPrinterSetup-<version>.exe`; pass the version from `__version__.py`:
+
+```powershell
+ISCC /DAppVersion=0.4.0 packaging\windows\vinyl-label-printer.iss
+```
 
 The app icon is drawn in `packaging/icons/icon.svg`; the `.ico` and the Linux hicolor PNGs next
 to it are generated from it and committed. After changing the SVG, regenerate them with
