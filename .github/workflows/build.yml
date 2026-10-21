@@ -322,6 +322,10 @@ jobs:
     # Build on Ubuntu 22.04 so the bundle links against glibc 2.35 and runs on
     # Linux Mint 21 (22.04 base) and 22 (24.04 base).
     container: ubuntu:22.04
+    # Container jobs run "run:" with sh unless a shell is set.
+    defaults:
+      run:
+        shell: bash
     env:
       VERSION: ${{ needs.version.outputs.version }}
       PACKAGE_VERSION: ${{ needs.version.outputs.package_version }}
@@ -418,6 +422,11 @@ jobs:
     # Fresh container: nothing but the .deb and its Depends gets installed
     # before the checks below.
     container: ${{ matrix.image }}
+    # Container jobs run "run:" with sh unless a shell is set; the steps below
+    # use bash features (mapfile, process substitution).
+    defaults:
+      run:
+        shell: bash
     env:
       DEBIAN_FRONTEND: noninteractive
       DEB_FILE: ${{ needs.linux.outputs.deb_file }}
