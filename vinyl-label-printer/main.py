@@ -4,8 +4,11 @@ Entry point for the Vinyl Label Printer application.
 Usage:
     python main.py
     python main.py --version   # print name and version, then exit
+
+Hidden diagnostic (CI): --print-child-env, see _print_child_env().
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -28,6 +31,7 @@ from config.settings import (
 )
 from config.themes import get_theme
 from config.stylesheet import build_stylesheet
+from modules.child_env import restore_user_environment
 from modules.i18n import set_language
 from modules.logger import setup_logger, get_logger
 from modules.paths import (
@@ -37,6 +41,7 @@ from modules.paths import (
     get_data_dir,
     get_cache_dir,
     get_log_dir,
+    get_poppler_path,
     migrate_legacy_data,
     seed_example_database,
 )
@@ -67,8 +72,8 @@ def apply_theme(app: QApplication, theme: str) -> None:
     app.setProperty("theme_colors", colors)
 
 
-def _print_version() -> None:
-    """Print the app name and version to stdout.
+def _attach_parent_console() -> None:
+    """Make stdout usable for command-line output.
 
     A windowed (GUI-subsystem) Windows build has no stdout; attach to the
     parent console if there is one so the output is still visible.
@@ -77,8 +82,46 @@ def _print_version() -> None:
         import ctypes
         if ctypes.windll.kernel32.AttachConsole(-1):   # ATTACH_PARENT_PROCESS
             sys.stdout = open("CONOUT$", "w", encoding="utf-8")
+
+
+def _print_version() -> None:
+    """Print the app name and version to stdout."""
+    _attach_parent_console()
     if sys.stdout is not None:
         print(f"{APP_NAME} {__version__}")
+        sys.stdout.flush()
+
+
+def _print_child_env() -> int:
+    """Print the environment child processes inherit, one NAME=value per line.
+
+    Then runs the PDF preview's Poppler call (pdf2image -> pdfinfo, pdftoppm)
+    once on a generated one-page PDF and reports the result on a line starting
+    with "# ". Used by CI to check that no bundle path reaches child processes.
+    Returns the exit code: 0 if the Poppler call worked, 1 otherwise.
+    """
+    _attach_parent_console()
+    if sys.stdout is None:
+        return 1
+    for name in sorted(os.environ):
+        print(f"{name}={os.environ[name]}")
+    try:
+        import tempfile
+        from pdf2image import convert_from_path
+        from reportlab.pdfgen import canvas
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "child-env-check.pdf"
+            page = canvas.Canvas(str(pdf))
+            page.drawString(72, 72, APP_NAME)
+            page.save()
+            pages = convert_from_path(str(pdf), dpi=10, poppler_path=get_poppler_path())
+        print(f"# pdf2image: OK ({len(pages)} page)")
+        return 0
+    except Exception as exc:
+        print(f"# pdf2image: FAILED: {type(exc).__name__}: {exc}")
+        return 1
+    finally:
         sys.stdout.flush()
 
 
@@ -138,11 +181,17 @@ def _log_data_setup(
 
 
 def main() -> None:
+    # First, so that every program started from here on gets the user's
+    # environment, not the bundle's (see restore_user_environment()).
+    restore_user_environment()
+
     # Runs after all module imports and before QApplication is created, so the
     # frozen build can use it as an import smoke test.
     if "--version" in sys.argv[1:]:
         _print_version()
         sys.exit(0)
+    if "--print-child-env" in sys.argv[1:]:
+        sys.exit(_print_child_env())
 
     # Copy data from the legacy app-relative layout before anything reads
     # settings or opens the log file; results are logged once logging exists.
