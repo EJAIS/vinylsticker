@@ -3,6 +3,7 @@ Entry point for the Vinyl Label Printer application.
 
 Usage:
     python main.py
+    python main.py --version   # print name and version, then exit
 """
 
 import sys
@@ -30,6 +31,8 @@ from modules.i18n import set_language
 from modules.logger import setup_logger, get_logger
 from ui.app import MainWindow
 
+APP_NAME = "Vinyl Label Printer"
+
 
 def _resolve_theme(app: QApplication, theme: str) -> str:
     """Resolve "auto" to "dark" or "light" based on the OS color scheme."""
@@ -46,7 +49,28 @@ def apply_theme(app: QApplication, theme: str) -> None:
     app.setProperty("theme_colors", colors)
 
 
+def _print_version() -> None:
+    """Print the app name and version to stdout.
+
+    A windowed (GUI-subsystem) Windows build has no stdout; attach to the
+    parent console if there is one so the output is still visible.
+    """
+    if sys.stdout is None and sys.platform == "win32":
+        import ctypes
+        if ctypes.windll.kernel32.AttachConsole(-1):   # ATTACH_PARENT_PROCESS
+            sys.stdout = open("CONOUT$", "w", encoding="utf-8")
+    if sys.stdout is not None:
+        print(f"{APP_NAME} {__version__}")
+        sys.stdout.flush()
+
+
 def main() -> None:
+    # Runs after all module imports and before QApplication is created, so the
+    # frozen build can use it as an import smoke test.
+    if "--version" in sys.argv[1:]:
+        _print_version()
+        sys.exit(0)
+
     debug_enabled = get_debug_logging()
     setup_logger(debug=debug_enabled)
     logger = get_logger()
