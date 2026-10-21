@@ -9,9 +9,8 @@ Outputs (all committed, so builds never need this script):
         (installed by the .deb).
     vinyl-label-printer/icons/vinyl-label-printer.png
         Window icon (copy of the 256 px PNG), loaded by main.py via
-        resource_path("icons/vinyl-label-printer.png"): from source, in
-        install.sh / install.ps1 installs (they copy vinyl-label-printer/) and
-        in the frozen build.
+        resource_path("icons/vinyl-label-printer.png"): from source and in
+        the frozen build.
 
 Elements with class="detail" in the SVG (grooves, label ring) are left out
 up to SMALL_MAX px, where they would only blur into noise.

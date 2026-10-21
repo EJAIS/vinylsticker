@@ -18,7 +18,7 @@
 #
 # Branch and PR builds and plain tags vX.Y.Z build X.Y.Z. A tag vX.Y.Z-<suffix>
 # builds X.Y.Z-<suffix>. The X.Y.Z of a tag must equal VERSION. The in-app
-# update check and install.sh / install.ps1 never offer a tag with a suffix.
+# update check never offers a tag with a suffix.
 
 set -euo pipefail
 

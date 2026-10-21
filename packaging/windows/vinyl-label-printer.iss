@@ -50,8 +50,9 @@ VersionInfoVersion={#NumericVersion}
 PrivilegesRequired=lowest
 DefaultDirName={localappdata}\Programs\{#AppName}
 ; Start Menu folder "Vinyl Label Printer" (the shortcut inside it is
-; "Vinyl Label Printer.lnk"). install.ps1 puts its own "Vinyl Label Printer.lnk"
-; directly into Programs, so the two shortcuts never overwrite each other.
+; "Vinyl Label Printer.lnk"). The old script install put its own "Vinyl Label
+; Printer.lnk" directly into Programs, so the two shortcuts never overwrite each
+; other while a user switches over.
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
@@ -81,8 +82,8 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "de"; MessagesFile: "compiler:Languages\German.isl"
 
 [CustomMessages]
-en.UserDataDirNotAllowed=This folder holds your Vinyl Label Printer data or the install.ps1 installation. Please choose a different folder.
-de.UserDataDirNotAllowed=Dieser Ordner enthält Ihre Vinyl-Label-Drucker-Daten oder die install.ps1-Installation. Bitte wählen Sie einen anderen Ordner.
+en.UserDataDirNotAllowed=This folder holds your Vinyl Label Printer data or an old script installation. Please choose a different folder.
+de.UserDataDirNotAllowed=Dieser Ordner enthält Ihre Vinyl-Label-Drucker-Daten oder eine alte Skript-Installation. Bitte wählen Sie einen anderen Ordner.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -106,7 +107,7 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(
 ; No [UninstallDelete] section on purpose: the uninstaller removes only the
 ; files and shortcuts this setup installed. User data, cache and logs in
 ; %APPDATA%\vinyl-label-printer and %LOCALAPPDATA%\vinyl-label-printer (also
-; the install.ps1 install dir) are never touched.
+; the program folder of the old script installs up to v0.4.0) are never touched.
 
 [Code]
 // Check for [InstallDelete]: {app} already contains this app's exe, i.e. this
@@ -117,7 +118,8 @@ begin
 end;
 
 // The app keeps its data in %APPDATA%\vinyl-label-printer and
-// %LOCALAPPDATA%\vinyl-label-printer (also the install.ps1 install dir).
+// %LOCALAPPDATA%\vinyl-label-printer (also the program folder of the old
+// script installs up to v0.4.0).
 // Installing into one of them would mix program files with user data.
 function IsInDir(const Path, Dir: String): Boolean;
 var

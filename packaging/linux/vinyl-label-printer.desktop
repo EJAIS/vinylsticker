@@ -6,8 +6,9 @@ GenericName=Label Printer
 GenericName[de]=Etikettendruck
 Comment=Print labels for 7" vinyl records on Avery sheets
 Comment[de]=Etiketten für 7"-Vinyl-Singles auf Avery-Bögen drucken
-# Absolute paths: install.sh puts its own launcher of the same name into
-# ~/.local/bin, which comes first in PATH on Linux Mint.
+# Absolute paths: an old script install (up to v1.0.0-rc.1) may have left its
+# own launcher of the same name in ~/.local/bin, which comes first in PATH on
+# Linux Mint.
 Exec=/usr/bin/vinyl-label-printer
 TryExec=/usr/bin/vinyl-label-printer
 Icon=vinyl-label-printer

@@ -241,24 +241,6 @@ jobs:
             while ((Test-Path $path) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
           }
 
-          # Get-SetupInstallDir of install.ps1, loaded with its settings but
-          # without running the script (it starts Main at the end).
-          function Get-Ps1SetupInstallDir {
-            $ast = [System.Management.Automation.Language.Parser]::ParseFile(
-              (Resolve-Path install.ps1).Path, [ref]$null, [ref]$null)
-            $code = @("Set-StrictMode -Version Latest")
-            foreach ($st in $ast.EndBlock.Statements) {
-              if (($st -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-                   $st.Left.Extent.Text -in '$SetupUninstallKey', '$SetupInstallDir') -or
-                  ($st -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-                   $st.Name -eq 'Get-SetupInstallDir')) {
-                $code += $st.Extent.Text
-              }
-            }
-            if ($code.Count -ne 4) { throw "install.ps1: Get-SetupInstallDir or its settings not found" }
-            & ([scriptblock]::Create(($code + "Get-SetupInstallDir") -join "`n"))
-          }
-
           # Fresh install, then the same setup again over it (upgrade path:
           # same AppId, files replaced, still one uninstall entry). A stale file
           # in _internal stands for a library of the old version: the upgrade
@@ -289,10 +271,6 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Exit code $($p.ExitCode)" }
           if ($text -notmatch [regex]::Escape($env:VERSION)) { throw "Version string not found" }
 
-          $detected = Get-Ps1SetupInstallDir
-          Write-Host "install.ps1 detects the Setup.exe install in: $detected"
-          if ($detected -ne $appDir) { throw "install.ps1 detected '$detected', expected '$appDir'" }
-
           # User data must survive the uninstall.
           New-Item -ItemType Directory -Force -Path (Split-Path $dataFile) | Out-Null
           Set-Content -Path $dataFile -Value "{}"
@@ -321,9 +299,6 @@ jobs:
           $otherExe = Join-Path $otherDir "vinyl-label-printer.exe"
           if (-not (Test-Path $otherExe)) { throw "Installed exe not found: $otherExe" }
           if (-not (Test-Path $keep)) { throw "Install deleted the foreign _internal: $keep" }
-          $detected = Get-Ps1SetupInstallDir
-          Write-Host "install.ps1 detects the Setup.exe install in: $detected"
-          if ($detected -ne $otherDir) { throw "install.ps1 detected '$detected', expected '$otherDir'" }
 
           $log = Join-Path $env:RUNNER_TEMP "uninstall-other.log"
           Invoke-WithTimeout (Join-Path $otherDir "unins000.exe") `
@@ -332,7 +307,6 @@ jobs:
           Wait-Gone (Join-Path $otherDir "unins000.exe") 60
           if (Test-Path $otherExe) { throw "Exe still exists after uninstall: $otherExe" }
           if (-not (Test-Path $keep)) { throw "Uninstall deleted the foreign _internal: $keep" }
-          if ($null -ne (Get-Ps1SetupInstallDir)) { throw "install.ps1 still detects a Setup.exe install" }
           Write-Host "Foreign folder OK: _internal\keep.txt kept through install and uninstall"
 
       - uses: actions/upload-artifact@v7
@@ -475,6 +449,47 @@ jobs:
           echo "Output: $out"
           echo "$out" | grep -F "$VERSION"
 
+      - name: Check the environment of child processes
+        # Regression test: the bootloader points LD_LIBRARY_PATH at the bundle and
+        # the PyQt6 runtime hook sets QT_PLUGIN_PATH. Programs started by the app
+        # (xdg-open, file manager, browser, PDF viewer, pdftoppm / pdfinfo) must not
+        # inherit them, or they load the bundle's libraries and crash.
+        # --print-child-env prints the app's os.environ after the restore, which is
+        # what subprocess, QProcess, QDesktopServices and pdf2image pass on, and
+        # then runs the PDF preview's Poppler call through pdf2image.
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          # Not exported: the app would inherit it and report it.
+          bundle=/opt/vinyl-label-printer
+          fail_if_found() {   # pattern file what
+            if grep -E "$1" "$2"; then
+              echo "::error::$3"
+              exit 1
+            fi
+          }
+
+          # Started without LD_LIBRARY_PATH, as from the menu entry.
+          env -u LD_LIBRARY_PATH vinyl-label-printer --print-child-env > child-env.txt
+          cat child-env.txt
+          fail_if_found "$bundle" child-env.txt "A bundle path reaches child processes"
+          fail_if_found '^(LD_LIBRARY_PATH|LD_LIBRARY_PATH_ORIG|QT_PLUGIN_PATH|QML2_IMPORT_PATH|_PYI_[A-Z_]*)=' \
+            child-env.txt "A variable set for the bundle reaches child processes"
+          grep -qx '# pdf2image: OK (1 page)' child-env.txt
+
+          # pdftoppm with exactly this environment resolves only system libraries.
+          mapfile -t child_env < <(grep -v '^# ' child-env.txt)
+          env -i "${child_env[@]}" ldd "$(command -v pdftoppm)" > ldd.txt
+          cat ldd.txt
+          fail_if_found "$bundle|not found" ldd.txt "pdftoppm does not use the system libraries"
+          env -i "${child_env[@]}" pdftoppm -v
+
+          # A user's own LD_LIBRARY_PATH is passed on unchanged.
+          LD_LIBRARY_PATH=/usr/local/lib/user-test vinyl-label-printer --print-child-env \
+            > child-env-user.txt
+          fail_if_found "$bundle" child-env-user.txt "A bundle path reaches child processes"
+          grep -x 'LD_LIBRARY_PATH=/usr/local/lib/user-test' child-env-user.txt
+
       - name: Check that all bundled libraries resolve
         run: packaging/linux/check_bundle_libs.sh /opt/vinyl-label-printer
 
@@ -489,8 +504,8 @@ jobs:
         run: |
           apt-get install -y --no-install-recommends \
             xvfb x11-utils libgl1-mesa-dri fonts-dejavu-core
-          # Absolute paths, so a launcher of install.sh in ~/.local/bin (first in
-          # PATH on Linux Mint) cannot be started instead.
+          # Absolute paths, so a launcher left in ~/.local/bin by an old script
+          # install (first in PATH on Linux Mint) cannot be started instead.
           exec_cmd=$(sed -n 's/^Exec=//p' "$DESKTOP_FILE")
           test "$exec_cmd" = /usr/bin/vinyl-label-printer
           test "$(sed -n 's/^TryExec=//p' "$DESKTOP_FILE")" = /usr/bin/vinyl-label-printer
@@ -524,33 +539,14 @@ jobs:
           test "$(awk -F'"' '{print $2}' app_id.txt)" = "$desktop_id"
           kill "$app" "$xvfb"
 
-      - name: Remove the package (user data is kept, install.sh follows the dpkg status)
+      - name: Remove the package (user data is kept)
         run: |
-          # check_deb_package of install.sh, non-interactive (as with curl | bash):
-          # fails while the package is installed, passes otherwise.
-          check_deb_package() {
-            bash -c '
-              warning() { echo "W: $*"; }; info() { :; }; error() { echo "E: $*"; }
-              IS_PIPE=true
-              eval "$(sed -n "/^DEB_PACKAGE=/p; /^DEB_INSTALL_DIR=/p;
-                              /^check_deb_package() {/,/^}/p" install.sh)"
-              check_deb_package'
-          }
-          if check_deb_package; then
-            echo "::error::install.sh does not detect the installed package"
-            exit 1
-          fi
-
           mkdir -p "$HOME/.config/vinyl-label-printer"
           echo '{}' > "$HOME/.config/vinyl-label-printer/settings.json"
           apt-get remove -y vinyl-label-printer
           test ! -e /usr/bin/vinyl-label-printer
           test ! -e /opt/vinyl-label-printer
           test -f "$HOME/.config/vinyl-label-printer/settings.json"
-
-          # A leftover folder after "apt remove" must not block install.sh.
-          mkdir -p /opt/vinyl-label-printer/leftover
-          check_deb_package
 
   release:
     # Runs for every build. On a v* tag it publishes the GitHub Release. Pull
@@ -640,9 +636,8 @@ jobs:
           tag_name: ${{ env.TAG }}
           name: Vinyl Label Printer ${{ env.TAG }}
           # Tags with a suffix (v1.0.0-rc.1) become pre-releases. The in-app
-          # update check (modules/version_checker.py) and install.sh /
-          # install.ps1 only accept plain vX.Y.Z tags, so a pre-release is never
-          # offered as an update. Keep it that way.
+          # update check (modules/version_checker.py) only accepts plain vX.Y.Z
+          # tags, so a pre-release is never offered as an update. Keep it that way.
           prerelease: ${{ env.PRERELEASE == 'true' }}
           generate_release_notes: true
           fail_on_unmatched_files: true
