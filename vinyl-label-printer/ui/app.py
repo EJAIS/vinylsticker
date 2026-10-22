@@ -9,6 +9,14 @@ Wires together:
   - pdf_generator   — PDF generation
   - printer         — OS print trigger
   - i18n            — language switching
+
+Printed marking (LOCAL mode): after a successful "Print" or "Create PDF" the
+user is asked once whether the labels of the PDF that are linked to the
+collection (record_id) should be marked as printed. The question is not
+repeated for the same unchanged queue in this session (e.g. "Create PDF"
+followed by "Print"), and not asked when the step was aborted or failed.
+The OS print dialog itself is outside the app: whether the user printed or
+cancelled there is not visible, hence the question.
 """
 
 from __future__ import annotations
@@ -37,7 +45,7 @@ from modules.logger import get_logger
 
 logger = get_logger()
 from modules import label_store
-from modules.records import LabelRecord
+from modules.records import SIDES, LabelRecord
 from modules.pdf_generator import generate_pdf
 from modules.printer import print_pdf
 from modules.data_source import DataSourceMode
@@ -73,6 +81,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._records:        list[LabelRecord] = []
         self._pdf_path:       Path | None = None
+        # Queue rows in the current PDF, and the queue state the printed
+        # question was last asked for (asked once per unchanged queue)
+        self._pdf_records:    list[LabelRecord] = []
+        self._printed_asked:  tuple | None = None
         self._watermark_path: Path | None = get_watermark_path()
         self._mode:           DataSourceMode = get_data_source_mode()
         self._start_index:    int = 0
@@ -167,6 +179,8 @@ class MainWindow(QMainWindow):
                 self._update_footer_status()
         else:
             dlg = CollectionDialog(parent=self)
+            # Record edits can update linked queue rows
+            dlg.queue_changed.connect(self._load_queue)
             accepted = dlg.exec() == QDialog.DialogCode.Accepted
             dlg.deleteLater()
             if accepted:
@@ -215,7 +229,8 @@ class MainWindow(QMainWindow):
         def _on_pos(index: int) -> None:
             self._start_index = index
             if self._pdf_path is not None:
-                self.on_create_pdf()
+                # A new start position re-renders the same labels: no question
+                self._create_pdf()
 
         grid.startPositionChanged.connect(_on_pos)
 
@@ -226,16 +241,21 @@ class MainWindow(QMainWindow):
         return dlg
 
     def on_create_pdf(self) -> None:
-        """Create PDF button: generate PDF and load it into the preview."""
+        """Create PDF button: generate PDF, load it into the preview, offer the printed mark."""
+        if self._create_pdf():
+            self._offer_mark_printed()
+
+    def _create_pdf(self) -> bool:
+        """Generate the PDF and load it into the preview; True on success."""
         if not self._records:
-            return
+            return False
 
         if self._watermark_path is not None and not self._watermark_path.exists():
             QMessageBox.warning(
                 self, t("app_title"),
                 t("err_watermark_missing", path=str(self._watermark_path)),
             )
-            return
+            return False
 
         self._sidebar.set_pdf_status("generating")
         QApplication.processEvents()
@@ -256,11 +276,13 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, t("app_title"), t("err_pdf", detail=str(exc))
             )
-            return
+            return False
 
+        self._pdf_records = list(self._records)
         self._preview.load_pdf(self._pdf_path)
         self._sidebar.set_pdf_status("done")
         self._sidebar.set_print_enabled(True)
+        return True
 
     def on_print(self) -> None:
         """Print button: send the generated PDF to the OS print dialog."""
@@ -273,6 +295,57 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, t("app_title"), t("err_print", detail=str(exc))
             )
+            return
+        self._offer_mark_printed()
+
+    # ── Printed marking (LOCAL mode) ──────────────────────────────────────────
+
+    @staticmethod
+    def _queue_state(records: list[LabelRecord]) -> tuple:
+        """Everything that identifies the printed labels (rows, data, links)."""
+        return tuple(
+            (r.id, r.title, r.artist, r.label, r.country, r.year, r.side, r.catno,
+             r.record_id, r.record_side)
+            for r in records
+        )
+
+    def _offer_mark_printed(self) -> None:
+        """Ask once per unchanged queue whether to mark the linked labels of the PDF as printed.
+
+        Only rows linked to a collection record side count; DISCOGS mode never asks.
+        """
+        if self._mode != DataSourceMode.LOCAL:
+            return
+        linked = [
+            r for r in self._pdf_records if r.record_id is not None and r.record_side in SIDES
+        ]
+        if not linked:
+            return
+        state = self._queue_state(self._pdf_records)
+        if state == self._printed_asked:
+            return
+        self._printed_asked = state
+        if not self._ask_mark_printed(len(linked)):
+            return
+        try:
+            label_store.mark_sides_printed([(r.record_id, r.record_side) for r in linked])
+        except Exception as exc:
+            logger.error(f"Could not mark labels as printed: {type(exc).__name__}: {exc}")
+            QMessageBox.critical(
+                self, t("app_title"), t("printed_mark_err", detail=str(exc))
+            )
+
+    def _ask_mark_printed(self, n_labels: int) -> bool:
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle(t("printed_ask_title"))
+        msg.setText(t("printed_ask_msg", n=n_labels))
+        btn_yes = msg.addButton(t("btn_yes"), QMessageBox.ButtonRole.YesRole)
+        btn_no = msg.addButton(t("btn_no"), QMessageBox.ButtonRole.NoRole)
+        msg.setDefaultButton(btn_yes)
+        msg.setEscapeButton(btn_no)
+        msg.exec()
+        return msg.clickedButton() == btn_yes
 
     def on_open_settings(self) -> None:
         """Settings button: open SettingsDialog (singleton — reuse across calls)."""

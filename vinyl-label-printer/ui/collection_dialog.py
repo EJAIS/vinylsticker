@@ -5,14 +5,28 @@ Opened by "Load data" in LOCAL mode. One row per record of the collection
 (labels.db, table records, via modules.label_store):
 
   A | B | Artist | Title A | Title B | Label | Year | Cat. no. | Country
+    | Printed A | Printed B
 
   • The A / B checkboxes pick the sides to print; a side without a title
     has no checkbox (a greyed "–"). Checked sides hidden by the search stay
     checked.
   • Columns are sortable; the search filters live over all text columns.
+    "Only not printed" additionally hides records whose sides with a title
+    all have a printed date; "Select all sides" then becomes "Select all
+    unprinted sides".
+  • "Printed A" / "Printed B" show when a side was last printed (local date
+    format). "Mark as printed" / "Mark as not printed" (buttons and context
+    menu) set today for every side with a title / clear both sides of the
+    selected records.
   • "New record", "Edit" (also double-click) and "Delete" (after a
     confirmation) change the collection at once. Queue rows of a deleted
-    record stay in the print queue and only lose their link.
+    record stay in the print queue and only lose their link. If an edit
+    changes the data of linked queue rows, one question offers to update
+    them too (same transaction); queue_changed is emitted afterwards.
+  • "Import CSV" / "Export CSV": the collection CSV (modules.csv_io), one
+    row per record. Duplicates (records.duplicate_key) of the collection or
+    of earlier rows of the file are skipped or update the existing record,
+    after one question for the whole file.
   • "Add to print queue" builds one queue row per checked side and opens the
     ReviewDialog in import mode, like the Discogs import: the user reviews the
     rows and chooses append / replace. When that is confirmed this dialog is
@@ -22,15 +36,19 @@ Opened by "Load data" in LOCAL mode. One row per record of the collection
 from __future__ import annotations
 
 from dataclasses import asdict
+from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QDate, QLocale, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -43,40 +61,71 @@ from PyQt6.QtWidgets import (
 
 from config.themes import ThemeColors
 from modules import label_store
+from modules.csv_io import (
+    CsvImportError,
+    default_collection_export_name,
+    read_collection_csv,
+    write_collection_csv,
+)
 from modules.i18n import t
 from modules.label_store import SOURCE_COLLECTION
 from modules.logger import get_logger
-from modules.records import CollectionRecord, LabelRecord, queue_rows_for_sides
+from modules.records import CollectionRecord, LabelRecord, printed_date, queue_rows_for_sides
 from ui.entry_dialog import EntryDialog
-from ui.review_widget import ReviewDialog
+from ui.review_widget import ReviewDialog, default_csv_dir, remember_csv_dir
 from ui.theme_manager import ThemedStyles, ThemeManager
 
 logger = get_logger()
 
 # ── Column indices ────────────────────────────────────────────────────────────
 
-_COL_A       = 0
-_COL_B       = 1
-_COL_ARTIST  = 2
-_COL_TITLE_A = 3
-_COL_TITLE_B = 4
-_COL_LABEL   = 5
-_COL_YEAR    = 6
-_COL_CATNO   = 7
-_COL_COUNTRY = 8
-_NUM_COLS    = 9
+_COL_A         = 0
+_COL_B         = 1
+_COL_ARTIST    = 2
+_COL_TITLE_A   = 3
+_COL_TITLE_B   = 4
+_COL_LABEL     = 5
+_COL_YEAR      = 6
+_COL_CATNO     = 7
+_COL_COUNTRY   = 8
+_COL_PRINTED_A = 9
+_COL_PRINTED_B = 10
+_NUM_COLS      = 11
 
 _SIDE_COLS = {"A": _COL_A, "B": _COL_B}
+_PRINTED_COLS = {"A": _COL_PRINTED_A, "B": _COL_PRINTED_B}
 
 # Record id on the items of the A column (moves with its row when sorting)
 _ROLE_RECORD_ID = Qt.ItemDataRole.UserRole
+# Sort key of the printed date items (ISO date, "" = never)
+_ROLE_SORT = Qt.ItemDataRole.UserRole + 1
 
 _PAGE_TABLE = 0
 _PAGE_EMPTY = 1
 
 
+class _DateItem(QTableWidgetItem):
+    """A printed date: shown in the locale format, sorted by date."""
+
+    def __init__(self, value: str | None) -> None:
+        day = printed_date(value)
+        text = ""
+        if day is not None:
+            text = QLocale().toString(
+                QDate(day.year, day.month, day.day), QLocale.FormatType.ShortFormat
+            )
+        super().__init__(text)
+        self.setData(_ROLE_SORT, day.isoformat() if day else "")
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        return str(self.data(_ROLE_SORT) or "") < str(other.data(_ROLE_SORT) or "")
+
+
 class CollectionDialog(QDialog):
     """Table of the collection; "Add to print queue" feeds a ReviewDialog."""
+
+    # Queue rows were changed (a record edit updated its linked rows)
+    queue_changed = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -115,6 +164,12 @@ class CollectionDialog(QDialog):
         self._btn_edit.clicked.connect(self._on_edit)
         self._btn_delete = QPushButton(t("collection_btn_delete"))
         self._btn_delete.clicked.connect(self._on_delete)
+        self._btn_mark_printed = QPushButton(t("collection_btn_mark_printed"))
+        self._btn_mark_printed.setToolTip(t("collection_btn_mark_printed_tip"))
+        self._btn_mark_printed.clicked.connect(lambda: self.mark_selected(True))
+        self._btn_mark_unprinted = QPushButton(t("collection_btn_mark_unprinted"))
+        self._btn_mark_unprinted.setToolTip(t("collection_btn_mark_unprinted_tip"))
+        self._btn_mark_unprinted.clicked.connect(lambda: self.mark_selected(False))
 
         self._search = QLineEdit()
         self._search.setPlaceholderText(t("collection_search_ph"))
@@ -122,13 +177,16 @@ class CollectionDialog(QDialog):
         self._search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._search.textChanged.connect(self._apply_filter)
 
-        for w in (self._btn_new, self._btn_edit, self._btn_delete):
+        for w in (
+            self._btn_new, self._btn_edit, self._btn_delete,
+            self._btn_mark_printed, self._btn_mark_unprinted,
+        ):
             tools.addWidget(w)
         tools.addStretch()
         tools.addWidget(self._search)
         root.addLayout(tools)
 
-        # ── Side selection ────────────────────────────────────────────────────
+        # ── Side selection, printed filter, CSV ───────────────────────────────
         selection = QHBoxLayout()
         selection.setSpacing(4)
         self._btn_all = QPushButton(t("collection_btn_all"))
@@ -136,9 +194,22 @@ class CollectionDialog(QDialog):
         self._btn_all.clicked.connect(lambda: self._set_all_checked(True))
         self._btn_none = QPushButton(t("collection_btn_none"))
         self._btn_none.clicked.connect(lambda: self._set_all_checked(False))
+        self._chk_unprinted = QCheckBox(t("collection_chk_unprinted"))
+        self._chk_unprinted.setToolTip(t("collection_chk_unprinted_tip"))
+        self._chk_unprinted.toggled.connect(self._on_unprinted_toggled)
+        self._btn_import = QPushButton(t("collection_btn_import_csv"))
+        self._btn_import.setToolTip(t("collection_btn_import_csv_tip"))
+        self._btn_import.clicked.connect(self._on_import_csv)
+        self._btn_export = QPushButton(t("collection_btn_export_csv"))
+        self._btn_export.setToolTip(t("collection_btn_export_csv_tip"))
+        self._btn_export.clicked.connect(self._on_export_csv)
         selection.addWidget(self._btn_all)
         selection.addWidget(self._btn_none)
+        selection.addSpacing(12)
+        selection.addWidget(self._chk_unprinted)
         selection.addStretch()
+        selection.addWidget(self._btn_import)
+        selection.addWidget(self._btn_export)
         root.addLayout(selection)
 
         # ── Table / empty hint ────────────────────────────────────────────────
@@ -155,6 +226,8 @@ class CollectionDialog(QDialog):
             t("collection_col_year"),
             t("collection_col_catno"),
             t("collection_col_country"),
+            t("collection_col_printed_a"),
+            t("collection_col_printed_b"),
         ])
         hdr = self._table.horizontalHeader()
         for col in (_COL_A, _COL_B):
@@ -165,8 +238,12 @@ class CollectionDialog(QDialog):
                 header_item.setToolTip(t("collection_col_side_tip"))
         for col in (_COL_ARTIST, _COL_TITLE_A, _COL_TITLE_B, _COL_LABEL):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
-        for col in (_COL_YEAR, _COL_CATNO, _COL_COUNTRY):
+        for col in (_COL_YEAR, _COL_CATNO, _COL_COUNTRY, _COL_PRINTED_A, _COL_PRINTED_B):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        for col in _PRINTED_COLS.values():
+            header_item = self._table.horizontalHeaderItem(col)
+            if header_item:
+                header_item.setToolTip(t("collection_col_printed_tip"))
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -175,6 +252,8 @@ class CollectionDialog(QDialog):
         self._table.itemChanged.connect(self._on_item_changed)
         self._table.itemDoubleClicked.connect(self._on_double_clicked)
         self._table.itemSelectionChanged.connect(self._update_buttons)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_context_menu)
         self._stack.addWidget(self._table)
 
         empty = QWidget()
@@ -281,6 +360,11 @@ class CollectionDialog(QDialog):
             item.setData(_ROLE_RECORD_ID, record.id)
             self._table.setItem(row, col, item)
 
+        for side, col in _PRINTED_COLS.items():
+            item = _DateItem(record.printed_at(side))
+            item.setData(_ROLE_RECORD_ID, record.id)
+            self._table.setItem(row, col, item)
+
     def _record_id(self, row: int) -> int | None:
         item = self._table.item(row, _COL_A)
         value = item.data(_ROLE_RECORD_ID) if item else None
@@ -325,14 +409,23 @@ class CollectionDialog(QDialog):
         return True
 
     def _set_all_checked(self, checked: bool) -> None:
-        """Select all sides of the visible rows, or clear the whole selection."""
+        """Select all sides of the visible rows, or clear the whole selection.
+
+        With "Only not printed" only the unprinted sides are selected.
+        """
         state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        only_unprinted = self._chk_unprinted.isChecked()
         self._populating = True
         for row in range(self._table.rowCount()):
             # "Select all" follows the search filter; "Clear" clears everything
             if checked and self._table.isRowHidden(row):
                 continue
-            for col in _SIDE_COLS.values():
+            record = self._records.get(self._record_id(row))
+            for side, col in _SIDE_COLS.items():
+                if checked and only_unprinted and (
+                    record is None or side not in record.unprinted_sides()
+                ):
+                    continue
                 item = self._table.item(row, col)
                 if item and item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
                     item.setCheckState(state)
@@ -345,7 +438,9 @@ class CollectionDialog(QDialog):
 
     # ── Search ────────────────────────────────────────────────────────────────
 
-    def _apply_filter(self, text: str) -> None:
+    def _apply_filter(self, text: str | None = None) -> None:
+        """Show the rows matching the search *text* and the "Only not printed" filter."""
+        text = self._search.text() if text is None else text
         if text.strip():
             try:
                 visible = {record.id for record in label_store.list_records(text)}
@@ -354,9 +449,64 @@ class CollectionDialog(QDialog):
                 visible = set(self._records)
         else:
             visible = set(self._records)
+        if self._chk_unprinted.isChecked():
+            visible = {
+                record_id for record_id in visible
+                if record_id in self._records and self._records[record_id].unprinted_sides()
+            }
         for row in range(self._table.rowCount()):
             self._table.setRowHidden(row, self._record_id(row) not in visible)
         self._update_buttons()
+
+    def _on_unprinted_toggled(self, checked: bool) -> None:
+        key = "collection_btn_all_unprinted" if checked else "collection_btn_all"
+        self._btn_all.setText(t(key))
+        self._btn_all.setToolTip(t(key + "_tip"))
+        self._apply_filter()
+
+    # ── Printed marks ─────────────────────────────────────────────────────────
+
+    def _on_context_menu(self, pos) -> None:
+        row = self._table.rowAt(pos.y())
+        if row < 0:
+            return
+        if self._record_id(row) not in self._selected_ids():
+            self._table.selectRow(row)
+        menu = QMenu(self)
+        act_printed = menu.addAction(t("collection_btn_mark_printed"))
+        act_unprinted = menu.addAction(t("collection_btn_mark_unprinted"))
+        chosen = menu.exec(self._table.viewport().mapToGlobal(pos))
+        if chosen == act_printed:
+            self.mark_selected(True)
+        elif chosen == act_unprinted:
+            self.mark_selected(False)
+
+    def mark_selected(self, printed: bool) -> None:
+        """Mark the selected records as printed today (every side with a title) / not printed."""
+        selected = self._selected_ids()
+        if not selected:
+            return
+        try:
+            if printed:
+                label_store.mark_records_printed(selected)
+            else:
+                label_store.clear_printed(selected)
+        except Exception as exc:
+            self._write_error(exc)
+            return
+        self.reload()
+        self._reselect(selected)
+
+    def _reselect(self, record_ids: list[int]) -> None:
+        """Select the visible rows of *record_ids* again (after a reload)."""
+        self._table.clearSelection()
+        mode = self._table.selectionMode()
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        for record_id in record_ids:
+            row = self._row_of(record_id)
+            if row is not None and not self._table.isRowHidden(row):
+                self._table.selectRow(row)
+        self._table.setSelectionMode(mode)
 
     # ── Buttons / status ──────────────────────────────────────────────────────
 
@@ -380,9 +530,13 @@ class CollectionDialog(QDialog):
         has_records = bool(self._records)
         self._btn_edit.setEnabled(len(selected) == 1)
         self._btn_delete.setEnabled(bool(selected))
+        self._btn_mark_printed.setEnabled(bool(selected))
+        self._btn_mark_unprinted.setEnabled(bool(selected))
         self._btn_all.setEnabled(has_records)
         self._btn_none.setEnabled(n_sides > 0)
         self._search.setEnabled(has_records)
+        self._chk_unprinted.setEnabled(has_records or self._chk_unprinted.isChecked())
+        self._btn_export.setEnabled(has_records)
         self._btn_queue.setEnabled(n_sides > 0)
 
         status = t("collection_status", n=len(self._records), m=n_sides)
@@ -435,11 +589,28 @@ class CollectionDialog(QDialog):
         if record is None:
             return
         try:
-            label_store.update_record(record)
+            to_sync = label_store.queue_rows_to_sync(record)
+            sync = bool(to_sync) and self._ask_update_queue(len(to_sync))
+            synced = label_store.update_record(record, sync_queue=sync)
         except Exception as exc:
             self._write_error(exc)
             return
         self.reload(select_id=record_id)
+        if synced:
+            self.queue_changed.emit()
+
+    def _ask_update_queue(self, n_rows: int) -> bool:
+        """Ask whether the *n_rows* linked queue rows should get the edited data too."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle(t("collection_sync_queue_title"))
+        msg.setText(t("collection_sync_queue_msg", n=n_rows))
+        btn_yes = msg.addButton(t("btn_yes"), QMessageBox.ButtonRole.YesRole)
+        btn_no = msg.addButton(t("btn_no"), QMessageBox.ButtonRole.NoRole)
+        msg.setDefaultButton(btn_yes)
+        msg.setEscapeButton(btn_no)
+        msg.exec()
+        return msg.clickedButton() == btn_yes
 
     def _on_delete(self) -> None:
         selected = self._selected_ids()
@@ -479,6 +650,119 @@ class CollectionDialog(QDialog):
         QMessageBox.critical(
             self, t("collection_title"), t("collection_write_err", detail=str(exc))
         )
+
+    # ── CSV import / export ───────────────────────────────────────────────────
+
+    def _on_import_csv(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, t("csv_import_title"), default_csv_dir(), t("csv_filter"),
+        )
+        if path:
+            self.import_csv(Path(path))
+
+    def import_csv(self, path: Path) -> bool:
+        """Import the collection CSV *path*; True if the collection was written."""
+        remember_csv_dir(path)
+        try:
+            result = read_collection_csv(path)
+        except CsvImportError as exc:
+            logger.warning(f"Collection CSV import failed: {path}: {exc.reason} {exc.detail}")
+            QMessageBox.warning(self, t("csv_import_title"), self._csv_error_text(exc))
+            return False
+        logger.info(
+            f"Collection CSV read: {path} ({result.encoding}, delimiter "
+            f"{result.delimiter!r}): {len(result.records)} rows, {result.skipped} skipped"
+        )
+        if not result.records:
+            QMessageBox.information(
+                self, t("csv_import_title"), t("collection_csv_none", k=result.skipped)
+            )
+            return False
+        try:
+            n_duplicates = label_store.count_duplicates(result.records)
+        except Exception as exc:
+            self._write_error(exc)
+            return False
+        update_existing = False
+        if n_duplicates:
+            choice = self._ask_duplicates(n_duplicates)
+            if choice is None:
+                return False
+            update_existing = choice == "update"
+        try:
+            counts = label_store.import_records(result.records, update_existing)
+        except Exception as exc:
+            self._write_error(exc)
+            return False
+        self.reload()
+        message = t(
+            "collection_csv_import_done",
+            i=counts.imported, u=counts.updated, s=counts.skipped + result.skipped,
+        )
+        if counts.unchanged:
+            message += "\n" + t("collection_csv_import_unchanged", c=counts.unchanged)
+        QMessageBox.information(self, t("csv_import_title"), message)
+        return True
+
+    @staticmethod
+    def _csv_error_text(exc: CsvImportError) -> str:
+        if exc.reason == "empty":
+            return t("csv_err_empty")
+        if exc.reason == "no_title":
+            return t("collection_csv_err_no_title", columns=exc.detail or "—")
+        return t("csv_err_read", detail=exc.detail)
+
+    def _ask_duplicates(self, n_duplicates: int) -> str | None:
+        """Return "skip", "update" or None (cancel the import)."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle(t("collection_csv_dup_title"))
+        msg.setText(t("collection_csv_dup_msg", n=n_duplicates))
+        btn_skip = msg.addButton(t("collection_csv_dup_skip"), QMessageBox.ButtonRole.AcceptRole)
+        btn_update = msg.addButton(
+            t("collection_csv_dup_update"), QMessageBox.ButtonRole.AcceptRole
+        )
+        btn_cancel = msg.addButton(t("review_queue_cancel"), QMessageBox.ButtonRole.RejectRole)
+        msg.setDefaultButton(btn_skip)
+        msg.setEscapeButton(btn_cancel)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked == btn_skip:
+            return "skip"
+        if clicked == btn_update:
+            return "update"
+        return None
+
+    def _on_export_csv(self) -> None:
+        default = Path(default_csv_dir()) / default_collection_export_name()
+        path, _ = QFileDialog.getSaveFileName(
+            self, t("csv_export_title"), str(default), t("csv_filter"),
+        )
+        if not path:
+            return
+        target = Path(path)
+        if not target.suffix:
+            target = target.with_suffix(".csv")
+        self.export_csv(target)
+
+    def export_csv(self, path: Path) -> bool:
+        """Write every record of the collection (regardless of the filters) to *path*."""
+        remember_csv_dir(path)
+        try:
+            records = label_store.list_records()
+            write_collection_csv(path, records)
+        except Exception as exc:
+            logger.error(f"Collection CSV export failed: {path}: {exc}")
+            QMessageBox.critical(
+                self, t("csv_export_title"), t("csv_export_err", detail=str(exc))
+            )
+            return False
+        logger.info(f"Collection CSV exported: {len(records)} records to {path}")
+        QMessageBox.information(
+            self, t("csv_export_title"),
+            t("collection_csv_export_done", n=len(records), path=str(path)),
+        )
+        return True
 
     # ── Add to print queue ────────────────────────────────────────────────────
 

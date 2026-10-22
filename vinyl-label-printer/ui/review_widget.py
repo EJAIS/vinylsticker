@@ -18,7 +18,19 @@ in the same transaction as the queue, from the rows still in the table
 (checked or not; shared fields from the first row, each title from its side's
 row) — so "Cancel" leaves the collection unchanged. Every row keeps its link
 to a collection record side (record_id / record_side) through the editor, in
-both modes.
+both modes — unless its side is changed: a row whose side no longer matches
+its record side loses the link (record_side would be wrong otherwise).
+
+A CSV import with "Also save to collection" links rows that duplicate a
+collection record (records.duplicate_key) to that record instead of creating
+a new one; duplicates within the file share one new record.
+
+Sync to the collection (queue mode in LOCAL mode): on confirm, saved rows
+linked to a collection record whose title (of their side) or shared fields
+differ from the record are counted, and one question offers to apply the
+changes to the collection too — in the same transaction as the queue. If the
+A and the B row of a record disagree on a field, the later row in the table
+wins (records.record_with_rows()).
 
 The user can:
   • Edit any cell directly (double-click, F2, or just start typing)
@@ -78,9 +90,12 @@ from modules.records import (
     SIDES,
     CollectionRecord,
     LabelRecord,
+    duplicate_key,
     group_rows_into_records,
     normalise_side,
     record_from_rows,
+    record_with_rows,
+    row_matches_record,
 )
 from ui.entry_dialog import EntryDialog
 from ui.styles import apply_search_style, apply_table_style
@@ -116,7 +131,7 @@ _ROLE_PENDING     = Qt.ItemDataRole.UserRole + 4  # pending collection record, -
 _last_csv_dir: str = ""
 
 
-def _default_csv_dir() -> str:
+def default_csv_dir() -> str:
     """Last used CSV folder, else the user's documents folder, else home."""
     if _last_csv_dir and Path(_last_csv_dir).is_dir():
         return _last_csv_dir
@@ -128,7 +143,7 @@ def _default_csv_dir() -> str:
     return str(Path.home())
 
 
-def _remember_csv_dir(path: Path) -> None:
+def remember_csv_dir(path: Path) -> None:
     global _last_csv_dir
     _last_csv_dir = str(path.parent)
 
@@ -581,11 +596,14 @@ class ReviewDialog(QDialog):
         records: list[LabelRecord],
         source: str,
         pending: Sequence[int | None] | None = None,
+        links: Sequence[int | None] | None = None,
     ) -> None:
         """Append *records* as checked rows (not saved until confirmed).
 
         *pending*: per record the key of the pending collection record it
         belongs to (None: no collection record), see _new_pending_key().
+        *links*: per record the id of an existing collection record it is
+        linked to (its own side); a pending key takes precedence.
         """
         if not records:
             return
@@ -597,9 +615,13 @@ class ReviewDialog(QDialog):
             data.pop("pending_record", None)
             data["id"] = None
             key = pending[index] if pending is not None else None
+            link = links[index] if links is not None else None
             if key is not None:
                 data["pending"] = key
                 data["record_id"] = None
+                data["record_side"] = normalise_side(rec.side)
+            elif link is not None:
+                data["record_id"] = link
                 data["record_side"] = normalise_side(rec.side)
             self._set_row(row, data, checked=True, default_source=source)
         self._populating = False
@@ -639,7 +661,7 @@ class ReviewDialog(QDialog):
 
     def _on_import_csv(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, t("csv_import_title"), _default_csv_dir(), t("csv_filter"),
+            self, t("csv_import_title"), default_csv_dir(), t("csv_filter"),
         )
         if not path:
             return
@@ -647,7 +669,7 @@ class ReviewDialog(QDialog):
 
     def import_csv(self, path: Path) -> bool:
         """Add the rows of the CSV file *path* to the table; True if rows were added."""
-        _remember_csv_dir(path)
+        remember_csv_dir(path)
         try:
             result = read_csv(path)
         except CsvImportError as exc:
@@ -671,18 +693,47 @@ class ReviewDialog(QDialog):
             if choice == "replace":
                 self._table.setRowCount(0)
         pending: list[int | None] | None = None
+        links: list[int | None] | None = None
         message = t("csv_import_done", n=len(result.records), k=result.skipped)
         if self.csv_to_collection():
-            groups = group_rows_into_records(result.records)
-            pending = [None] * len(result.records)
-            for group in groups:
-                key = self._new_pending_key()
-                for index in group:
-                    pending[index] = key
-            message += "\n" + t("csv_import_collection", r=len(groups))
-        self._append_records(result.records, SOURCE_CSV, pending)
+            pending, links, created = self._collection_keys(result.records)
+            n_linked = sum(link is not None for link in links)
+            if created or not n_linked:
+                message += "\n" + t("csv_import_collection", r=created)
+            if n_linked:
+                message += "\n" + t("csv_import_collection_linked", l=n_linked)
+        self._append_records(result.records, SOURCE_CSV, pending, links)
         QMessageBox.information(self, t("csv_import_title"), message)
         return True
+
+    def _collection_keys(
+        self, rows: list[LabelRecord]
+    ) -> tuple[list[int | None], list[int | None], int]:
+        """Collection records for imported *rows*: (pending keys, links, records created).
+
+        Rows are grouped into records (group_rows_into_records). A group that
+        duplicates an existing collection record (records.duplicate_key) is
+        linked to it; groups that duplicate each other share one new record.
+        """
+        try:
+            existing = label_store.record_ids_by_key()
+        except Exception as exc:
+            logger.warning(f"Could not read the collection for the CSV import: {exc}")
+            existing = {}
+        pending: list[int | None] = [None] * len(rows)
+        links: list[int | None] = [None] * len(rows)
+        new_keys: dict[tuple[str, ...], int] = {}
+        for group in group_rows_into_records(rows):
+            key = duplicate_key(record_from_rows([rows[index] for index in group]))
+            record_id = existing.get(key)
+            if record_id is None and key not in new_keys:
+                new_keys[key] = self._new_pending_key()
+            for index in group:
+                if record_id is not None:
+                    links[index] = record_id
+                else:
+                    pending[index] = new_keys[key]
+        return pending, links, len(new_keys)
 
     @staticmethod
     def _csv_error_text(exc: CsvImportError) -> str:
@@ -693,7 +744,7 @@ class ReviewDialog(QDialog):
         return t("csv_err_read", detail=exc.detail)
 
     def _on_export_csv(self) -> None:
-        default = Path(_default_csv_dir()) / default_export_name()
+        default = Path(default_csv_dir()) / default_export_name()
         path, _ = QFileDialog.getSaveFileName(
             self, t("csv_export_title"), str(default), t("csv_filter"),
         )
@@ -706,7 +757,7 @@ class ReviewDialog(QDialog):
 
     def export_csv(self, path: Path) -> bool:
         """Write every table row (also unchecked and filtered ones) to *path*."""
-        _remember_csv_dir(path)
+        remember_csv_dir(path)
         records = [self._row_to_labelrecord(r) for r in range(self._table.rowCount())]
         try:
             write_csv(path, records)
@@ -841,6 +892,12 @@ class ReviewDialog(QDialog):
             rec.pending_record = new_records.get(self._pending_key(row))
             records.append(rec)
 
+        record_updates: list[CollectionRecord] = []
+        if self._collection:
+            n_changed, updates = self.collection_changes(records)
+            if n_changed and self._ask_update_collection(n_changed):
+                record_updates = updates
+
         try:
             if self._import_mode:
                 if not records:
@@ -869,7 +926,10 @@ class ReviewDialog(QDialog):
                     existing = self._existing_count()
                     if existing and not self._confirm_clear(existing):
                         return False
-                label_store.replace_queue(records, new_records=list(new_records.values()))
+                label_store.replace_queue(
+                    records, new_records=list(new_records.values()),
+                    record_updates=record_updates,
+                )
         except Exception as exc:
             logger.error(f"Could not write the print queue: {type(exc).__name__}: {exc}")
             QMessageBox.critical(
@@ -883,6 +943,56 @@ class ReviewDialog(QDialog):
         self._saved = True
         self.accept()
         return True
+
+    @staticmethod
+    def collection_changes(
+        records: Sequence[LabelRecord],
+    ) -> tuple[int, list[CollectionRecord]]:
+        """(number of linked rows that differ from their record, updated records).
+
+        A row differs if the title of its record side or a shared field is not
+        the record's. The updated records carry the edits of their rows; if
+        the A and B rows of a record changed the same field differently, the
+        later row in the table wins (records.record_with_rows()). Records
+        that no longer exist are ignored.
+        """
+        linked = [r for r in records if r.record_id is not None and r.record_side in SIDES]
+        if not linked:
+            return 0, []
+        try:
+            stored = {record.id: record for record in label_store.list_records()}
+        except Exception as exc:
+            logger.warning(f"Could not read the collection to compare the queue: {exc}")
+            return 0, []
+        changed: dict[int, list[LabelRecord]] = {}
+        for row in linked:
+            record = stored.get(row.record_id)
+            if record is not None and not row_matches_record(row, record):
+                changed.setdefault(record.id, []).append(row)
+        updates = [
+            record_with_rows(stored[record_id], rows) for record_id, rows in changed.items()
+        ]
+        return (
+            sum(len(rows) for rows in changed.values()),
+            [record for record in updates if record != stored[record.id]],
+        )
+
+    def _ask_update_collection(self, n_changed: int) -> bool:
+        """Ask whether to apply *n_changed* edited linked rows to the collection too."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle(t("review_sync_title"))
+        msg.setText(t("review_sync_msg", n=n_changed))
+        btn_update = msg.addButton(
+            t("review_sync_collection"), QMessageBox.ButtonRole.AcceptRole
+        )
+        btn_queue = msg.addButton(
+            t("review_sync_queue_only"), QMessageBox.ButtonRole.RejectRole
+        )
+        msg.setDefaultButton(btn_update)
+        msg.setEscapeButton(btn_queue)
+        msg.exec()
+        return msg.clickedButton() == btn_update
 
     def _existing_count(self) -> int:
         try:
@@ -1009,6 +1119,14 @@ class ReviewDialog(QDialog):
             side = chk.data(_ROLE_RECORD_SIDE) if chk else None
             linked = rec["record_id"] is not None or rec["pending"] is not None
             rec["record_side"] = side if linked and side in SIDES else None
+            # The side the row is stored with; a row of a pending record
+            # follows it, a row linked to a record loses the link when the
+            # side was changed (it would name the record's other side)
+            stored_side = normalise_side(rec["side"])
+            if rec["pending"] is not None:
+                rec["record_side"] = stored_side
+            elif rec["record_id"] is not None and rec["record_side"] != stored_side:
+                rec["record_id"] = rec["record_side"] = None
         return rec
 
     def _pending_key(self, row: int) -> int | None:

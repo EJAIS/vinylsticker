@@ -1,6 +1,6 @@
 """
 CSV import and export of print queue rows — the way to bulk-edit and back up
-the print queue outside the app.
+the print queue outside the app — and of the local collection (records).
 
 Import
   • Encoding: UTF-8 (with or without BOM), otherwise Windows-1252.
@@ -18,6 +18,17 @@ Import
 Export
   English header, semicolon, UTF-8 with BOM (umlauts show correctly in
   spreadsheet programs). Exported files import back to identical rows.
+
+Collection CSV (one row per record instead of one per label)
+  Header: Artist;Label;Country;Year;CatNo;TitleA;TitleB;PrintedA;PrintedB
+  German: Künstler / Interpret, Label, Land, Jahr, Katalognummer, Titel A,
+          Titel B, Gedruckt A, Gedruckt B
+  Same encoding, delimiter and header matching as above. A TitleA or TitleB
+  column is required; rows without any title are skipped and counted. Printed
+  dates are ISO dates (YYYY-MM-DD) or empty; on import DD.MM.YYYY (as a
+  German spreadsheet program saves dates) and ISO timestamps are accepted too,
+  anything else counts as empty. Export: same format as the queue export, all
+  records, printed dates as local ISO dates.
 """
 
 from __future__ import annotations
@@ -25,18 +36,25 @@ from __future__ import annotations
 import csv
 import io
 import re
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
-from modules.records import LabelRecord, normalise_side
+from modules.logger import get_logger
+from modules.records import CollectionRecord, LabelRecord, normalise_side, printed_date
+
+logger = get_logger()
 
 EXPORT_HEADER = ("Title", "Artist", "Label", "Country", "Year", "Side", "CatNo")
+COLLECTION_EXPORT_HEADER = (
+    "Artist", "Label", "Country", "Year", "CatNo", "TitleA", "TitleB", "PrintedA", "PrintedB",
+)
 EXPORT_DELIMITER = ";"
 EXPORT_ENCODING = "utf-8-sig"
 _DELIMITERS = (",", ";", "\t")
 
-# Normalised header name → LabelRecord field
+# Normalised header name → LabelRecord / CollectionRecord field
 _HEADER_ALIASES: dict[str, str] = {
     "title": "title", "titel": "title",
     "artist": "artist", "künstler": "artist", "kuenstler": "artist",
@@ -46,12 +64,20 @@ _HEADER_ALIASES: dict[str, str] = {
     "year": "year", "jahr": "year",
     "side": "side", "seite": "side",
     "catno": "catno", "katalognummer": "catno",
+    # Collection CSV
+    "titlea": "title_a", "titela": "title_a",
+    "titleb": "title_b", "titelb": "title_b",
+    "printeda": "printed_a_at", "gedruckta": "printed_a_at",
+    "printedb": "printed_b_at", "gedrucktb": "printed_b_at",
 }
 _HEADER_NOISE = re.compile(r"[\s._\-]+")
 
 
 class CsvImportError(ValueError):
-    """The file cannot be imported. *reason*: "empty" | "no_title" | "read"."""
+    """The file cannot be imported. *reason*: "empty" | "no_title" | "read".
+
+    "no_title": no Title column (queue), no TitleA / TitleB column (collection).
+    """
 
     def __init__(self, reason: str, detail: str = "") -> None:
         super().__init__(detail or reason)
@@ -63,6 +89,14 @@ class CsvImportError(ValueError):
 class CsvImportResult:
     records: list[LabelRecord] = field(default_factory=list)
     skipped: int = 0            # rows with content but without a title
+    encoding: str = ""
+    delimiter: str = ""
+
+
+@dataclass
+class CollectionCsvResult:
+    records: list[CollectionRecord] = field(default_factory=list)
+    skipped: int = 0            # rows with content but without any title
     encoding: str = ""
     delimiter: str = ""
 
@@ -96,11 +130,13 @@ def map_header(header: list[str]) -> dict[str, int]:
     return mapping
 
 
-def parse_csv_text(text: str) -> CsvImportResult:
-    """Parse CSV *text* (already decoded) into LabelRecords.
+def _table(
+    text: str, required: Sequence[str]
+) -> tuple[str, Iterator[dict[str, str]]]:
+    """(delimiter, one {field: trimmed cell} per non-empty data row) of CSV *text*.
 
     Raises:
-        CsvImportError: no header row, or no Title column.
+        CsvImportError: no header row, or none of the *required* fields.
     """
     first_line = text.splitlines()[0] if text.strip() else ""
     if not first_line.strip():
@@ -109,33 +145,51 @@ def parse_csv_text(text: str) -> CsvImportResult:
     rows = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
     header = next(rows, [])
     columns = map_header(header)
-    if "title" not in columns:
+    if not any(name in columns for name in required):
         found = ", ".join(name.strip() for name in header if name.strip())
         raise CsvImportError("no_title", found)
 
+    def cells() -> Iterator[dict[str, str]]:
+        for row in rows:
+            if any(cell.strip() for cell in row):
+                yield {
+                    name: row[index].strip() if index < len(row) else ""
+                    for name, index in columns.items()
+                }
+
+    return delimiter, cells()
+
+
+def _read_text(path: Path) -> tuple[str, str]:
+    """(text, encoding) of *path*; raises CsvImportError("read")."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError as exc:
+        raise CsvImportError("read", str(exc)) from exc
+    return _decode(data)
+
+
+def parse_csv_text(text: str) -> CsvImportResult:
+    """Parse CSV *text* (already decoded) into LabelRecords.
+
+    Raises:
+        CsvImportError: no header row, or no Title column.
+    """
+    delimiter, rows = _table(text, ("title",))
     result = CsvImportResult(delimiter=delimiter)
     for row in rows:
-        if not any(cell.strip() for cell in row):
-            continue
-
-        def cell(name: str) -> str:
-            index = columns.get(name)
-            if index is None or index >= len(row):
-                return ""
-            return row[index].strip()
-
-        title = cell("title")
+        title = row.get("title", "")
         if not title:
             result.skipped += 1
             continue
         result.records.append(LabelRecord(
             title=title,
-            artist=cell("artist"),
-            label=cell("label"),
-            country=cell("country"),
-            year=cell("year"),
-            side=normalise_side(cell("side")),
-            catno=cell("catno"),
+            artist=row.get("artist", ""),
+            label=row.get("label", ""),
+            country=row.get("country", ""),
+            year=row.get("year", ""),
+            side=normalise_side(row.get("side", "")),
+            catno=row.get("catno", ""),
         ))
     return result
 
@@ -146,11 +200,7 @@ def read_csv(path: Path) -> CsvImportResult:
     Raises:
         CsvImportError: unreadable file, no header row, or no Title column.
     """
-    try:
-        data = Path(path).read_bytes()
-    except OSError as exc:
-        raise CsvImportError("read", str(exc)) from exc
-    text, encoding = _decode(data)
+    text, encoding = _read_text(path)
     try:
         result = parse_csv_text(text)
     except csv.Error as exc:
@@ -173,3 +223,86 @@ def write_csv(path: Path, records: list[LabelRecord]) -> None:
 def default_export_name(today: date | None = None) -> str:
     """vinyl-labels-YYYY-MM-DD.csv"""
     return f"vinyl-labels-{(today or date.today()).isoformat()}.csv"
+
+
+# ── Collection CSV ────────────────────────────────────────────────────────────
+
+def _parse_printed(value: str) -> str | None:
+    """An ISO date (YYYY-MM-DD) from a PrintedA / PrintedB cell, None if empty / invalid."""
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%d.%m.%Y").date().isoformat()
+    except ValueError:
+        pass
+    day = printed_date(value)
+    if day is None:
+        logger.warning(f"Collection CSV: unreadable printed date {value!r} ignored")
+        return None
+    return day.isoformat()
+
+
+def parse_collection_csv_text(text: str) -> CollectionCsvResult:
+    """Parse collection CSV *text* (already decoded) into CollectionRecords.
+
+    Raises:
+        CsvImportError: no header row, or neither a TitleA nor a TitleB column.
+    """
+    delimiter, rows = _table(text, ("title_a", "title_b"))
+    result = CollectionCsvResult(delimiter=delimiter)
+    for row in rows:
+        record = CollectionRecord(
+            artist=row.get("artist", ""),
+            label=row.get("label", ""),
+            country=row.get("country", ""),
+            year=row.get("year", ""),
+            catno=row.get("catno", ""),
+            title_a=row.get("title_a", ""),
+            title_b=row.get("title_b", ""),
+            printed_a_at=_parse_printed(row.get("printed_a_at", "")),
+            printed_b_at=_parse_printed(row.get("printed_b_at", "")),
+        )
+        if not record.title_a and not record.title_b:
+            result.skipped += 1
+            continue
+        result.records.append(record)
+    return result
+
+
+def read_collection_csv(path: Path) -> CollectionCsvResult:
+    """Import the collection CSV *path*; see the module docstring.
+
+    Raises:
+        CsvImportError: unreadable file, no header row, or no title column.
+    """
+    text, encoding = _read_text(path)
+    try:
+        result = parse_collection_csv_text(text)
+    except csv.Error as exc:
+        raise CsvImportError("read", str(exc)) from exc
+    result.encoding = encoding
+    return result
+
+
+def _printed_cell(value: str | None) -> str:
+    day = printed_date(value)
+    return day.isoformat() if day else ""
+
+
+def write_collection_csv(path: Path, records: Sequence[CollectionRecord]) -> None:
+    """Export *records*, one row per record (English header, semicolon, UTF-8 with BOM)."""
+    with open(path, "w", encoding=EXPORT_ENCODING, newline="") as handle:
+        writer = csv.writer(handle, delimiter=EXPORT_DELIMITER)
+        writer.writerow(COLLECTION_EXPORT_HEADER)
+        for rec in records:
+            writer.writerow([
+                rec.artist, rec.label, rec.country, rec.year, rec.catno,
+                rec.title_a, rec.title_b,
+                _printed_cell(rec.printed_a_at), _printed_cell(rec.printed_b_at),
+            ])
+
+
+def default_collection_export_name(today: date | None = None) -> str:
+    """vinyl-collection-YYYY-MM-DD.csv"""
+    return f"vinyl-collection-{(today or date.today()).isoformat()}.csv"
