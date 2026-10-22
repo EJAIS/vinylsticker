@@ -99,8 +99,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "datasource_switch_local_title": "Zu lokaler Datenbank wechseln",
         "datasource_switch_local_msg":   (
             "Du wechselst zur lokalen Datenbank. "
-            "Die Druckwarteschlange bleibt erhalten. Bearbeite sie in der App über "
-            "„Daten laden“ oder „Warteschlange“ – einzeln oder per CSV-Import."
+            "Die Druckwarteschlange bleibt erhalten. „Daten laden“ öffnet deine "
+            "lokale Plattensammlung, „Warteschlange“ bearbeitet die "
+            "Druckwarteschlange – einzeln oder per CSV-Import."
         ),
         "datasource_discogs_hint":       (
             "\u2139 Änderungen an der Druckwarteschlange werden in die "
@@ -340,6 +341,73 @@ _STRINGS: dict[str, dict[str, str]] = {
         "entry_err_year":       "Jahr: leer lassen oder vierstellig eingeben (z. B. 1969).",
         "entry_added":          "{n} Zeile(n) zur Tabelle hinzugefügt.",
 
+        # Add entry form — local collection (LOCAL mode)
+        "entry_save_to_collection": "Auch in Sammlung speichern",
+        "entry_save_to_collection_tip": (
+            "Legt beim Speichern der Warteschlange eine Platte in der lokalen "
+            "Sammlung an und verknüpft die Einträge mit ihr"
+        ),
+        "review_csv_collection_tip": (
+            "CSV-Import: Beim Speichern der Warteschlange werden die importierten "
+            "Zeilen als Platten in die lokale Sammlung übernommen (Seite A und "
+            "direkt folgende Seite B mit gleichen Angaben = eine Platte)"
+        ),
+        "csv_import_collection": "Beim Speichern werden {r} Platte(n) in der Sammlung angelegt.",
+
+        # Record form (collection)
+        "record_title_new":     "Neue Platte",
+        "record_title_edit":    "Platte bearbeiten",
+        "record_hint":          (
+            "Interpret, Label, Land, Jahr und Katalognummer gelten für beide "
+            "Seiten. Mindestens ein Titel ist nötig."
+        ),
+        "record_btn_save":      "Speichern",
+        "record_btn_cancel":    "Abbrechen",
+
+        # Collection dialog
+        "collection_title":         "Sammlung",
+        "collection_btn_new":       "Neue Platte …",
+        "collection_btn_edit":      "Bearbeiten …",
+        "collection_btn_edit_tip":  "Markierte Platte bearbeiten (auch per Doppelklick)",
+        "collection_btn_delete":    "Löschen",
+        "collection_search_ph":     "Interpret, Titel, Label, Jahr … suchen",
+        "collection_btn_all":       "Alle Seiten auswählen",
+        "collection_btn_all_tip":   "Alle Seiten mit Titel der sichtbaren Platten auswählen",
+        "collection_btn_none":      "Auswahl aufheben",
+        "collection_col_a":         "A",
+        "collection_col_b":         "B",
+        "collection_col_artist":    "Interpret",
+        "collection_col_title_a":   "Titel A",
+        "collection_col_title_b":   "Titel B",
+        "collection_col_label":     "Label",
+        "collection_col_year":      "Jahr",
+        "collection_col_catno":     "Kat.-Nr.",
+        "collection_col_country":   "Land",
+        "collection_col_side_tip":  "Seite für die Druckwarteschlange auswählen",
+        "collection_side_tip":      "Seite {side} drucken",
+        "collection_side_no_title": "Seite {side} hat keinen Titel",
+        "collection_empty":         (
+            "Die Sammlung ist noch leer.\nLege deine erste Platte an – oder "
+            "speichere Einträge der Warteschlange mit „Auch in Sammlung speichern“."
+        ),
+        "collection_status":        "{n} Platte(n) | {m} Seite(n) ausgewählt",
+        "collection_btn_close":     "Schließen",
+        "collection_btn_to_queue":  "In Druckwarteschlange übernehmen →",
+        "collection_btn_to_queue_tip": (
+            "Erzeugt einen Eintrag pro ausgewählter Seite und öffnet die Prüfung "
+            "(anhängen oder ersetzen)"
+        ),
+        "collection_delete_title":  "Platten löschen?",
+        "collection_delete_one":    "„{name}“ aus der Sammlung löschen?",
+        "collection_delete_many":   "{n} Platten aus der Sammlung löschen?",
+        "collection_delete_queue_note": (
+            "Einträge in der Druckwarteschlange bleiben erhalten, sie verlieren "
+            "nur die Verknüpfung zur Platte."
+        ),
+        "collection_delete_confirm": "Löschen",
+        "collection_load_err":      "Die Sammlung konnte nicht geladen werden:\n{detail}",
+        "collection_write_err":     "Die Sammlung konnte nicht gespeichert werden:\n{detail}",
+
         # Settings menu / theme / language
         "menu_settings":            "Einstellungen",
         "menu_appearance":          "Erscheinungsbild",
@@ -438,8 +506,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_load_data":        "Daten laden",
         "sidebar_queue":            "Warteschlange",
         "sidebar_load_data_tip_local": (
-            "Druckwarteschlange bearbeiten: Einträge erfassen, CSV importieren "
-            "oder exportieren"
+            "Lokale Plattensammlung öffnen: Platten erfassen und ausgewählte "
+            "Seiten in die Druckwarteschlange übernehmen"
         ),
         "sidebar_load_data_tip_discogs": "7\" Singles aus der Discogs-Sammlung importieren",
         "sidebar_queue_tip":        "Druckwarteschlange anzeigen und bearbeiten",
@@ -454,6 +522,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_local_mode":       "Lokal-Modus",
         "sidebar_discogs_mode":     "Discogs-Modus",
         "sidebar_local":            "Lokal",
+        "sidebar_collection":       "Sammlung (lokal)",
         "sidebar_section_data":     "Daten",
         "sidebar_section_print":    "Druck",
 
@@ -563,8 +632,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "datasource_switch_local_title": "Switch to local database",
         "datasource_switch_local_msg":   (
             "You are switching to the local database. "
-            "The print queue is preserved. Edit it in the app via "
-            "“Load data” or “Queue” – entry by entry or by CSV import."
+            "The print queue is preserved. “Load data” opens your local record "
+            "collection, “Queue” edits the print queue – entry by entry or by "
+            "CSV import."
         ),
         "datasource_discogs_hint":       (
             "\u2139 Changes to the print queue are written to the local "
@@ -801,6 +871,73 @@ _STRINGS: dict[str, dict[str, str]] = {
         "entry_err_year":       "Year: leave empty or enter four digits (e.g. 1969).",
         "entry_added":          "{n} row(s) added to the table.",
 
+        # Add entry form — local collection (LOCAL mode)
+        "entry_save_to_collection": "Also save to collection",
+        "entry_save_to_collection_tip": (
+            "When the queue is saved, a record is created in the local collection "
+            "and the entries are linked to it"
+        ),
+        "review_csv_collection_tip": (
+            "CSV import: when the queue is saved, the imported rows are added to "
+            "the local collection as records (side A directly followed by side B "
+            "with the same details = one record)"
+        ),
+        "csv_import_collection": "On save, {r} record(s) will be created in the collection.",
+
+        # Record form (collection)
+        "record_title_new":     "New record",
+        "record_title_edit":    "Edit record",
+        "record_hint":          (
+            "Artist, label, country, year and catalog number apply to both "
+            "sides. At least one title is required."
+        ),
+        "record_btn_save":      "Save",
+        "record_btn_cancel":    "Cancel",
+
+        # Collection dialog
+        "collection_title":         "Collection",
+        "collection_btn_new":       "New record …",
+        "collection_btn_edit":      "Edit …",
+        "collection_btn_edit_tip":  "Edit the selected record (also by double-click)",
+        "collection_btn_delete":    "Delete",
+        "collection_search_ph":     "Search artist, title, label, year …",
+        "collection_btn_all":       "Select all sides",
+        "collection_btn_all_tip":   "Select every side with a title of the visible records",
+        "collection_btn_none":      "Clear selection",
+        "collection_col_a":         "A",
+        "collection_col_b":         "B",
+        "collection_col_artist":    "Artist",
+        "collection_col_title_a":   "Title A",
+        "collection_col_title_b":   "Title B",
+        "collection_col_label":     "Label",
+        "collection_col_year":      "Year",
+        "collection_col_catno":     "Cat. no.",
+        "collection_col_country":   "Country",
+        "collection_col_side_tip":  "Select the side for the print queue",
+        "collection_side_tip":      "Print side {side}",
+        "collection_side_no_title": "Side {side} has no title",
+        "collection_empty":         (
+            "The collection is still empty.\nAdd your first record – or save "
+            "queue entries with “Also save to collection”."
+        ),
+        "collection_status":        "{n} record(s) | {m} side(s) selected",
+        "collection_btn_close":     "Close",
+        "collection_btn_to_queue":  "Add to print queue →",
+        "collection_btn_to_queue_tip": (
+            "Creates one entry per selected side and opens the review "
+            "(append or replace)"
+        ),
+        "collection_delete_title":  "Delete records?",
+        "collection_delete_one":    "Delete “{name}” from the collection?",
+        "collection_delete_many":   "Delete {n} records from the collection?",
+        "collection_delete_queue_note": (
+            "Entries in the print queue are kept, they only lose the link to "
+            "the record."
+        ),
+        "collection_delete_confirm": "Delete",
+        "collection_load_err":      "The collection could not be loaded:\n{detail}",
+        "collection_write_err":     "The collection could not be saved:\n{detail}",
+
         # Settings menu / theme / language
         "menu_settings":            "Settings",
         "menu_appearance":          "Appearance",
@@ -894,7 +1031,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_load_data":        "Load data",
         "sidebar_queue":            "Queue",
         "sidebar_load_data_tip_local": (
-            "Edit the print queue: add entries, import or export CSV"
+            "Open the local record collection: add records and put selected "
+            "sides into the print queue"
         ),
         "sidebar_load_data_tip_discogs": "Import 7\" singles from your Discogs collection",
         "sidebar_queue_tip":        "Show and edit the print queue",
@@ -909,6 +1047,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_local_mode":       "Local mode",
         "sidebar_discogs_mode":     "Discogs mode",
         "sidebar_local":            "Local",
+        "sidebar_collection":       "Collection (local)",
         "sidebar_section_data":     "Data",
         "sidebar_section_print":    "Print",
 

@@ -194,7 +194,7 @@ class SidebarWidget(QWidget):
         layout.addWidget(self._lbl_section_data)
 
         self._btn_load_data = SidebarButton(
-            t("sidebar_load_data"), t("sidebar_local"), parent=self
+            t("sidebar_load_data"), t("sidebar_collection"), parent=self
         )
         self._btn_queue = SidebarButton(
             t("sidebar_queue"), t("sidebar_empty"), parent=self
@@ -329,7 +329,7 @@ class SidebarWidget(QWidget):
             self._btn_load_data.set_subtitle(t("sidebar_discogs_mode"))
             self._btn_load_data.setToolTip(t("sidebar_load_data_tip_discogs"))
         else:
-            self._btn_load_data.set_subtitle(t("sidebar_local"))
+            self._btn_load_data.set_subtitle(t("sidebar_collection"))
             self._btn_load_data.setToolTip(t("sidebar_load_data_tip_local"))
         self._btn_queue.setToolTip(t("sidebar_queue_tip"))
 

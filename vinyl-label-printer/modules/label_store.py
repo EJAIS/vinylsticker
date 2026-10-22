@@ -3,8 +3,9 @@ Print queue storage in labels.db (SQLite) — the only code that talks to labels
 
 Every public function opens a short-lived connection, runs in exactly one
 transaction (BEGIN IMMEDIATE … COMMIT, ROLLBACK on any error) and closes the
-connection again. The app is single-user; the default rollback journal is used
-(no WAL), so labels.db is a plain single file that can be backed up by copying.
+connection again. Foreign keys are enforced on every connection. The app is
+single-user; the default rollback journal is used (no WAL), so labels.db is a
+plain single file that can be backed up by copying.
 
 Schema versions
 ---------------
@@ -13,9 +14,16 @@ connection applies the missing ones in order, inside its transaction. New
 versions append an entry and never change an existing one; they must keep the
 print_queue table readable for older app versions (add tables / columns only).
 
-Version 1
+Version 1 (app 1.1)
   print_queue  one row per label, ordered by the explicit position column
   meta         key/value pairs written together with queue rows
+
+Version 2 (app 1.2)
+  records      the local collection: shared print data, a title per side and
+               when each side was last printed (printed_*_at, NULL = never)
+  print_queue  + record_id / record_side: the collection record side a row
+               was made from; NULL for Discogs rows, one-off entries and rows
+               from 1.1. Deleting a record keeps its queue rows (SET NULL).
 
 A labels.db written by a 1.1 pre-release may hold a meta key and a source
 value of a since removed one-time import; both are kept and simply ignored.
@@ -30,7 +38,7 @@ from datetime import datetime, timezone
 
 from modules import paths
 from modules.logger import get_logger
-from modules.records import LabelRecord, normalise_side
+from modules.records import SIDES, CollectionRecord, LabelRecord, normalise_side
 
 logger = get_logger()
 
@@ -38,6 +46,7 @@ logger = get_logger()
 SOURCE_MANUAL = "manual"
 SOURCE_CSV = "csv"
 SOURCE_DISCOGS = "discogs"
+SOURCE_COLLECTION = "collection"
 
 _MIGRATIONS: tuple[tuple[str, ...], ...] = (
     # 1 — print queue + meta
@@ -66,12 +75,54 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
         )
         """,
     ),
+    # 2 — local collection + link from queue rows to a record side
+    (
+        """
+        CREATE TABLE records (
+            id           INTEGER PRIMARY KEY,
+            artist       TEXT NOT NULL DEFAULT '',
+            label        TEXT NOT NULL DEFAULT '',
+            country      TEXT NOT NULL DEFAULT '',
+            year         TEXT NOT NULL DEFAULT '',
+            catno        TEXT NOT NULL DEFAULT '',
+            title_a      TEXT NOT NULL DEFAULT '',
+            title_b      TEXT NOT NULL DEFAULT '',
+            printed_a_at TEXT,
+            printed_b_at TEXT,
+            created_at   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL,
+            CHECK (title_a <> '' OR title_b <> '')
+        )
+        """,
+        "CREATE INDEX records_artist ON records (artist COLLATE NOCASE)",
+        "CREATE INDEX records_title_a ON records (title_a COLLATE NOCASE)",
+        "CREATE INDEX records_title_b ON records (title_b COLLATE NOCASE)",
+        """
+        ALTER TABLE print_queue ADD COLUMN record_id INTEGER
+            REFERENCES records (id) ON DELETE SET NULL
+        """,
+        """
+        ALTER TABLE print_queue ADD COLUMN record_side TEXT
+            CHECK (record_side IN ('A', 'B'))
+        """,
+        "CREATE INDEX print_queue_record ON print_queue (record_id)",
+    ),
 )
 
 SCHEMA_VERSION = len(_MIGRATIONS)
 
 _DATA_COLUMNS = ("title", "artist", "label", "country", "year", "side", "catno")
-_SELECT_COLUMNS = ", ".join(("id",) + _DATA_COLUMNS + ("source",))
+_LINK_COLUMNS = ("record_id", "record_side")
+_ROW_COLUMNS = _DATA_COLUMNS + _LINK_COLUMNS
+_SELECT_COLUMNS = ", ".join(("id",) + _ROW_COLUMNS + ("source",))
+
+_RECORD_DATA_COLUMNS = ("artist", "label", "country", "year", "catno", "title_a", "title_b")
+_RECORD_COLUMNS = (
+    ("id",) + _RECORD_DATA_COLUMNS
+    + ("printed_a_at", "printed_b_at", "created_at", "updated_at")
+)
+# Columns the collection search looks in
+_RECORD_SEARCH_COLUMNS = _RECORD_DATA_COLUMNS
 
 _warned_newer_schema = False
 
@@ -84,6 +135,8 @@ def _transaction() -> Iterator[sqlite3.Connection]:
     # isolation_level=None: no implicit transactions, BEGIN/COMMIT are explicit
     conn = sqlite3.connect(str(paths.get_labels_db_file()), timeout=10, isolation_level=None)
     try:
+        # Per connection, and only outside a transaction (a no-op inside one)
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("BEGIN IMMEDIATE")
         try:
             _ensure_schema(conn)
@@ -121,14 +174,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _values(record: LabelRecord) -> tuple[str, ...]:
-    """The data column values of *record*, side normalised to "A" / "B".
+def _values(record: LabelRecord, record_id: int | None = None) -> tuple:
+    """The row column values of *record* (_ROW_COLUMNS), side normalised to "A" / "B".
+
+    *record_id* overrides record.record_id (a record created in the same
+    transaction). A link without a valid side is stored as no link.
 
     Raises:
         ValueError: if the title is empty.
     """
     if not (record.title or "").strip():
         raise ValueError("A print queue entry needs a title")
+    link_id = record_id if record_id is not None else record.record_id
+    link_side = record.record_side if record.record_side in SIDES else None
+    if link_id is None or link_side is None:
+        link_id = link_side = None
     return (
         record.title,
         record.artist or "",
@@ -137,21 +197,96 @@ def _values(record: LabelRecord) -> tuple[str, ...]:
         record.year or "",
         normalise_side(record.side),
         record.catno or "",
+        link_id,
+        link_side,
     )
 
 
 def _insert(
     conn: sqlite3.Connection,
     position: int,
-    values: tuple[str, ...],
+    values: tuple,
     source: str,
     now: str,
 ) -> None:
+    placeholders = ", ".join("?" * (len(_ROW_COLUMNS) + 4))
     conn.execute(
-        f"INSERT INTO print_queue (position, {', '.join(_DATA_COLUMNS)}, "
-        "source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO print_queue (position, {', '.join(_ROW_COLUMNS)}, "
+        f"source, created_at, updated_at) VALUES ({placeholders})",
         (position, *values, source, now, now),
     )
+
+
+def _record_values(record: CollectionRecord) -> tuple[str, ...]:
+    """The data column values of *record* (_RECORD_DATA_COLUMNS), stripped.
+
+    Raises:
+        ValueError: if both titles are empty.
+    """
+    values = tuple(
+        (getattr(record, column) or "").strip() for column in _RECORD_DATA_COLUMNS
+    )
+    if not values[-2] and not values[-1]:
+        raise ValueError("A collection record needs a title for side A or B")
+    return values
+
+
+def _insert_record(conn: sqlite3.Connection, values: tuple[str, ...], now: str) -> int:
+    cursor = conn.execute(
+        f"INSERT INTO records ({', '.join(_RECORD_DATA_COLUMNS)}, created_at, updated_at) "
+        f"VALUES ({', '.join('?' * (len(_RECORD_DATA_COLUMNS) + 2))})",
+        (*values, now, now),
+    )
+    return int(cursor.lastrowid)
+
+
+def _row_to_record(row: Sequence) -> CollectionRecord:
+    data = dict(zip(_RECORD_COLUMNS, row))
+    return CollectionRecord(**data)
+
+
+def _prepare_rows(
+    records: Sequence[LabelRecord],
+    new_records: Sequence[CollectionRecord],
+) -> tuple[list[CollectionRecord], list[tuple[str, ...]]]:
+    """Validate the collection records to create with a queue write.
+
+    Returns the distinct records to create (*new_records* plus every
+    pending_record of *records*, by identity, in this order) and their values.
+
+    Raises:
+        ValueError: if a record has no title.
+    """
+    pending: list[CollectionRecord] = []
+    seen: set[int] = set()
+    for record in [*new_records, *(r.pending_record for r in records)]:
+        if record is not None and id(record) not in seen:
+            seen.add(id(record))
+            pending.append(record)
+    return pending, [_record_values(record) for record in pending]
+
+
+def _create_pending(
+    conn: sqlite3.Connection,
+    pending: list[CollectionRecord],
+    values: list[tuple[str, ...]],
+    now: str,
+) -> dict[int, int]:
+    """Insert the *pending* records; return {id(record object): new row id}."""
+    return {
+        id(record): _insert_record(conn, record_values, now)
+        for record, record_values in zip(pending, values)
+    }
+
+
+def _row_values(records: Sequence[LabelRecord], created: dict[int, int]) -> list[tuple]:
+    return [
+        _values(
+            record,
+            created.get(id(record.pending_record)) if record.pending_record else None,
+        )
+        for record in records
+    ]
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -165,7 +300,10 @@ def load_queue() -> list[LabelRecord]:
     records = [
         LabelRecord(
             title=row[1], artist=row[2], label=row[3], country=row[4],
-            year=row[5], side=row[6], catno=row[7], id=row[0], source=row[8],
+            year=row[5], side=row[6], catno=row[7], record_id=row[8],
+            # A side without a record is no link (e.g. the record was deleted)
+            record_side=row[9] if row[8] is not None else None,
+            id=row[0], source=row[10],
         )
         for row in rows
     ]
@@ -179,7 +317,11 @@ def queue_count() -> int:
         return conn.execute("SELECT COUNT(*) FROM print_queue").fetchone()[0]
 
 
-def replace_queue(records: Sequence[LabelRecord], source: str = SOURCE_MANUAL) -> None:
+def replace_queue(
+    records: Sequence[LabelRecord],
+    source: str = SOURCE_MANUAL,
+    new_records: Sequence[CollectionRecord] = (),
+) -> None:
     """Make *records* the whole print queue, in this order.
 
     A record whose id is in the queue keeps that row (id, source, created_at;
@@ -187,14 +329,23 @@ def replace_queue(records: Sequence[LabelRecord], source: str = SOURCE_MANUAL) -
     are new rows with their own source, or *source* if they have none. Queue
     rows that are not in *records* are deleted.
 
+    *new_records* and the pending_record of each queue record are created as
+    collection records in the same transaction; queue records with a
+    pending_record are linked to its new id.
+
     Raises:
         ValueError: if a record has an empty title (nothing is written).
     """
-    rows = [(record, _values(record)) for record in records]
+    pending, pending_values = _prepare_rows(records, new_records)
+    for record in records:
+        _values(record)          # validate before anything is written
     with _transaction() as conn:
+        now = _now()
+        created = _create_pending(conn, pending, pending_values, now)
+        rows = list(zip(records, _row_values(records, created)))
         existing = {
             row[0]: tuple(row[1:])
-            for row in conn.execute(f"SELECT id, {', '.join(_DATA_COLUMNS)} FROM print_queue")
+            for row in conn.execute(f"SELECT id, {', '.join(_ROW_COLUMNS)} FROM print_queue")
         }
         kept: set[int] = set()
         for record, _ in rows:
@@ -206,7 +357,6 @@ def replace_queue(records: Sequence[LabelRecord], source: str = SOURCE_MANUAL) -
             [(row_id,) for row_id in existing if row_id not in kept],
         )
 
-        now = _now()
         updated: set[int] = set()
         for position, (record, values) in enumerate(rows):
             if record.id in kept and record.id not in updated:
@@ -214,35 +364,44 @@ def replace_queue(records: Sequence[LabelRecord], source: str = SOURCE_MANUAL) -
                 changed = existing[record.id] != values
                 conn.execute(
                     f"UPDATE print_queue SET position = ?, "
-                    f"{', '.join(f'{c} = ?' for c in _DATA_COLUMNS)}, "
+                    f"{', '.join(f'{c} = ?' for c in _ROW_COLUMNS)}, "
                     "updated_at = CASE WHEN ? THEN ? ELSE updated_at END WHERE id = ?",
                     (position, *values, changed, now, record.id),
                 )
             else:
                 _insert(conn, position, values, record.source or source, now)
-    logger.info(f"Print queue replaced: {len(rows)} records")
+    logger.info(
+        f"Print queue replaced: {len(rows)} records"
+        + (f", {len(pending)} collection records created" if pending else "")
+    )
 
 
 def append_to_queue(
     records: Sequence[LabelRecord],
     source: str = SOURCE_MANUAL,
     meta: dict[str, str] | None = None,
+    new_records: Sequence[CollectionRecord] = (),
 ) -> None:
     """Append *records* as new rows after the current queue.
 
     Records keep their own source, or get *source* if they have none. *meta*
     key/value pairs are written in the same transaction (e.g. a marker that
-    must only exist together with the rows).
+    must only exist together with the rows). *new_records* and pending
+    records: as in replace_queue().
 
     Raises:
         ValueError: if a record has an empty title (nothing is written).
     """
-    rows = [(record, _values(record)) for record in records]
+    pending, pending_values = _prepare_rows(records, new_records)
+    for record in records:
+        _values(record)          # validate before anything is written
     with _transaction() as conn:
+        now = _now()
+        created = _create_pending(conn, pending, pending_values, now)
+        rows = list(zip(records, _row_values(records, created)))
         start = conn.execute(
             "SELECT COALESCE(MAX(position), -1) + 1 FROM print_queue"
         ).fetchone()[0]
-        now = _now()
         for offset, (record, values) in enumerate(rows):
             _insert(conn, start + offset, values, record.source or source, now)
         for key, value in (meta or {}).items():
@@ -257,3 +416,105 @@ def get_meta(key: str) -> str | None:
     with _transaction() as conn:
         row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return row[0] if row else None
+
+
+# ── Collection (records) ──────────────────────────────────────────────────────
+
+def _fold(value: object) -> str:
+    return str(value or "").casefold()
+
+
+def list_records(search: str = "") -> list[CollectionRecord]:
+    """The collection, sorted by artist and titles (case-insensitive).
+
+    *search*: only records that contain every whitespace-separated word of it
+    in any text column (artist, label, country, year, catalog number, titles),
+    case-insensitive also for umlauts (Python casefold, not SQLite's ASCII-only
+    LIKE).
+    """
+    words = [_fold(word) for word in search.split()]
+    # All search columns in one text; words contain no whitespace, so a match
+    # never spans two columns
+    haystack = " || char(10) || ".join(_RECORD_SEARCH_COLUMNS)
+    where = ""
+    if words:
+        where = "WHERE " + " AND ".join(
+            f"instr(vlp_fold({haystack}), ?) > 0" for _ in words
+        )
+    with _transaction() as conn:
+        conn.create_function("vlp_fold", 1, _fold, deterministic=True)
+        rows = conn.execute(
+            f"SELECT {', '.join(_RECORD_COLUMNS)} FROM records {where} "
+            "ORDER BY artist COLLATE NOCASE, title_a COLLATE NOCASE, "
+            "title_b COLLATE NOCASE, id",
+            words,
+        ).fetchall()
+    return [_row_to_record(row) for row in rows]
+
+
+def record_count() -> int:
+    """Number of records in the collection."""
+    with _transaction() as conn:
+        return conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+
+
+def get_record(record_id: int) -> CollectionRecord | None:
+    """The collection record *record_id*, or None."""
+    with _transaction() as conn:
+        row = conn.execute(
+            f"SELECT {', '.join(_RECORD_COLUMNS)} FROM records WHERE id = ?", (record_id,)
+        ).fetchone()
+    return _row_to_record(row) if row else None
+
+
+def add_record(record: CollectionRecord) -> int:
+    """Add *record* to the collection (its id is ignored); return the new id.
+
+    Raises:
+        ValueError: if both titles are empty.
+    """
+    values = _record_values(record)
+    with _transaction() as conn:
+        record_id = _insert_record(conn, values, _now())
+    logger.info(f"Collection record {record_id} added")
+    return record_id
+
+
+def update_record(record: CollectionRecord) -> None:
+    """Write the data fields of *record* (by its id); printed_* stay as stored.
+
+    Raises:
+        ValueError: if both titles are empty.
+        KeyError: if no record has this id.
+    """
+    values = _record_values(record)
+    with _transaction() as conn:
+        cursor = conn.execute(
+            f"UPDATE records SET {', '.join(f'{c} = ?' for c in _RECORD_DATA_COLUMNS)}, "
+            "updated_at = ? WHERE id = ?",
+            (*values, _now(), record.id),
+        )
+        if cursor.rowcount == 0:
+            raise KeyError(f"No collection record with id {record.id}")
+    logger.info(f"Collection record {record.id} updated")
+
+
+def delete_records(record_ids: Sequence[int]) -> None:
+    """Delete the collection records *record_ids*.
+
+    Their queue rows stay in the print queue and only lose the link
+    (ON DELETE SET NULL).
+    """
+    params = [(record_id,) for record_id in record_ids]
+    with _transaction() as conn:
+        # ON DELETE SET NULL clears record_id; the side goes with it
+        conn.executemany(
+            "UPDATE print_queue SET record_side = NULL WHERE record_id = ?", params
+        )
+        conn.executemany("DELETE FROM records WHERE id = ?", params)
+    logger.info(f"Collection: {len(record_ids)} records deleted")
+
+
+def delete_record(record_id: int) -> None:
+    """Delete one collection record; see delete_records()."""
+    delete_records([record_id])

@@ -7,8 +7,18 @@ Two modes:
     mode. Opens also when the queue is empty; "Save" replaces the queue with
     the checked rows (nothing checked empties it, after a confirmation).
     Extra tools: "Add entry" form, CSV import and CSV export.
-  • Import mode: rows come from an import (Discogs); on confirm the user
-    chooses whether to append them to or replace a non-empty print queue.
+  • Import mode: rows come from an import (Discogs, or the local collection);
+    on confirm the user chooses whether to append them to or replace a
+    non-empty print queue.
+
+Local collection (queue mode in LOCAL mode, *collection*=True): the "Add
+entry" form and the CSV import offer "Also save to collection". Rows added
+that way belong to a pending collection record that is created on confirm,
+in the same transaction as the queue, from the rows still in the table
+(checked or not; shared fields from the first row, each title from its side's
+row) — so "Cancel" leaves the collection unchanged. Every row keeps its link
+to a collection record side (record_id / record_side) through the editor, in
+both modes.
 
 The user can:
   • Edit any cell directly (double-click, F2, or just start typing)
@@ -31,6 +41,7 @@ Visual cues (colors from the active ThemeColors, refreshed on theme changes):
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
@@ -38,6 +49,7 @@ from PyQt6.QtCore import QStandardPaths, Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -55,13 +67,21 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from config.settings import get_save_to_collection, set_save_to_collection
 from config.themes import ThemeColors
 from modules import label_store
 from modules.csv_io import CsvImportError, default_export_name, read_csv, write_csv
 from modules.label_store import SOURCE_CSV, SOURCE_MANUAL
 from modules.logger import get_logger
 from modules.i18n import t
-from modules.records import LabelRecord, normalise_side
+from modules.records import (
+    SIDES,
+    CollectionRecord,
+    LabelRecord,
+    group_rows_into_records,
+    normalise_side,
+    record_from_rows,
+)
 from ui.entry_dialog import EntryDialog
 from ui.styles import apply_search_style, apply_table_style
 from ui.theme_manager import ThemeManager, current_colors
@@ -88,6 +108,9 @@ _REQUIRED_COLS = (_COL_TITLE, _COL_SIDE)
 # Row metadata on the checkbox item (plain int / str, so drag & drop keeps it)
 _ROLE_ID     = Qt.ItemDataRole.UserRole          # labels.db id, -1 for new rows
 _ROLE_SOURCE = Qt.ItemDataRole.UserRole + 1      # e.g. "manual", "discogs"
+_ROLE_RECORD_ID   = Qt.ItemDataRole.UserRole + 2  # linked collection record, -1 none
+_ROLE_RECORD_SIDE = Qt.ItemDataRole.UserRole + 3  # its side "A" / "B", "" none
+_ROLE_PENDING     = Qt.ItemDataRole.UserRole + 4  # pending collection record, -1 none
 
 # Folder of the last CSV import / export in this session
 _last_csv_dir: str = ""
@@ -134,15 +157,19 @@ class ReviewDialog(QDialog):
         import_mode: bool = False,
         import_source: str = SOURCE_MANUAL,
         parent=None,
+        collection: bool = False,
     ) -> None:
         """*records*: row dicts (LabelRecord fields; id / source if they come
         from labels.db). *import_mode*: rows come from an import (e.g. Discogs,
         *import_source* is their source) — ask whether to append to or replace
         a non-empty print queue on confirm. When False the dialog edits the
-        queue itself and always replaces it."""
+        queue itself and always replaces it. *collection*: queue mode in LOCAL
+        mode — offer "Also save to collection" for new entries and CSV imports."""
         super().__init__(parent)
         self._import_mode = import_mode
         self._import_source = import_source if import_mode else SOURCE_MANUAL
+        self._collection = collection and not import_mode
+        self._next_pending_key = 0
         self._populating = False
         self._saved = False
         self._confirmed_records: list[LabelRecord] = []
@@ -223,7 +250,15 @@ class ReviewDialog(QDialog):
             btn_export = QPushButton(t("review_btn_export_csv"))
             btn_export.setToolTip(t("review_btn_export_csv_tip"))
             btn_export.clicked.connect(self._on_export_csv)
-            for w in (btn_entry, btn_import, btn_export):
+            # "Also save to collection" for the CSV import (LOCAL mode only);
+            # same setting as the checkbox of the "Add entry" form
+            self._chk_csv_collection = QCheckBox(t("entry_save_to_collection"))
+            self._chk_csv_collection.setToolTip(t("review_csv_collection_tip"))
+            self._chk_csv_collection.setVisible(self._collection)
+            if self._collection:
+                self._chk_csv_collection.setChecked(get_save_to_collection())
+                self._chk_csv_collection.toggled.connect(set_save_to_collection)
+            for w in (btn_entry, btn_import, self._chk_csv_collection, btn_export):
                 tools.addWidget(w)
             tools.addStretch()
             root.addLayout(tools)
@@ -340,6 +375,15 @@ class ReviewDialog(QDialog):
         row_id = rec.get("id")
         chk.setData(_ROLE_ID, int(row_id) if row_id is not None else -1)
         chk.setData(_ROLE_SOURCE, str(rec.get("source") or default_source))
+        record_id = rec.get("record_id")
+        pending = rec.get("pending")
+        record_side = rec.get("record_side")
+        linked = record_id is not None or pending is not None
+        chk.setData(_ROLE_RECORD_ID, int(record_id) if record_id is not None else -1)
+        chk.setData(_ROLE_PENDING, int(pending) if pending is not None else -1)
+        chk.setData(
+            _ROLE_RECORD_SIDE, record_side if linked and record_side in SIDES else ""
+        )
         self._table.setItem(row, _COL_CHECK, chk)
 
         values = [
@@ -532,16 +576,31 @@ class ReviewDialog(QDialog):
         self._update_status()
         self._update_title()
 
-    def _append_records(self, records: list[LabelRecord], source: str) -> None:
-        """Append *records* as checked rows (not saved until confirmed)."""
+    def _append_records(
+        self,
+        records: list[LabelRecord],
+        source: str,
+        pending: Sequence[int | None] | None = None,
+    ) -> None:
+        """Append *records* as checked rows (not saved until confirmed).
+
+        *pending*: per record the key of the pending collection record it
+        belongs to (None: no collection record), see _new_pending_key().
+        """
         if not records:
             return
         self._populating = True
-        for rec in records:
+        for index, rec in enumerate(records):
             row = self._table.rowCount()
             self._table.insertRow(row)
             data = asdict(rec)
+            data.pop("pending_record", None)
             data["id"] = None
+            key = pending[index] if pending is not None else None
+            if key is not None:
+                data["pending"] = key
+                data["record_id"] = None
+                data["record_side"] = normalise_side(rec.side)
             self._set_row(row, data, checked=True, default_source=source)
         self._populating = False
         # New rows follow the active search filter
@@ -552,13 +611,31 @@ class ReviewDialog(QDialog):
 
     # ── Editor tools: add entry, CSV import / export ──────────────────────────
 
+    def _new_pending_key(self) -> int:
+        """A new key for a collection record that is created on confirm."""
+        key = self._next_pending_key
+        self._next_pending_key += 1
+        return key
+
     def _on_add_entry(self) -> None:
-        dlg = EntryDialog(self)
+        dlg = EntryDialog(self, collection_option=self._collection)
         dlg.entries_added.connect(
-            lambda records: self._append_records(records, SOURCE_MANUAL)
+            lambda records: self.add_entry_rows(records, dlg.save_to_collection())
         )
         dlg.exec()
         dlg.deleteLater()
+        if self._collection:
+            # The form shares the setting with the CSV import checkbox
+            self._chk_csv_collection.setChecked(get_save_to_collection())
+
+    def add_entry_rows(self, records: list[LabelRecord], to_collection: bool) -> None:
+        """Rows of one "Add entry" form; with *to_collection* they form one record."""
+        key = self._new_pending_key() if to_collection and self._collection else None
+        self._append_records(records, SOURCE_MANUAL, [key] * len(records))
+
+    def csv_to_collection(self) -> bool:
+        """Whether a CSV import also creates collection records."""
+        return self._collection and self._chk_csv_collection.isChecked()
 
     def _on_import_csv(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -593,11 +670,18 @@ class ReviewDialog(QDialog):
                 return False
             if choice == "replace":
                 self._table.setRowCount(0)
-        self._append_records(result.records, SOURCE_CSV)
-        QMessageBox.information(
-            self, t("csv_import_title"),
-            t("csv_import_done", n=len(result.records), k=result.skipped),
-        )
+        pending: list[int | None] | None = None
+        message = t("csv_import_done", n=len(result.records), k=result.skipped)
+        if self.csv_to_collection():
+            groups = group_rows_into_records(result.records)
+            pending = [None] * len(result.records)
+            for group in groups:
+                key = self._new_pending_key()
+                for index in group:
+                    pending[index] = key
+            message += "\n" + t("csv_import_collection", r=len(groups))
+        self._append_records(result.records, SOURCE_CSV, pending)
+        QMessageBox.information(self, t("csv_import_title"), message)
         return True
 
     @staticmethod
@@ -748,9 +832,14 @@ class ReviewDialog(QDialog):
                 return False
 
         # Rows without a title cannot be stored (an empty side is stored as "A")
-        records = [
-            rec for rec in (self._row_to_labelrecord(r) for r in checked_rows) if rec.title
-        ]
+        new_records = self._pending_records()
+        records = []
+        for row in checked_rows:
+            rec = self._row_to_labelrecord(row)
+            if not rec.title:
+                continue
+            rec.pending_record = new_records.get(self._pending_key(row))
+            records.append(rec)
 
         try:
             if self._import_mode:
@@ -766,15 +855,21 @@ class ReviewDialog(QDialog):
                     if choice is None:
                         return False
                 if choice == "append":
-                    label_store.append_to_queue(records, source=self._import_source)
+                    label_store.append_to_queue(
+                        records, source=self._import_source,
+                        new_records=list(new_records.values()),
+                    )
                 else:
-                    label_store.replace_queue(records, source=self._import_source)
+                    label_store.replace_queue(
+                        records, source=self._import_source,
+                        new_records=list(new_records.values()),
+                    )
             else:
                 if not records:
                     existing = self._existing_count()
                     if existing and not self._confirm_clear(existing):
                         return False
-                label_store.replace_queue(records)
+                label_store.replace_queue(records, new_records=list(new_records.values()))
         except Exception as exc:
             logger.error(f"Could not write the print queue: {type(exc).__name__}: {exc}")
             QMessageBox.critical(
@@ -902,10 +997,36 @@ class ReviewDialog(QDialog):
         }
         if not data_only:
             chk = self._table.item(row, _COL_CHECK)
-            row_id = chk.data(_ROLE_ID) if chk else None
-            rec["id"] = row_id if isinstance(row_id, int) and row_id >= 0 else None
+
+            def role_id(role: int) -> int | None:
+                value = chk.data(role) if chk else None
+                return value if isinstance(value, int) and value >= 0 else None
+
+            rec["id"] = role_id(_ROLE_ID)
             rec["source"] = (chk.data(_ROLE_SOURCE) if chk else None) or SOURCE_MANUAL
+            rec["record_id"] = role_id(_ROLE_RECORD_ID)
+            rec["pending"] = role_id(_ROLE_PENDING)
+            side = chk.data(_ROLE_RECORD_SIDE) if chk else None
+            linked = rec["record_id"] is not None or rec["pending"] is not None
+            rec["record_side"] = side if linked and side in SIDES else None
         return rec
+
+    def _pending_key(self, row: int) -> int | None:
+        return self._read_row(row)["pending"]
+
+    def _pending_records(self) -> dict[int, CollectionRecord]:
+        """The pending collection records, built from the rows still in the table.
+
+        Checked and unchecked rows count; rows without a title do not. A
+        pending record without any titled row is not created.
+        """
+        groups: dict[int, list[LabelRecord]] = {}
+        for row in range(self._table.rowCount()):
+            key = self._pending_key(row)
+            rec = self._row_to_labelrecord(row)
+            if key is not None and rec.title:
+                groups.setdefault(key, []).append(rec)
+        return {key: record_from_rows(rows) for key, rows in groups.items()}
 
     def _row_to_labelrecord(self, row: int) -> LabelRecord:
         rec = self._read_row(row)
@@ -922,6 +1043,8 @@ class ReviewDialog(QDialog):
             catno   = rec["catno"].strip(),
             id      = rec["id"],
             source  = rec["source"],
+            record_id   = rec["record_id"],
+            record_side = rec["record_side"],
         )
 
     def get_records(self) -> list[LabelRecord]:

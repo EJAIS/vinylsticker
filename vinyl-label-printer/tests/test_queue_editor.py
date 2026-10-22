@@ -307,19 +307,25 @@ def test_csv_import_error_is_reported(app, message_boxes, tmp_path):
 
 # ── Main window ───────────────────────────────────────────────────────────────
 
-def test_queue_and_local_load_data_open_the_editor_when_empty(app, monkeypatch,
-                                                              message_boxes):
+def test_queue_opens_the_editor_and_local_load_data_the_collection(app, monkeypatch,
+                                                                   message_boxes):
     from ui.app import MainWindow
+    from ui.collection_dialog import CollectionDialog
 
-    opened: list[int] = []
+    opened: list[tuple[str, int, bool]] = []
 
-    def fake_exec(self):
-        opened.append(self._table.rowCount())
+    def fake_review_exec(self):
+        opened.append(("review", self._table.rowCount(), self._collection))
         return QDialog.DialogCode.Rejected
 
-    monkeypatch.setattr(ReviewDialog, "exec", fake_exec)
+    def fake_collection_exec(self):
+        opened.append(("collection", self._table.rowCount(), True))
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(ReviewDialog, "exec", fake_review_exec)
+    monkeypatch.setattr(CollectionDialog, "exec", fake_collection_exec)
     window = MainWindow()
     window.on_open_queue()
     window.on_load_data()            # LOCAL mode (default)
-    assert opened == [0, 0]
+    assert opened == [("review", 0, True), ("collection", 0, True)]
     assert message_boxes == []

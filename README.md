@@ -174,9 +174,10 @@ On Linux the `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` and `XDG_STATE
 variables are respected. On Windows, `%APPDATA%` is `C:\Users\<you>\AppData\Roaming` and
 `%LOCALAPPDATA%` is `C:\Users\<you>\AppData\Local`.
 
-The print queue is stored in `labels.db`, a single SQLite file in the data folder. It is edited
-only inside the app: **Load data** (Local mode) or **Queue** (both modes) opens the queue editor
-(see [Option A — Local mode](#option-a--local-mode-enter-records-in-the-app)). To edit many
+The print queue and your local record collection are stored in `labels.db`, a single SQLite
+file in the data folder. They are edited only inside the app: **Queue** (both modes) opens the
+queue editor, **Load data** (Local mode) opens the collection (see
+[Option A — Local mode](#option-a--local-mode-enter-records-in-the-app)). To edit many
 entries at once, or to keep a backup in a readable format, use **Export CSV** and **Import CSV**
 in the queue editor (see [CSV import and export](#csv-import-and-export)). To back up the whole
 file, copy `labels.db` while the app is closed. **⚙ Settings → Data source** shows the data
@@ -322,7 +323,7 @@ The app reads the print queue from one of two sources. Choose it in
 
 | Mode | Description |
 |---|---|
-| **Local database** | You maintain the print queue in the app — entry form, editable table, CSV import / export. It is stored in `labels.db` in the [data folder](#where-your-data-is-stored). This is the default. |
+| **Local database** | You keep your record collection in the app and pick the sides to print from it; the print queue is maintained in the app too — entry form, editable table, CSV import / export. Both are stored in `labels.db` in the [data folder](#where-your-data-is-stored). This is the default. |
 | **Discogs** | Imports your 7" singles from your Discogs collection into the print queue. |
 
 The selected mode is **persisted across sessions** and shown in the footer bar, together with
@@ -333,14 +334,39 @@ and opens the **Discogs account** tab (see [Discogs Import](#discogs-import)).
 
 #### Option A — Local mode: enter records in the app
 
-Click **Load data** (or **Queue**) in the sidebar. The queue editor opens — also when the queue
-is empty.
+##### Local record collection
+
+Click **Load data** in the sidebar. The collection opens — one row per record with the columns
+**A**, **B**, Artist, Title A, Title B, Label, Year, Cat. no. and Country. Click a column header
+to sort; the search field filters live over all text columns (every word must match).
+
+- **New record …**, **Edit …** (or double-click a row) and **Delete** change the collection at
+  once. The record form has the same fields and checks as **Add entry** (see below): Artist,
+  Label, Country, Year and Catalog number plus a title for side A and / or side B. Deleting a
+  record keeps its entries in the print queue; they only lose the link to the record.
+- Tick the **A** / **B** boxes of the sides you want to print (a side without a title shows
+  "–"). **Select all sides** ticks every side of the visible records, **Clear selection**
+  unticks everything.
+- **Add to print queue →** creates one entry per ticked side and opens the review table, as for
+  a Discogs import: check the rows, then choose whether to **append** them to the queue or
+  **replace** it. The collection closes and the main window shows the new queue.
+
+The collection exists in Local mode only. Switching to Discogs mode leaves it untouched; it is
+simply not reachable there.
+
+##### Print queue editor
+
+Click **Queue** in the sidebar. The queue editor opens — also when the queue is empty.
 
 - **Add entry …** opens a small form for one record: Artist, Label, Country, Year and Catalog
   number (shared by both sides) plus **Title side A** and **Title side B**. Each filled title
   becomes one row with side A or B. At least one title is required; the year is empty or four
   digits. **Add** adds the rows and closes the form; **Add and next** adds them, clears the form
-  and puts the cursor into the first field for the next record.
+  and puts the cursor into the first field for the next record. In Local mode the form has
+  **Also save to collection** (on by default, the last state is remembered): the record is then
+  also created in the collection and its queue entries are linked to it. Like every change in
+  the editor, the record is only written when you click **Save** — **Cancel** leaves the
+  collection unchanged.
 - **Add row** adds an empty row to fill in directly in the table.
 - **Import CSV …** / **Export CSV …** — see [CSV import and export](#csv-import-and-export).
 - Edit cells, drag rows to reorder them, delete or duplicate rows via the context menu, filter
@@ -398,6 +424,11 @@ Without a Side column every row is side A. Rows without a title are skipped; aft
 reports how many rows were imported and how many were skipped. If the table already has rows,
 you are asked whether to **append** the imported rows or **replace** the table. As with every
 change in the editor, nothing is stored until you click **Save**.
+
+In Local mode the checkbox **Also save to collection** next to **Import CSV …** (the same setting
+as in the entry form) also creates collection records on **Save**: a side A row directly
+followed by a side B row with the same artist, label, country, year and catalog number becomes
+one record with both titles, every other row a record with only its own side.
 
 Bulk editing: **Export CSV** → edit the file in a spreadsheet → save it as CSV → **Import CSV**
 → **Replace** → **Save**.
@@ -674,8 +705,8 @@ vinyl-label-printer/
 ├── modules/
 │   ├── child_env.py               # Environment for started programs (frozen Linux build)
 │   ├── data_source.py             # DataSourceMode enum (LOCAL / DISCOGS)
-│   ├── records.py                 # LabelRecord dataclass, side normalisation (no storage dependency)
-│   ├── label_store.py             # SQLite print queue labels.db — the only code that talks to it
+│   ├── records.py                 # LabelRecord / CollectionRecord dataclasses, side normalisation
+│   ├── label_store.py             # SQLite labels.db (queue + collection) — the only code that talks to it
 │   ├── csv_io.py                  # CSV import (delimiter / encoding / header detection) and export
 │   ├── logger.py                  # Centralised rotating-file logger; debug toggle
 │   ├── paths.py                   # All file locations: bundled resources, user dirs, legacy migration
@@ -696,7 +727,8 @@ vinyl-label-printer/
 │   ├── preview_widget.py          # QWidget — pdf2image + QPixmap page viewer
 │   ├── discogs_dialog.py          # QDialog — Discogs import (setup + collection panels)
 │   ├── review_widget.py           # QDialog — print queue editor and import review table
-│   ├── entry_dialog.py            # QDialog — "Add entry" form (one record, side A and / or B)
+│   ├── entry_dialog.py            # QDialog — "Add entry" / record form (one record, side A and / or B)
+│   ├── collection_dialog.py       # QDialog — local record collection (LOCAL mode)
 │   └── theme_manager.py           # ThemeManager — theme setting, global stylesheet, live switching
 └── tests/
     ├── conftest.py                # Headless Qt + throw-away user directories
@@ -704,7 +736,8 @@ vinyl-label-printer/
     ├── test_label_store.py        # labels.db: schema, order, side CHECK, transactions, versions
     ├── test_data_setup.py         # Old labels.db files open; leftover user files stay untouched
     ├── test_csv_io.py             # CSV delimiters, headers, encodings, round trip
-    └── test_queue_editor.py       # Entry form, saving / clearing the queue, unsaved changes, CSV
+    ├── test_queue_editor.py       # Entry form, saving / clearing the queue, unsaved changes, CSV
+    └── test_collection.py         # Collection: schema 1 → 2, records, links, dialog, CSV grouping
 ```
 
 User files (`settings.json`, `credentials.json`, `labels.db`, `discogs_cache.db`, generated
@@ -802,23 +835,29 @@ Reads and writes `settings.json` in the config folder (`modules.paths.get_settin
 
 | Symbol | Description |
 |---|---|
-| `LabelRecord` | Dataclass: `title`, `artist`, `label`, `country`, `year`, `side`, `catno` (default `""`); plus `id` and `source` of the row in `labels.db`, which are ignored by `==` |
+| `LabelRecord` | Dataclass: `title`, `artist`, `label`, `country`, `year`, `side`, `catno` (default `""`); plus `id` and `source` of the row in `labels.db`, the link `record_id` / `record_side` to a collection record side and `pending_record` (a collection record created together with the row) — all ignored by `==` and by the PDF generator |
+| `CollectionRecord` | Dataclass of a collection record: shared fields, `title_a`, `title_b`; plus `id`, `printed_a_at`, `printed_b_at`, `created_at`, `updated_at` |
+| `queue_rows_for_sides(record, sides)` | One linked queue row per side with a title, A before B |
+| `group_rows_into_records(rows)` | CSV import grouping: A row directly followed by a B row with identical shared fields (trimmed) → one record, every other row → one record |
+| `record_from_rows(rows)` | A collection record from the queue rows of one record |
 | `normalise_side(value)` | Maps any side / position to `"A"` or `"B"` (`AA` → `B`, `A1` → `A`, `Seite B` → `B`, empty → `A`) |
 | `resolve_side(value)` | Like `normalise_side()` but returns `None` for values that name no A/B side (used by the Discogs import) |
 
 #### `modules/label_store.py`
 
-The only code that talks to `labels.db`. Every function opens a short-lived connection and runs
-in one transaction (`BEGIN IMMEDIATE` … `COMMIT`, `ROLLBACK` on any error). Default rollback
-journal, no WAL — `labels.db` stays a single file.
+The only code that talks to `labels.db`. Every function opens a short-lived connection
+(`PRAGMA foreign_keys = ON`) and runs in one transaction (`BEGIN IMMEDIATE` … `COMMIT`,
+`ROLLBACK` on any error). Default rollback journal, no WAL — `labels.db` stays a single file.
 
 | Symbol | Description |
 |---|---|
 | `load_queue()` | The print queue as `LabelRecord`s, ordered by `position` |
-| `replace_queue(records, source)` | Makes `records` the whole queue in this order; rows with a known `id` keep `id`, `source` and `created_at` |
-| `append_to_queue(records, source, meta)` | Appends new rows; optional `meta` key/value pairs are written in the same transaction |
+| `replace_queue(records, source, new_records)` | Makes `records` the whole queue in this order; rows with a known `id` keep `id`, `source` and `created_at`. `new_records` and each row's `pending_record` are created in the same transaction and the rows linked to them |
+| `append_to_queue(records, source, meta, new_records)` | Appends new rows; optional `meta` key/value pairs and new records are written in the same transaction |
 | `queue_count()`, `get_meta(key)` | Number of queued entries; a value of the `meta` table |
-| `SCHEMA_VERSION`, `_MIGRATIONS` | Ordered schema steps; `PRAGMA user_version` holds the number applied. Later versions append steps (e.g. tables for a record collection) |
+| `list_records(search)`, `record_count()` | The collection sorted by artist and titles; `search`: every word in any text column |
+| `get_record(id)`, `add_record(record)`, `update_record(record)`, `delete_record(id)`, `delete_records(ids)` | Collection CRUD; deleting keeps the record's queue rows and drops their link |
+| `SCHEMA_VERSION`, `_MIGRATIONS` | Ordered schema steps; `PRAGMA user_version` holds the number applied. Later versions append steps |
 
 Schema version 1:
 
@@ -839,6 +878,34 @@ CREATE TABLE print_queue (
 );
 CREATE INDEX print_queue_position ON print_queue (position);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+```
+
+Schema version 2 (app 1.2) — the local collection; applied automatically to a 1.1 `labels.db`
+(queue rows are kept, their links are `NULL`):
+
+```sql
+CREATE TABLE records (
+    id           INTEGER PRIMARY KEY,
+    artist       TEXT NOT NULL DEFAULT '',
+    label        TEXT NOT NULL DEFAULT '',
+    country      TEXT NOT NULL DEFAULT '',
+    year         TEXT NOT NULL DEFAULT '',
+    catno        TEXT NOT NULL DEFAULT '',
+    title_a      TEXT NOT NULL DEFAULT '',
+    title_b      TEXT NOT NULL DEFAULT '',
+    printed_a_at TEXT,                                    -- ISO 8601 or NULL (UI in a later version)
+    printed_b_at TEXT,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    CHECK (title_a <> '' OR title_b <> '')
+);
+CREATE INDEX records_artist  ON records (artist  COLLATE NOCASE);
+CREATE INDEX records_title_a ON records (title_a COLLATE NOCASE);
+CREATE INDEX records_title_b ON records (title_b COLLATE NOCASE);
+ALTER TABLE print_queue ADD COLUMN record_id INTEGER
+    REFERENCES records (id) ON DELETE SET NULL;           -- NULL: Discogs, one-off, 1.1 rows
+ALTER TABLE print_queue ADD COLUMN record_side TEXT CHECK (record_side IN ('A', 'B'));
+CREATE INDEX print_queue_record ON print_queue (record_id);
 ```
 
 A `labels.db` written by a 1.1 pre-release may contain an extra `meta` key and `source` value of
@@ -1051,7 +1118,20 @@ import (import mode). Writes through `label_store`; nothing is written before th
 | Search | Live filter by title or artist (`setRowHidden`); **Select all / none** only affect visible rows |
 | Confirm | Writes all checked rows (visible or hidden) via `label_store`; sides saved via `normalise_side()`; rows without a title are not saved. Queue mode (**Save**): `replace_queue()`, nothing checked empties the queue after a confirmation. Import mode: disabled until ≥ 1 row is checked |
 | Unsaved changes | Cancel, Esc and the window's close button ask **Save / Discard / Cancel** if the table differs from what is stored |
-| `import_mode` | `True` when opened from the Discogs import: asks **Append / Replace / Cancel** if the print queue is not empty (rows get source `discogs`). `False` (the queue editor) always replaces |
+| `import_mode` | `True` when opened from the Discogs import or the collection: asks **Append / Replace / Cancel** if the print queue is not empty (rows get source `discogs` / `collection`). `False` (the queue editor) always replaces |
+| `collection` | Queue editor in Local mode: **Also save to collection** in the entry form and for the CSV import. Such rows belong to a pending record that is created on **Save** from the rows still in the table (checked or not), in the same transaction as the queue. Every row keeps its `record_id` / `record_side` through the editor, in both modes |
+
+#### `ui/collection_dialog.py`
+
+`CollectionDialog(QDialog)` — the local record collection, opened by **Load data** in Local mode.
+
+| Feature | Details |
+|---|---|
+| Columns | A ☐, B ☐, Artist, Title A, Title B, Label, Year, Cat. no., Country — sortable; a side without a title shows "–" instead of a checkbox |
+| Search | Live, via `label_store.list_records(search)` over all text columns; checked sides hidden by the search stay checked |
+| Record tools | **New record**, **Edit** (also double-click) — `EntryDialog` in record mode —, **Delete** (confirmation); written at once |
+| Empty collection | A hint and a **New record** button in place of the table |
+| Add to print queue | One queue row per checked side (`queue_rows_for_sides()`), reviewed in `ReviewDialog` (import mode, source `collection`); on confirm the dialog is accepted and the main window reloads the queue |
 
 ### Printer Calibration
 
