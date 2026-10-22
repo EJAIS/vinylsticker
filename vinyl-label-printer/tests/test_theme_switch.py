@@ -1,8 +1,8 @@
 """
 Regression test: a theme switch restyles every open window and dialog at once.
 
-Opens the main window, the settings dialog, the review dialog, the start
-position dialog and the Discogs dialog, switches dark -> light -> dark and
+Opens the main window, the settings dialog, the review dialog, the add entry
+form, the start position dialog and the Discogs dialog, switches dark -> light -> dark and
 checks after each switch that no widget still carries a color of the theme
 that is no longer active.
 """
@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import astuple
-from pathlib import Path
-
 import pytest
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QColor
@@ -23,9 +21,9 @@ from config.settings import get_theme as get_saved_theme
 from config.stylesheet import build_stylesheet
 from config.themes import THEMES, ThemeColors
 from modules.i18n import set_language
-from modules.paths import seed_example_database
 from ui.app import MainWindow
 from ui.discogs_dialog import DiscogsDialog
+from ui.entry_dialog import EntryDialog
 from ui.review_widget import ReviewDialog
 from ui.theme_manager import ThemeManager, resolve_auto_theme
 
@@ -140,8 +138,7 @@ def no_message_boxes(monkeypatch):
         monkeypatch.setattr(QMessageBox, name, _fail)
 
 
-def test_switch_restyles_all_open_windows(app, no_message_boxes, tmp_path: Path):
-    seed_example_database()
+def test_switch_restyles_all_open_windows(app, no_message_boxes):
     manager = ThemeManager.instance()
     manager.set_setting("dark")
 
@@ -149,17 +146,21 @@ def test_switch_restyles_all_open_windows(app, no_message_boxes, tmp_path: Path)
     window.show()
     window.on_open_settings()
     settings_dialog = window._settings_dialog
-    review = ReviewDialog(_RECORDS, tmp_path / "database.xlsx", parent=window)
+    review = ReviewDialog(_RECORDS, parent=window)
     review.show()
     start_pos = window._create_start_pos_dialog()
     start_pos.show()
+    entry = EntryDialog(parent=review)
+    entry.show()
+    entry._on_add()   # empty form: shows the colored validation message
+    assert entry.isVisible()
     app.processEvents()
 
     _assert_theme(app, settings_dialog, review, "dark", "dark")
 
     manager.set_setting("light")
     # Opened after the switch: must start with the current colors
-    discogs = DiscogsDialog(tmp_path / "database.xlsx", parent=window)
+    discogs = DiscogsDialog(parent=window)
     discogs.show()
     app.processEvents()
     _assert_theme(app, settings_dialog, review, "light", "light")
@@ -181,19 +182,19 @@ def test_switch_restyles_all_open_windows(app, no_message_boxes, tmp_path: Path)
     app.processEvents()
     _assert_theme(app, settings_dialog, review, "dark", "dark")
 
-    for dialog in (start_pos, review, settings_dialog, window):
+    for dialog in (entry, start_pos, review, settings_dialog, window):
         dialog.close()
         dialog.deleteLater()
     _flush_deletes(app)
 
 
-def test_auto_follows_system_theme(app, no_message_boxes, monkeypatch, tmp_path: Path):
+def test_auto_follows_system_theme(app, no_message_boxes, monkeypatch):
     manager = ThemeManager.instance()
     manager.set_setting("light")
     window = MainWindow()
     window.on_open_settings()
     settings_dialog = window._settings_dialog
-    review = ReviewDialog(_RECORDS, tmp_path / "database.xlsx", parent=window)
+    review = ReviewDialog(_RECORDS, parent=window)
 
     system = {"theme": "dark"}
     monkeypatch.setattr(

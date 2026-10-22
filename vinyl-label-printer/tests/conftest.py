@@ -22,3 +22,16 @@ for _var in (
 _APP_ROOT = Path(__file__).resolve().parent.parent
 if str(_APP_ROOT) not in sys.path:
     sys.path.insert(0, str(_APP_ROOT))
+
+import pytest  # noqa: E402  (after the environment setup above)
+
+
+@pytest.fixture(autouse=True)
+def data_dir(tmp_path, monkeypatch) -> Path:
+    """A fresh, empty data dir per test: labels.db and database.xlsx live here."""
+    from modules import paths
+
+    folder = tmp_path / "data"
+    folder.mkdir()
+    monkeypatch.setattr(paths, "get_data_dir", lambda: folder)
+    return folder
