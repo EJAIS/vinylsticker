@@ -249,6 +249,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "zum Bearbeiten in einer Tabellenkalkulation"
         ),
         "review_search_ph":     "Titel oder Interpret suchen…",
+        "review_drag_blocked_tip": "Zum Verschieben die Suche leeren",
 
         # Review dialog — context menu
         "review_ctx_delete":    "Zeile löschen",
@@ -864,6 +865,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "in a spreadsheet"
         ),
         "review_search_ph":     "Search title or artist…",
+        "review_drag_blocked_tip": "Clear the search to reorder rows",
 
         # Review dialog — context menu
         "review_ctx_delete":    "Delete row",

@@ -7,7 +7,7 @@ queue editor's CSV import linking to existing records).
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, datetime, timezone
 
 import pytest
@@ -150,7 +150,7 @@ def test_unprinted_sides():
     assert _record(printed_b_at="2026-01-01").unprinted_sides() == ["A"]
 
 
-# ── Printed marking: the question after "Print" / "Create PDF" ────────────────
+# ── Printed marking: the question after "Print" ───────────────────────────────
 
 @pytest.fixture
 def window(app, monkeypatch, message_boxes):
@@ -200,11 +200,15 @@ def test_print_question_is_asked_once_for_linked_rows_only(window):
     record = _queue_record_with_extra_row()
     window._load_queue()
 
-    window.on_create_pdf()
+    window.on_create_pdf()                                 # a preview is no print
+    assert window.asked == []
+    assert _printed(record.id) == (None, None)
+
+    window.on_print()
     assert window.asked == [2]                              # the unlinked row is ignored
     assert all(printed_date(v) == date.today() for v in _printed(record.id))
 
-    # "Create PDF" followed by "Print" on the same queue: no second question
+    # Printing the same queue again: no second question, nor from "Create PDF"
     label_store.clear_printed([record.id])
     window.on_print()
     window.on_create_pdf()
@@ -214,11 +218,24 @@ def test_print_question_is_asked_once_for_linked_rows_only(window):
     # A changed queue regenerates the PDF without asking; printing it asks again
     label_store.append_to_queue(queue_rows_for_sides(record, "A"))
     window._load_queue()
+    window.on_create_pdf()
     assert window.asked == [2]
     window.on_print()                                      # prints the regenerated PDF
     assert window.asked == [2, 3]
-    window.on_create_pdf()
+    window.on_print()
     assert window.asked == [2, 3]
+
+
+def test_create_pdf_answered_no_does_not_use_up_the_question(window):
+    """The 1.2 bug: "No" after "Create PDF" (only a preview) blocked the question at Print."""
+    record = _queue_record_with_extra_row()
+    window._load_queue()
+    window.answer = False
+    window.on_create_pdf()
+    window.answer = True
+    window.on_print()
+    assert window.asked == [2]
+    assert all(printed_date(v) == date.today() for v in _printed(record.id))
 
 
 def test_print_question_answered_no_marks_nothing(window):
@@ -382,11 +399,61 @@ def test_queue_edits_update_the_collection_on_request(app, monkeypatch, message_
     stored = label_store.get_record(record.id)
     assert (stored.title_a, stored.title_b, stored.artist) == ("New A", "Song B", "New Band")
     assert stored.printed_a_at is not None                     # printed dates stay
+    # Both rows of the record follow it, also the A row whose artist was not edited
     assert _queue() == [
-        ("New A", "The Band", "A", record.id, "A"),
+        ("New A", "New Band", "A", record.id, "A"),
         ("Song B", "New Band", "B", record.id, "B"),
         ("One-off edited", "X", "A", None, None),
     ]
+
+
+def test_update_collection_brings_the_other_side_in_step(app, monkeypatch, message_boxes):
+    """The 1.2 bug: the unedited A row kept the old artist; the next save reverted the record."""
+    record = _add()
+    _linked_queue(record)
+    dlg = _editor()
+    dlg._table.item(1, _COL_ARTIST).setText("New Band")      # only the B row
+    asked = _answer_sync(monkeypatch, dlg, True)
+    assert dlg._on_confirm()
+    assert asked == [1]
+    assert label_store.get_record(record.id).artist == "New Band"
+    assert [(title, artist) for title, artist, *_ in _queue()] == [
+        ("Song A", "New Band"), ("Song B", "New Band"),
+    ]
+
+    # Saving again without edits: no question, the record keeps the new artist
+    again = _editor()
+    asked = _answer_sync(monkeypatch, again, True)
+    assert again._on_confirm()
+    assert asked == []
+    assert label_store.get_record(record.id).artist == "New Band"
+
+
+def test_record_updates_only_rewrite_rows_of_updated_records():
+    edited = _add()
+    other = _add(artist="Other Band")
+    gone = _add(artist="Deleted later")
+    rows = [
+        *queue_rows_for_sides(edited, "AB"),
+        # Differs from its record on purpose ("Only the print queue" earlier)
+        replace(queue_rows_for_sides(other, "A")[0], title="Queue-only title"),
+        *queue_rows_for_sides(gone, "A"),
+    ]
+    label_store.append_to_queue(rows)
+    queue = label_store.load_queue()
+    queue[2].artist = "Edited in the queue only"
+    label_store.delete_records([gone.id])
+    label_store.replace_queue(
+        queue[:3],
+        record_updates=[replace(edited, artist="New Band"), replace(gone, artist="X")],
+    )
+    assert _queue() == [
+        ("Song A", "New Band", "A", edited.id, "A"),
+        ("Song B", "New Band", "B", edited.id, "B"),
+        ("Queue-only title", "Edited in the queue only", "A", other.id, "A"),
+    ]
+    assert label_store.get_record(other.id) == other
+    assert label_store.get_record(gone.id) is None
 
 
 def test_only_the_print_queue_leaves_the_collection_unchanged(app, monkeypatch, message_boxes):
@@ -399,6 +466,12 @@ def test_only_the_print_queue_leaves_the_collection_unchanged(app, monkeypatch, 
     assert asked == [1]
     assert label_store.get_record(record.id) == record
     assert _queue()[0] == ("New A", "The Band", "A", record.id, "A")
+
+    # The row still differs from its record: the next save asks again (intended)
+    again = _editor()
+    asked = _answer_sync(monkeypatch, again, False)
+    assert again._on_confirm()
+    assert asked == [1]
 
 
 def test_no_sync_question_without_changes_or_in_discogs_mode(app, monkeypatch, message_boxes):

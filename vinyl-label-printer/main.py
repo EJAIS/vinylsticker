@@ -29,6 +29,7 @@ from config.settings import (
 )
 from modules.child_env import restore_user_environment
 from modules.i18n import set_language
+from modules.json_store import log_early_messages
 from modules.logger import setup_logger, get_logger
 from modules.paths import (
     MigrationResult,
@@ -172,6 +173,8 @@ def main() -> None:
     debug_enabled = get_debug_logging()
     setup_logger(debug=debug_enabled)
     logger = get_logger()
+    # E.g. a broken settings.json moved aside while reading the debug setting
+    log_early_messages()
 
     logger.info("=" * 50)
     logger.info(f"App started — v{__version__}")

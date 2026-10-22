@@ -30,11 +30,14 @@ linked to a collection record whose title (of their side) or shared fields
 differ from the record are counted, and one question offers to apply the
 changes to the collection too — in the same transaction as the queue. If the
 A and the B row of a record disagree on a field, the later row in the table
-wins (records.record_with_rows()).
+wins (records.record_with_rows()). Every saved row of an updated record then
+takes the record's data (label_store.replace_queue), so its other side's row
+agrees with it too.
 
 The user can:
   • Edit any cell directly (double-click, F2, or just start typing)
-  • Re-order rows via drag & drop
+  • Re-order rows via drag & drop (whole rows, see _QueueTable; only while
+    the search field is empty)
   • Delete / duplicate rows via context menu or toolbar
   • Add blank rows for manual entries
   • Filter visible rows with a live search bar
@@ -57,8 +60,8 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
-from PyQt6.QtCore import QStandardPaths, Qt, QTimer
-from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtCore import QItemSelectionModel, QPoint, QStandardPaths, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QDragLeaveEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -185,6 +188,103 @@ class _CellBackgroundDelegate(QStyledItemDelegate):
             # No dialog shortcut (Del, Ctrl+S, …) fires while a cell is edited
             editor.installEventFilter(self._shortcut_guard)
         return editor
+
+
+class _QueueTable(QTableWidget):
+    """QTableWidget whose internal drag & drop moves whole rows.
+
+    QTableWidget's own InternalMove drop moves the dragged *cells* onto the
+    cells under the cursor (takeItem / setItem): it overwrites the rows it is
+    dropped on and leaves empty rows without a checkbox item behind. Here a
+    drop takes every item of the selected rows (the checkbox item with its
+    metadata roles), removes the rows and inserts them above / below the row
+    under the cursor (dropIndicatorPosition) or at the end (empty viewport),
+    in their original order. The moved rows stay selected.
+    """
+
+    # The new row indices of the moved rows (not emitted if nothing moved)
+    rows_moved = pyqtSignal(list)
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        if event.source() is not self:
+            event.ignore()
+            return
+        rows = sorted({index.row() for index in self.selectedIndexes()})
+        self.move_rows(rows, self.drop_target_row(event.position().toPoint()))
+        # Accepted, but not as a move: QAbstractItemView.startDrag() removes
+        # the selected (= the moved) rows once more after a MoveAction drop.
+        # IgnoreAction is the one action every drop event accepts.
+        event.setDropAction(Qt.DropAction.IgnoreAction)
+        event.accept()
+        # What the skipped base dropEvent does at the end (stop the auto
+        # scroll, leave the drag state, repaint); PyQt has no stopAutoScroll()
+        super().dragLeaveEvent(QDragLeaveEvent())
+
+    def drop_target_row(self, pos: QPoint) -> int:
+        """The row index a drop at *pos* (viewport coordinates) inserts before."""
+        index = self.indexAt(pos)
+        indicator = self.dropIndicatorPosition()
+        if not index.isValid() or indicator == QAbstractItemView.DropIndicatorPosition.OnViewport:
+            return self.rowCount()
+        if indicator == QAbstractItemView.DropIndicatorPosition.AboveItem:
+            return index.row()
+        if indicator == QAbstractItemView.DropIndicatorPosition.BelowItem:
+            return index.row() + 1
+        # OnItem (items are not drop targets, so only as a fallback): nearer edge
+        return index.row() + (pos.y() >= self.visualRect(index).center().y())
+
+    def move_rows(self, rows: Sequence[int], target: int) -> list[int]:
+        """Move *rows* (any order, need not be adjacent) to insert before row *target*.
+
+        *target* counts in the table before the move; rowCount() means the
+        end. Returns the moved rows' new indices ([] if the order is unchanged).
+        """
+        n_rows = self.rowCount()
+        rows = sorted({row for row in rows if 0 <= row < n_rows})
+        if not rows:
+            return []
+        target = max(0, min(target, n_rows))
+        insert_at = target - sum(row < target for row in rows)
+        new_rows = list(range(insert_at, insert_at + len(rows)))
+        rest = [row for row in range(n_rows) if row not in rows]
+        if rest[:insert_at] + rows + rest[insert_at:] == list(range(n_rows)):
+            self._select_rows(new_rows)
+            return []
+
+        # No itemChanged while items are taken and set again (no edit blink)
+        blocked = self.blockSignals(True)
+        try:
+            taken = [
+                [self.takeItem(row, col) for col in range(self.columnCount())]
+                for row in rows
+            ]
+            for row in reversed(rows):
+                self.removeRow(row)
+            for offset, items in enumerate(taken):
+                row = insert_at + offset
+                self.insertRow(row)
+                for col, item in enumerate(items):
+                    if item is not None:
+                        self.setItem(row, col, item)
+        finally:
+            self.blockSignals(blocked)
+        self._select_rows(new_rows)
+        self.rows_moved.emit(new_rows)
+        return new_rows
+
+    def _select_rows(self, rows: Sequence[int]) -> None:
+        self.clearSelection()
+        model, selection = self.model(), self.selectionModel()
+        flags = (
+            QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+        )
+        for row in rows:
+            selection.select(model.index(row, 0), flags)
+        if rows:
+            selection.setCurrentIndex(
+                model.index(rows[0], self.currentColumn() if self.currentColumn() >= 0 else 0),
+                QItemSelectionModel.SelectionFlag.NoUpdate,
+            )
 
 
 class ReviewDialog(QDialog):
@@ -366,7 +466,7 @@ class ReviewDialog(QDialog):
         root.addLayout(toolbar)
 
         # ── Table ─────────────────────────────────────────────────────────────
-        self._table = QTableWidget(0, _NUM_COLS)
+        self._table = _QueueTable(0, _NUM_COLS)
         apply_table_style(self._table)
         self._table.setItemDelegate(_CellBackgroundDelegate(self._table))
 
@@ -399,6 +499,7 @@ class ReviewDialog(QDialog):
 
         self._table.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self._table.setDragDropOverwriteMode(False)
+        self._table.rows_moved.connect(self._on_rows_moved)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked
@@ -494,6 +595,8 @@ class ReviewDialog(QDialog):
         for col_offset, val in enumerate(values):
             col  = col_offset + 1
             item = QTableWidgetItem(val)
+            # Drops go between rows (drop indicator above / below), never onto a cell
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
             self._table.setItem(row, col, item)
 
         self._refresh_cell_colors(row)
@@ -604,6 +707,13 @@ class ReviewDialog(QDialog):
         else:
             # Checkbox toggled — just refresh status, no blink needed
             pass
+        self._update_status()
+        self._update_title()
+
+    def _on_rows_moved(self, rows: list[int]) -> None:
+        """Drag & drop moved rows: re-validate the tints, update status and title."""
+        for row in range(self._table.rowCount()):
+            self._refresh_cell_colors(row)
         self._update_status()
         self._update_title()
 
@@ -859,6 +969,10 @@ class ReviewDialog(QDialog):
 
     def _on_search(self, text: str) -> None:
         q = text.strip().lower()
+        # A move among the visible rows only would mix in hidden rows, so rows
+        # can only be dragged while the search is empty
+        self._table.setDragEnabled(not q)
+        self._table.setToolTip(t("review_drag_blocked_tip") if q else "")
         for row in range(self._table.rowCount()):
             if not q:
                 self._table.setRowHidden(row, False)

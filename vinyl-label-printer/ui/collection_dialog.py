@@ -20,7 +20,8 @@ Opened by "Load data" in LOCAL mode. One row per record of the collection
     selected records.
   • "New record", "Edit" (also double-click) and "Delete" (after a
     confirmation) change the collection at once. Queue rows of a deleted
-    record stay in the print queue and only lose their link. If an edit
+    record stay in the print queue and only lose their link (queue_changed
+    is emitted, so the main window drops the link too). If an edit
     changes the data of linked queue rows, one question offers to update
     them too (same transaction); queue_changed is emitted afterwards.
   • "Import CSV" / "Export CSV": the collection CSV (modules.csv_io), one
@@ -128,7 +129,8 @@ class _DateItem(QTableWidgetItem):
 class CollectionDialog(QDialog):
     """Table of the collection; "Add to print queue" feeds a ReviewDialog."""
 
-    # Queue rows were changed (a record edit updated its linked rows)
+    # Queue rows were changed (a record edit updated its linked rows, or
+    # deleted records unlinked theirs)
     queue_changed = pyqtSignal()
     # The collection was (re)loaded after a change (footer counts)
     collection_changed = pyqtSignal()
@@ -673,6 +675,8 @@ class CollectionDialog(QDialog):
             self._write_error(exc)
             return
         self.reload()
+        # Linked queue rows lost their link in labels.db
+        self.queue_changed.emit()
 
     def _confirm_delete(self, record_ids: list[int]) -> bool:
         if len(record_ids) == 1:

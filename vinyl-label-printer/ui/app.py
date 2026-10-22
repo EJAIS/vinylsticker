@@ -10,13 +10,13 @@ Wires together:
   - printer         — OS print trigger
   - i18n            — language switching
 
-Printed marking (LOCAL mode): after a successful "Print" or "Create PDF" the
-user is asked once whether the labels of the PDF that are linked to the
-collection (record_id) should be marked as printed. The question is not
-repeated for the same unchanged queue in this session (e.g. "Create PDF"
-followed by "Print"), and not asked when the step was aborted or failed.
-The OS print dialog itself is outside the app: whether the user printed or
-cancelled there is not visible, hence the question.
+Printed marking (LOCAL mode): after a successful "Print" the user is asked
+whether the labels of the printed PDF that are linked to the collection
+(record_id) should be marked as printed. "Create PDF" only previews and never
+asks. The question is asked once per unchanged queue in this session (printing
+the same queue again does not ask again), and not when printing was aborted
+or failed. The OS print dialog itself is outside the app: whether the user
+printed or cancelled there is not visible, hence the question.
 
 PDF and queue stay in step: once a PDF was created in this session, every
 reload of the queue whose content differs from the PDF's regenerates it, and
@@ -106,7 +106,7 @@ class MainWindow(QMainWindow):
         # Queue state of the last PDF generation attempt (successful or not)
         self._pdf_target:     tuple | None = None
         # Queue rows in the current PDF, and the queue state the printed
-        # question was last asked for (asked once per unchanged queue)
+        # question was last asked for after "Print" (once per unchanged queue)
         self._pdf_records:    list[LabelRecord] = []
         self._printed_asked:  tuple | None = None
         self._watermark_path: Path | None = get_watermark_path()
@@ -224,8 +224,12 @@ class MainWindow(QMainWindow):
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
-    def _load_queue(self) -> None:
-        """Load the print queue from labels.db; bring PDF, preview and footer in step."""
+    def _load_queue(self) -> bool:
+        """Load the print queue from labels.db; bring PDF, preview and footer in step.
+
+        Returns False if labels.db could not be read (the queue is shown empty).
+        """
+        loaded = True
         try:
             self._records = label_store.load_queue()
         except Exception as exc:
@@ -234,10 +238,12 @@ class MainWindow(QMainWindow):
                 self, t("app_title"), t("err_queue_load", detail=str(exc))
             )
             self._records = []
+            loaded = False
         self._sidebar.set_queue_count(len(self._records))
         self._sync_pdf_with_queue()
         self._update_placeholder()
         self._update_collection_status()
+        return loaded
 
     def _sync_pdf_with_queue(self) -> None:
         """Regenerate the PDF if the queue content differs from it (no printed question)."""
@@ -282,11 +288,20 @@ class MainWindow(QMainWindow):
             else:
                 self._update_collection_status()
 
+    def _on_queue_written(self) -> None:
+        """A dialog outside the main window's own flows wrote the print queue."""
+        self._load_queue()
+        self._update_footer_status()
+
     def on_open_queue(self) -> None:
         """Queue button: open the queue editor (ReviewDialog), also when the queue is empty.
 
         In LOCAL mode it offers "Also save to collection" for new entries.
+        The queue is read from labels.db first: the editor saves the whole
+        queue, so it must never start from rows that are out of date.
         """
+        if not self._load_queue():
+            return
         dlg = ReviewDialog(
             [asdict(r) for r in self._records],
             parent=self,
@@ -339,15 +354,17 @@ class MainWindow(QMainWindow):
         return dlg
 
     def on_create_pdf(self) -> None:
-        """Create PDF button: generate PDF, load it into the preview, offer the printed mark."""
-        if self._create_pdf():
-            self._offer_mark_printed()
+        """Create PDF button: generate the PDF and load it into the preview.
+
+        A preview is no print: the printed question is only asked by on_print.
+        """
+        self._create_pdf()
 
     def _create_pdf(self) -> bool:
         """Generate the PDF and load it into the preview; True on success.
 
-        Never asks the printed question (only on_create_pdf / on_print do). On
-        failure "Print" is disabled, so the previous PDF cannot be printed.
+        Never asks the printed question (only on_print does). On failure
+        "Print" is disabled, so the previous PDF cannot be printed.
         """
         if not self._records:
             return False
@@ -458,7 +475,7 @@ class MainWindow(QMainWindow):
         )
 
     def _offer_mark_printed(self) -> None:
-        """Ask once per unchanged queue whether to mark the linked labels of the PDF as printed.
+        """After "Print": ask once per unchanged queue whether to mark its linked labels printed.
 
         Only rows linked to a collection record side count; DISCOGS mode never asks.
         """
@@ -509,6 +526,8 @@ class MainWindow(QMainWindow):
             self._settings_dialog.print_layout_changed.connect(
                 self._on_print_layout_changed
             )
+            # "Change token" can run a Discogs import into the print queue
+            self._settings_dialog.queue_changed.connect(self._on_queue_written)
         self._settings_dialog.show()
         self._settings_dialog.raise_()
 

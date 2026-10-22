@@ -379,7 +379,10 @@ def replace_queue(
     *record_updates*: existing collection records whose data fields are
     written (by id) in the same transaction — the queue editor's "Update
     collection". printed_* stay as stored; records that no longer exist are
-    skipped.
+    skipped. Every row of *records* linked to an updated record is written
+    with that record's shared fields and the title of its side
+    (records.row_from_record), so the A and B rows of a record agree with it
+    afterwards even if only one of them was edited.
 
     Raises:
         ValueError: if a record has an empty title (nothing is written).
@@ -393,6 +396,8 @@ def replace_queue(
         n_updated = sum(
             _update_record_data(conn, record_id, values, now) for record_id, values in updates
         )
+        if updates:
+            records = _rows_with_updated_records(conn, records, [rid for rid, _ in updates])
         created = _create_pending(conn, pending, pending_values, now)
         rows = list(zip(records, _row_values(records, created)))
         existing = {
@@ -427,6 +432,33 @@ def replace_queue(
         + (f", {len(pending)} collection records created" if pending else "")
         + (f", {n_updated} collection records updated" if updates else "")
     )
+
+
+def _rows_with_updated_records(
+    conn: sqlite3.Connection,
+    records: Sequence[LabelRecord],
+    record_ids: Sequence[int | None],
+) -> list[LabelRecord]:
+    """*records* with every row linked to one of *record_ids* taken from its stored record."""
+    wanted = {record_id for record_id in record_ids if record_id is not None}
+    if not wanted:
+        return list(records)
+    placeholders = ", ".join("?" * len(wanted))
+    stored = {
+        record.id: record
+        for record in map(
+            _row_to_record,
+            conn.execute(
+                f"SELECT {', '.join(_RECORD_COLUMNS)} FROM records WHERE id IN ({placeholders})",
+                tuple(wanted),
+            ),
+        )
+    }
+    return [
+        row_from_record(row, stored[row.record_id])
+        if row.record_id in stored and row.record_side in SIDES else row
+        for row in records
+    ]
 
 
 def append_to_queue(
