@@ -17,14 +17,23 @@ repeated for the same unchanged queue in this session (e.g. "Create PDF"
 followed by "Print"), and not asked when the step was aborted or failed.
 The OS print dialog itself is outside the app: whether the user printed or
 cancelled there is not visible, hence the question.
+
+PDF and queue stay in step: once a PDF was created in this session, every
+reload of the queue whose content differs from the PDF's regenerates it, and
+so does a watermark or calibration change in the settings. These automatic
+regenerations never ask the printed question. An empty queue clears the
+preview; a failed generation disables "Print", so an outdated PDF can never
+be printed.
 """
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -65,8 +74,17 @@ from ui.footer_widget import FooterWidget
 from ui.collection_dialog import CollectionDialog
 from ui.discogs_dialog import DiscogsDialog
 from ui.review_widget import ReviewDialog
+from ui.shortcuts import StandardKey, add_shortcut, keys, shortcut_text, with_shortcut
+from ui.window_state import restore_geometry, save_geometry
 
 _PDF_NAME = "labels.pdf"
+# "Print" hands a copy of the PDF to the OS (see _print_copy); the newest
+# copies are kept because a viewer may still have them open
+_PRINT_COPY_PREFIX = "labels-print-"
+_PRINT_COPIES_KEPT = 5
+# A calibration spin box emits a change per step: regenerate once it settles
+_LAYOUT_REFRESH_MS = 400
+_GEOMETRY_KEY = "main_window"
 
 
 def _window_title() -> str:
@@ -80,13 +98,22 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._records:        list[LabelRecord] = []
+        # The current, printable PDF; None while there is none or it failed
         self._pdf_path:       Path | None = None
+        # A PDF was created in this session: keep it in step with the queue.
+        # None is created on app start.
+        self._pdf_in_session: bool = False
+        # Queue state of the last PDF generation attempt (successful or not)
+        self._pdf_target:     tuple | None = None
         # Queue rows in the current PDF, and the queue state the printed
         # question was last asked for (asked once per unchanged queue)
         self._pdf_records:    list[LabelRecord] = []
         self._printed_asked:  tuple | None = None
         self._watermark_path: Path | None = get_watermark_path()
         self._mode:           DataSourceMode = get_data_source_mode()
+        # The start position is deliberately not persisted: it is label 1 on
+        # app start and is reset to label 1 after every successful "Print",
+        # because the next print usually goes onto a fresh sheet.
         self._start_index:    int = 0
 
         # Apply persisted calibration to the active format dict
@@ -94,10 +121,18 @@ class MainWindow(QMainWindow):
         AVERY_FORMATS["4780"]["calibration_x_mm"] = get_calibration_x()
         AVERY_FORMATS["4780"]["calibration_y_mm"] = get_calibration_y()
 
+        # Debounces PDF regenerations after watermark / calibration changes
+        self._layout_timer = QTimer(self)
+        self._layout_timer.setSingleShot(True)
+        self._layout_timer.setInterval(_LAYOUT_REFRESH_MS)
+        self._layout_timer.timeout.connect(self._refresh_pdf_layout)
+
         self._init_ui()
+        self._init_shortcuts()
         self._load_queue()
         self._update_footer_status()
         self._footer.update_debug_mode(get_debug_logging())
+        restore_geometry(self, _GEOMETRY_KEY)
         logger.info("Main window started")
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -151,11 +186,46 @@ class MainWindow(QMainWindow):
         # Wire footer signals
         self._footer.settings_clicked.connect(self.on_open_settings)
         self._footer.debug_badge_clicked.connect(self._on_debug_badge_clicked)
+        self._footer.mode_badge_clicked.connect(self._on_mode_badge_clicked)
+
+    def _init_shortcuts(self) -> None:
+        """Window shortcuts; they do not fire while a modal dialog is open."""
+        self._shortcut_keys = {
+            "load_data":  keys(None, "Ctrl+L"),
+            "queue":      keys(None, "Ctrl+E"),
+            "create_pdf": keys(None, "Ctrl+Shift+P"),
+            "print":      keys(StandardKey.Print, "Ctrl+P"),
+            "settings":   keys(None, "Ctrl+,"),
+        }
+        slots = {
+            "load_data":  self.on_load_data,
+            "queue":      self.on_open_queue,
+            "create_pdf": self.on_create_pdf,
+            "print":      self._on_print_shortcut,
+            "settings":   self.on_open_settings,
+        }
+        self._shortcuts = {
+            name: add_shortcut(self, self._shortcut_keys[name], slot)
+            for name, slot in slots.items()
+        }
+        self._update_shortcut_tooltips()
+
+    def _update_shortcut_tooltips(self) -> None:
+        self._sidebar.set_shortcut_hints({
+            name: shortcut_text(seqs[:1]) for name, seqs in self._shortcut_keys.items()
+        })
+        self._footer.set_settings_tooltip(
+            with_shortcut(t("menu_settings"), self._shortcut_keys["settings"])
+        )
+
+    def _on_print_shortcut(self) -> None:
+        if self._sidebar.print_enabled():
+            self.on_print()
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def _load_queue(self) -> None:
-        """Load the print queue from labels.db and update the sidebar queue count."""
+        """Load the print queue from labels.db; bring PDF, preview and footer in step."""
         try:
             self._records = label_store.load_queue()
         except Exception as exc:
@@ -165,6 +235,29 @@ class MainWindow(QMainWindow):
             )
             self._records = []
         self._sidebar.set_queue_count(len(self._records))
+        self._sync_pdf_with_queue()
+        self._update_placeholder()
+        self._update_collection_status()
+
+    def _sync_pdf_with_queue(self) -> None:
+        """Regenerate the PDF if the queue content differs from it (no printed question)."""
+        if not self._records:
+            self._clear_pdf()
+            return
+        if not self._pdf_in_session:
+            return
+        if self._queue_state(self._records) == self._pdf_target:
+            return
+        logger.debug("Print queue changed — regenerating the PDF")
+        self._create_pdf()
+
+    def _clear_pdf(self) -> None:
+        """No printable PDF: placeholder in the preview, "Print" off, PDF status reset."""
+        self._pdf_path = None
+        self._pdf_records = []
+        self._preview.clear()
+        self._sidebar.set_print_enabled(False)
+        self._sidebar.set_pdf_status("ready")
 
     # ── Main action handlers ──────────────────────────────────────────────────
 
@@ -181,10 +274,13 @@ class MainWindow(QMainWindow):
             dlg = CollectionDialog(parent=self)
             # Record edits can update linked queue rows
             dlg.queue_changed.connect(self._load_queue)
+            dlg.collection_changed.connect(self._update_collection_status)
             accepted = dlg.exec() == QDialog.DialogCode.Accepted
             dlg.deleteLater()
             if accepted:
                 self._load_queue()
+            else:
+                self._update_collection_status()
 
     def on_open_queue(self) -> None:
         """Queue button: open the queue editor (ReviewDialog), also when the queue is empty.
@@ -206,7 +302,9 @@ class MainWindow(QMainWindow):
         dlg = self._create_start_pos_dialog()
         dlg.exec()
         dlg.deleteLater()
+        self._update_start_position_text()
 
+    def _update_start_position_text(self) -> None:
         row = self._start_index // GridWidget.COLS + 1
         col = self._start_index % GridWidget.COLS + 1
         self._sidebar.set_start_position(self._start_index + 1, row, col)
@@ -228,7 +326,7 @@ class MainWindow(QMainWindow):
 
         def _on_pos(index: int) -> None:
             self._start_index = index
-            if self._pdf_path is not None:
+            if self._pdf_in_session and self._records:
                 # A new start position re-renders the same labels: no question
                 self._create_pdf()
 
@@ -246,11 +344,17 @@ class MainWindow(QMainWindow):
             self._offer_mark_printed()
 
     def _create_pdf(self) -> bool:
-        """Generate the PDF and load it into the preview; True on success."""
+        """Generate the PDF and load it into the preview; True on success.
+
+        Never asks the printed question (only on_create_pdf / on_print do). On
+        failure "Print" is disabled, so the previous PDF cannot be printed.
+        """
         if not self._records:
             return False
+        self._pdf_target = self._queue_state(self._records)
 
         if self._watermark_path is not None and not self._watermark_path.exists():
+            self._clear_pdf()
             QMessageBox.warning(
                 self, t("app_title"),
                 t("err_watermark_missing", path=str(self._watermark_path)),
@@ -260,29 +364,41 @@ class MainWindow(QMainWindow):
         self._sidebar.set_pdf_status("generating")
         QApplication.processEvents()
 
-        self._pdf_path = get_output_dir() / _PDF_NAME
+        pdf_path = get_output_dir() / _PDF_NAME
 
         try:
             generate_pdf(
                 records=self._records,
-                output_path=self._pdf_path,
+                output_path=pdf_path,
                 format_name="4780",
                 start_position=self._start_index,
                 watermark_path=self._watermark_path,
             )
         except Exception as exc:
             logger.error(f"PDF generation failed: {type(exc).__name__}: {exc}")
-            self._sidebar.set_pdf_status("ready")
+            self._clear_pdf()
             QMessageBox.critical(
                 self, t("app_title"), t("err_pdf", detail=str(exc))
             )
             return False
 
+        self._pdf_path = pdf_path
+        self._pdf_in_session = True
         self._pdf_records = list(self._records)
         self._preview.load_pdf(self._pdf_path)
         self._sidebar.set_pdf_status("done")
         self._sidebar.set_print_enabled(True)
         return True
+
+    def _on_print_layout_changed(self) -> None:
+        """Watermark or calibration changed: regenerate an existing PDF (debounced)."""
+        if self._pdf_in_session and self._records:
+            self._layout_timer.start()
+
+    def _refresh_pdf_layout(self) -> None:
+        if self._pdf_in_session and self._records:
+            logger.debug("Watermark / calibration changed — regenerating the PDF")
+            self._create_pdf()
 
     def on_print(self) -> None:
         """Print button: send the generated PDF to the OS print dialog."""
@@ -290,13 +406,45 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, t("app_title"), t("err_no_pdf"))
             return
         try:
-            print_pdf(self._pdf_path)
+            print_pdf(self._print_copy())
         except Exception as exc:
             QMessageBox.critical(
                 self, t("app_title"), t("err_print", detail=str(exc))
             )
             return
         self._offer_mark_printed()
+        self._reset_start_position()
+
+    def _print_copy(self) -> Path:
+        """Copy the PDF for the OS print dialog and return the copy.
+
+        The viewer opened by print_pdf() reads the file asynchronously, and
+        the PDF is regenerated right after printing (start position reset):
+        a copy of its own keeps the viewer on the labels that were printed.
+        Older copies beyond the newest few are removed (files still open in
+        a viewer on Windows cannot be, and are tried again next time).
+        """
+        assert self._pdf_path is not None
+        folder = self._pdf_path.parent
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        copy = folder / f"{_PRINT_COPY_PREFIX}{stamp}.pdf"
+        shutil.copyfile(self._pdf_path, copy)
+        old = sorted(folder.glob(f"{_PRINT_COPY_PREFIX}*.pdf"), reverse=True)
+        for path in old[_PRINT_COPIES_KEPT:]:
+            try:
+                path.unlink()
+            except OSError as exc:
+                logger.debug(f"Could not remove old print copy {path.name}: {exc}")
+        return copy
+
+    def _reset_start_position(self) -> None:
+        """After a successful "Print": start position back to label 1, PDF to match."""
+        if self._start_index == 0:
+            return
+        self._start_index = 0
+        self._update_start_position_text()
+        if self._records:
+            self._create_pdf()
 
     # ── Printed marking (LOCAL mode) ──────────────────────────────────────────
 
@@ -334,6 +482,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, t("app_title"), t("printed_mark_err", detail=str(exc))
             )
+        self._update_collection_status()
 
     def _ask_mark_printed(self, n_labels: int) -> bool:
         msg = QMessageBox(self)
@@ -357,6 +506,9 @@ class MainWindow(QMainWindow):
             self._settings_dialog.debug_mode_changed.connect(
                 self._footer.update_debug_mode
             )
+            self._settings_dialog.print_layout_changed.connect(
+                self._on_print_layout_changed
+            )
         self._settings_dialog.show()
         self._settings_dialog.raise_()
 
@@ -365,6 +517,11 @@ class MainWindow(QMainWindow):
         self.on_open_settings()
         self._settings_dialog.switch_to_tab(0)
 
+    def _on_mode_badge_clicked(self) -> None:
+        """Open Settings dialog and navigate to the Data source tab."""
+        self.on_open_settings()
+        self._settings_dialog.switch_to_tab(1)
+
     def on_mode_changed(self, mode_str: str) -> None:
         """React to data-source mode change from the settings dialog."""
         self._mode = DataSourceMode(mode_str)
@@ -372,22 +529,56 @@ class MainWindow(QMainWindow):
         self._footer.update_mode(self._mode)
         self._sidebar.set_active_mode(self._mode)
         self._update_footer_status()
+        self._update_placeholder()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _update_footer_status(self) -> None:
-        """Sync footer connection dot and mode badge with current state."""
+        """Sync footer status (Discogs connection / collection) and mode badge."""
         if self._mode == DataSourceMode.DISCOGS:
             creds = CredentialsManager().load()
             username = creds.get("discogs_username", "")
             self._footer.update_discogs_status(bool(username), username)
         else:
             self._footer.update_discogs_status(False, "")
+            self._update_collection_status()
         self._footer.update_mode(self._mode)
+
+    def _update_collection_status(self) -> None:
+        """Collection counts in the footer (LOCAL mode only)."""
+        if self._mode != DataSourceMode.LOCAL:
+            return
+        try:
+            n_records, n_unprinted = label_store.collection_counts()
+        except Exception as exc:
+            logger.warning(f"Could not count the collection: {type(exc).__name__}: {exc}")
+            return
+        self._footer.update_collection_status(n_records, n_unprinted)
+
+    def _update_placeholder(self) -> None:
+        """Preview hint for the current queue and mode (shown while there is no PDF)."""
+        if self._records:
+            text = t("preview_hint_no_pdf", n=len(self._records))
+        elif self._mode == DataSourceMode.DISCOGS:
+            text = t("preview_hint_empty_discogs")
+        else:
+            text = t("preview_hint_empty_local")
+        self._preview.set_placeholder_text(text)
+
+    # ── Window geometry ───────────────────────────────────────────────────────
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        save_geometry(self, _GEOMETRY_KEY)
+        settings_dialog = getattr(self, "_settings_dialog", None)
+        if settings_dialog is not None and settings_dialog.isVisible():
+            # Closed together with the main window, without its own done()
+            settings_dialog.reject()
+        super().closeEvent(event)
 
     # ── Watermark (preserved for SettingsDialog integration) ──────────────────
 
-    def _on_select_watermark(self) -> None:
+    def _on_select_watermark(self) -> bool:
+        """Choose a watermark file; True if one was chosen."""
         start_dir = (
             str(self._watermark_path.parent)
             if self._watermark_path else str(Path.home())
@@ -399,13 +590,17 @@ class MainWindow(QMainWindow):
             t("dlg_watermark_filter"),
         )
         if not path:
-            return
+            return False
         self._watermark_path = Path(path)
         set_watermark_path(self._watermark_path)
+        return True
 
-    def _on_clear_watermark(self) -> None:
+    def _on_clear_watermark(self) -> bool:
+        """Remove the watermark; True if there was one."""
+        had_watermark = self._watermark_path is not None
         self._watermark_path = None
         set_watermark_path(None)
+        return had_watermark
 
     # ── Theme / language ──────────────────────────────────────────────────────
 
@@ -423,3 +618,5 @@ class MainWindow(QMainWindow):
         self._footer.retranslate()
         self._preview.retranslate()
         self._sidebar.set_queue_count(len(self._records))
+        self._update_shortcut_tooltips()
+        self._update_placeholder()

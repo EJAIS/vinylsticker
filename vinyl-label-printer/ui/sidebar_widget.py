@@ -70,6 +70,9 @@ class SidebarButton(QWidget):
         self._subtitle_lbl.setText(text)
         self._subtitle_lbl.setVisible(bool(text))
 
+    def subtitle(self) -> str:
+        return self._subtitle_lbl.text()
+
     def set_active(self, active: bool) -> None:
         self._active = active
         self._update_style()
@@ -164,6 +167,9 @@ class SidebarWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._mode = DataSourceMode.LOCAL
         self._pdf_status = "ready"
+        # Shortcut per button ("load_data", "queue", "create_pdf", "print"),
+        # appended to the tooltips: "Print (Ctrl+P)"
+        self._shortcut_hints: dict[str, str] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 12, 8, 12)
@@ -323,15 +329,41 @@ class SidebarWidget(QWidget):
     def set_print_enabled(self, enabled: bool) -> None:
         self._btn_print.setEnabled(enabled)
 
+    def print_enabled(self) -> bool:
+        return self._btn_print.isEnabled()
+
+    def start_position_text(self) -> str:
+        return self._btn_start_pos.subtitle()
+
+    def pdf_status(self) -> str:
+        return self._pdf_status
+
+    def set_shortcut_hints(self, hints: dict[str, str]) -> None:
+        """Shortcut texts per button, shown in the tooltips."""
+        self._shortcut_hints = dict(hints)
+        self._update_tooltips()
+
+    def _tooltip(self, name: str, text: str) -> str:
+        hint = self._shortcut_hints.get(name, "")
+        return f"{text} ({hint})" if hint else text
+
+    def _update_tooltips(self) -> None:
+        load_tip = (
+            t("sidebar_load_data_tip_discogs") if self._mode == DataSourceMode.DISCOGS
+            else t("sidebar_load_data_tip_local")
+        )
+        self._btn_load_data.setToolTip(self._tooltip("load_data", load_tip))
+        self._btn_queue.setToolTip(self._tooltip("queue", t("sidebar_queue_tip")))
+        self._btn_create_pdf.setToolTip(self._tooltip("create_pdf", t("sidebar_create_pdf")))
+        self._btn_print.setToolTip(self._tooltip("print", t("btn_print")))
+
     def set_active_mode(self, mode: DataSourceMode) -> None:
         self._mode = mode
         if mode == DataSourceMode.DISCOGS:
             self._btn_load_data.set_subtitle(t("sidebar_discogs_mode"))
-            self._btn_load_data.setToolTip(t("sidebar_load_data_tip_discogs"))
         else:
             self._btn_load_data.set_subtitle(t("sidebar_collection"))
-            self._btn_load_data.setToolTip(t("sidebar_load_data_tip_local"))
-        self._btn_queue.setToolTip(t("sidebar_queue_tip"))
+        self._update_tooltips()
 
     def retranslate(self) -> None:
         self._lbl_section_data.setText(t("sidebar_section_data").upper())

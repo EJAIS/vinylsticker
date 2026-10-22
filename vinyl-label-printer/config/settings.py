@@ -6,10 +6,15 @@ Currently stores:
   data_source_mode  — "local" or "discogs"
   theme             — "auto", "dark", or "light"
   save_to_collection — queue editor (LOCAL mode): "Also save to collection"
+  window_geometry   — {window key: base64 of QWidget.saveGeometry()}
+  header_state      — {window key: {"columns": n, "state": base64 of
+                      QHeaderView.saveState()}}
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from pathlib import Path
 
@@ -171,3 +176,64 @@ def set_save_to_collection(value: bool) -> None:
     data = _load()
     data["save_to_collection"] = value
     _save(data)
+
+
+# ── Window geometry and table header state ────────────────────────────────────
+# Keys: "main_window", "collection_dialog", "review_dialog", "discogs_dialog",
+# "settings_dialog". The values are opaque Qt blobs, stored as base64 strings.
+
+def _decode(value: object) -> bytes | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return base64.b64decode(value.encode("ascii"), validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
+def _encode(data: bytes) -> str:
+    return base64.b64encode(bytes(data)).decode("ascii")
+
+
+def get_window_geometry(key: str) -> bytes | None:
+    """Return the saved saveGeometry() blob of window *key*, or None (unset / invalid)."""
+    stored = _load().get("window_geometry")
+    return _decode(stored.get(key)) if isinstance(stored, dict) else None
+
+
+def set_window_geometry(key: str, data: bytes) -> None:
+    """Persist the saveGeometry() blob *data* of window *key*."""
+    settings = _load()
+    stored = settings.get("window_geometry")
+    if not isinstance(stored, dict):
+        stored = {}
+    stored[key] = _encode(data)
+    settings["window_geometry"] = stored
+    _save(settings)
+
+
+def get_header_state(key: str) -> tuple[int, bytes] | None:
+    """Return (column count, saveState() blob) of the table header in window *key*.
+
+    None if nothing (or something invalid) is stored.
+    """
+    stored = _load().get("header_state")
+    entry = stored.get(key) if isinstance(stored, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    columns = entry.get("columns")
+    state = _decode(entry.get("state"))
+    if not isinstance(columns, int) or isinstance(columns, bool) or state is None:
+        return None
+    return columns, state
+
+
+def set_header_state(key: str, columns: int, data: bytes) -> None:
+    """Persist the header saveState() blob *data* (of a table with *columns* columns)."""
+    settings = _load()
+    stored = settings.get("header_state")
+    if not isinstance(stored, dict):
+        stored = {}
+    stored[key] = {"columns": columns, "state": _encode(data)}
+    settings["header_state"] = stored
+    _save(settings)

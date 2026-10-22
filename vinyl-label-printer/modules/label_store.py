@@ -511,6 +511,27 @@ def record_count() -> int:
         return conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
 
 
+def _is_printed(value: object) -> int:
+    return int(printed_date(value) is not None)
+
+
+def collection_counts() -> tuple[int, int]:
+    """(records, records not printed) of the collection, in one query.
+
+    A record counts as not printed if at least one side with a title has no
+    printed date (the same rule as CollectionRecord.unprinted_sides()).
+    """
+    with _transaction() as conn:
+        conn.create_function("vlp_printed", 1, _is_printed, deterministic=True)
+        total, unprinted = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM("
+            "(COALESCE(title_a, '') <> '' AND NOT vlp_printed(printed_a_at)) "
+            "OR (COALESCE(title_b, '') <> '' AND NOT vlp_printed(printed_b_at))"
+            "), 0) FROM records"
+        ).fetchone()
+    return total, unprinted
+
+
 def get_record(record_id: int) -> CollectionRecord | None:
     """The collection record *record_id*, or None."""
     with _transaction() as conn:

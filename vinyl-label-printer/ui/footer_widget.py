@@ -2,7 +2,9 @@
 Footer widget — fixed-height status bar at the bottom of the main window.
 
 Left side:  Settings button.
-Right side: Discogs connection dot + username, vertical divider, mode badge pill.
+Right side: DISCOGS mode: connection dot + username; LOCAL mode: collection
+            status ("{n} records · {m} not printed"); vertical divider; mode
+            badge pill (click: settings, data source tab).
 """
 
 from __future__ import annotations
@@ -22,11 +24,25 @@ from modules.i18n import t
 from ui.theme_manager import ThemeManager, current_colors
 
 
+class _ClickableLabel(QLabel):
+    """QLabel that emits clicked on a left mouse click."""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class FooterWidget(QWidget):
     """48 px tall footer with settings button and connection/mode status."""
 
     settings_clicked = pyqtSignal()
     debug_badge_clicked = pyqtSignal()
+    mode_badge_clicked = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -36,6 +52,8 @@ class FooterWidget(QWidget):
         self._connected = False
         self._username = ""
         self._mode = DataSourceMode.LOCAL
+        # Collection counts shown in LOCAL mode (records, not printed)
+        self._collection_counts: tuple[int, int] = (0, 0)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
@@ -67,23 +85,32 @@ class FooterWidget(QWidget):
         username_font.setPixelSize(12)
         self._lbl_username.setFont(username_font)
 
+        # Collection status (LOCAL mode, replaces dot + username)
+        self._lbl_collection = QLabel("")
+        self._lbl_collection.setFont(username_font)
+
         # Vertical divider (1 px, 12 px tall)
         self._divider = QFrame()
         self._divider.setFrameShape(QFrame.Shape.VLine)
         self._divider.setFixedSize(1, 12)
 
-        # Mode badge pill
-        self._lbl_mode = QLabel(t("sidebar_local_mode"))
+        # Mode badge pill (clickable: settings, data source tab)
+        self._lbl_mode = _ClickableLabel(t("sidebar_local_mode"))
+        self._lbl_mode.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lbl_mode.setToolTip(t("footer_mode_tip"))
+        self._lbl_mode.clicked.connect(self.mode_badge_clicked)
         mode_font = self._lbl_mode.font()
         mode_font.setPixelSize(12)
         self._lbl_mode.setFont(mode_font)
 
         layout.addWidget(self._dot, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._lbl_username, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self._lbl_collection, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._divider, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._lbl_mode, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._apply_theme()
+        self._update_status_widgets()
         ThemeManager.instance().theme_changed.connect(self._apply_theme)
 
     # ── Style ─────────────────────────────────────────────────────────────────
@@ -122,6 +149,9 @@ class FooterWidget(QWidget):
 
         self._lbl_username.setStyleSheet(
             f"color: {colors.text_primary}; background: transparent;"
+        )
+        self._lbl_collection.setStyleSheet(
+            f"color: {colors.text_secondary}; background: transparent;"
         )
 
         self._divider.setStyleSheet(
@@ -182,6 +212,29 @@ class FooterWidget(QWidget):
             self._lbl_mode.setText(t("sidebar_discogs_mode"))
         else:
             self._lbl_mode.setText(t("sidebar_local_mode"))
+        self._update_status_widgets()
+
+    def update_collection_status(self, n_records: int, n_unprinted: int) -> None:
+        """Collection counts shown in LOCAL mode."""
+        self._collection_counts = (n_records, n_unprinted)
+        self._update_status_widgets()
+
+    def collection_text(self) -> str:
+        n_records, n_unprinted = self._collection_counts
+        if n_records == 0:
+            return t("footer_collection_empty")
+        return t("footer_collection_status", n=n_records, m=n_unprinted)
+
+    def _update_status_widgets(self) -> None:
+        """DISCOGS: connection dot + username; LOCAL: the collection status."""
+        local = self._mode != DataSourceMode.DISCOGS
+        self._dot.setVisible(not local)
+        self._lbl_username.setVisible(not local)
+        self._lbl_collection.setVisible(local)
+        self._lbl_collection.setText(self.collection_text())
+
+    def set_settings_tooltip(self, text: str) -> None:
+        self._btn_settings.setToolTip(text)
 
     def update_debug_mode(self, active: bool) -> None:
         self._debug_badge.setVisible(active)
@@ -189,6 +242,7 @@ class FooterWidget(QWidget):
     def retranslate(self) -> None:
         self._btn_settings.setText(f"⚙  {t('menu_settings')}")
         self._debug_badge.setText(t("debug_mode_active"))
+        self._lbl_mode.setToolTip(t("footer_mode_tip"))
         self.update_mode(self._mode)
         if not self._connected:
             self._lbl_username.setText(t("sidebar_not_connected"))

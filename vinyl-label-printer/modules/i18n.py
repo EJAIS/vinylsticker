@@ -35,7 +35,6 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Preview
         "page_indicator":    "Seite {current} von {total}",
-        "no_preview":        "Kein PDF geladen.",
 
         # Status bar messages
         "status_loaded":     "{n} Etiketten in der Warteschlange",
@@ -596,6 +595,21 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_section_data":     "Daten",
         "sidebar_section_print":    "Druck",
 
+        # Footer: collection status (LOCAL mode) and mode badge
+        "footer_collection_status": "{n} Platten · {m} nicht gedruckt",
+        "footer_collection_empty":  "Sammlung leer",
+        "footer_mode_tip":          "Datenquelle in den Einstellungen wählen",
+
+        # Preview placeholder
+        "preview_hint_empty_local": "Wähle über „Daten laden“ Platten aus deiner Sammlung.",
+        "preview_hint_empty_discogs": "Lade über „Daten laden“ Platten aus Discogs.",
+        "preview_hint_no_pdf": (
+            "{n} Etiketten in der Warteschlange – „PDF erstellen“ zeigt die Vorschau."
+        ),
+
+        # Keyboard shortcut tooltips
+        "shortcut_search":          "Suchen",
+
         # Printer calibration (settings dialog)
         "print_calibration":            "DRUCKERKALIBRIERUNG",
         "calibration_x":                "Horizontal (X) in mm",
@@ -641,7 +655,6 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Preview
         "page_indicator":    "Page {current} of {total}",
-        "no_preview":        "No PDF loaded.",
 
         # Status bar messages
         "status_loaded":     "{n} labels in queue",
@@ -1188,6 +1201,21 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sidebar_collection":       "Collection (local)",
         "sidebar_section_data":     "Data",
         "sidebar_section_print":    "Print",
+
+        # Footer: collection status (LOCAL mode) and mode badge
+        "footer_collection_status": "{n} records · {m} not printed",
+        "footer_collection_empty":  "Collection empty",
+        "footer_mode_tip":          "Choose the data source in the settings",
+
+        # Preview placeholder
+        "preview_hint_empty_local": "Choose records from your collection via “Load data”.",
+        "preview_hint_empty_discogs": "Load records from Discogs via “Load data”.",
+        "preview_hint_no_pdf": (
+            "{n} labels in the queue – “Create PDF” shows the preview."
+        ),
+
+        # Keyboard shortcut tooltips
+        "shortcut_search":          "Search",
 
         # Printer calibration (settings dialog)
         "print_calibration":            "PRINTER CALIBRATION",

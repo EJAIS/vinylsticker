@@ -98,8 +98,18 @@ from modules.records import (
     row_matches_record,
 )
 from ui.entry_dialog import EntryDialog
+from ui.shortcuts import (
+    EditorShortcutGuard,
+    StandardKey,
+    add_shortcut,
+    is_editing,
+    keys,
+    plain,
+    with_shortcut,
+)
 from ui.styles import apply_search_style, apply_table_style
 from ui.theme_manager import ThemeManager, current_colors
+from ui.window_state import HeaderKeeper, restore_geometry, save_geometry
 
 logger = get_logger()
 
@@ -130,6 +140,9 @@ _ROLE_PENDING     = Qt.ItemDataRole.UserRole + 4  # pending collection record, -
 # Folder of the last CSV import / export in this session
 _last_csv_dir: str = ""
 
+# Geometry and columns: one key for the queue and the import mode
+_SETTINGS_KEY = "review_dialog"
+
 
 def default_csv_dir() -> str:
     """Last used CSV folder, else the user's documents folder, else home."""
@@ -156,11 +169,22 @@ class _CellBackgroundDelegate(QStyledItemDelegate):
     Selection and hover colors from the stylesheet are still drawn on top.
     """
 
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._shortcut_guard = EditorShortcutGuard(self)
+
     def paint(self, painter, option, index) -> None:
         brush = index.data(Qt.ItemDataRole.BackgroundRole)
         if isinstance(brush, QBrush) and brush.style() != Qt.BrushStyle.NoBrush:
             painter.fillRect(option.rect, brush)
         super().paint(painter, option, index)
+
+    def createEditor(self, parent, option, index):  # noqa: N802
+        editor = super().createEditor(parent, option, index)
+        if editor is not None:
+            # No dialog shortcut (Del, Ctrl+S, …) fires while a cell is edited
+            editor.installEventFilter(self._shortcut_guard)
+        return editor
 
 
 class ReviewDialog(QDialog):
@@ -201,11 +225,65 @@ class ReviewDialog(QDialog):
         self.setSizeGripEnabled(True)
 
         self._build_ui()
+        self._init_shortcuts()
         self._fill_table(records)
         # Imported rows are unsaved from the start; queue rows are what is stored
         self._saved_state = () if import_mode else self._table_state()
         self._apply_theme()
         ThemeManager.instance().theme_changed.connect(self._apply_theme)
+        self._header_keeper = HeaderKeeper(self._table.horizontalHeader(), _SETTINGS_KEY)
+        self._header_keeper.restore()
+        restore_geometry(self, _SETTINGS_KEY)
+
+    def _init_shortcuts(self) -> None:
+        """Ctrl+F search, Del delete rows, Ctrl+N add entry, Ctrl+S / Ctrl+Return confirm.
+
+        None of them fires while a cell editor is open (see the delegate).
+        """
+        find = keys(StandardKey.Find, "Ctrl+F")
+        delete = keys(StandardKey.Delete, "Del")
+        confirm = keys(StandardKey.Save, "Ctrl+S") + keys(None, "Ctrl+Return", "Ctrl+Enter")
+        add_shortcut(self, find, self._focus_search)
+        add_shortcut(self, confirm, self._on_confirm_shortcut)
+        # Del only while the table has the focus (the search field keeps its Del)
+        add_shortcut(
+            self._table, delete, self._on_delete_shortcut,
+            Qt.ShortcutContext.WidgetWithChildrenShortcut,
+        )
+        self._search.setToolTip(with_shortcut(t("shortcut_search"), find))
+        self._btn_delete_sel.setToolTip(with_shortcut(plain(self._btn_delete_sel.text()), delete))
+        # "Ctrl+S, Ctrl+Return" (Save may have more bindings on some platforms)
+        save = keys(StandardKey.Save, "Ctrl+S")[:1]
+        self._btn_confirm.setToolTip(
+            with_shortcut(self._btn_confirm.toolTip(), save + confirm[-2:-1], 2)
+        )
+        if self._btn_entry is not None:
+            new = keys(StandardKey.New, "Ctrl+N")
+            add_shortcut(self, new, self._on_add_entry_shortcut)
+            self._btn_entry.setToolTip(with_shortcut(self._btn_entry.toolTip(), new))
+
+    def _focus_search(self) -> None:
+        if not is_editing(self._table):
+            self._search.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            self._search.selectAll()
+
+    def _on_delete_shortcut(self) -> None:
+        if not is_editing(self._table):
+            self._delete_selected_rows()
+
+    def _on_add_entry_shortcut(self) -> None:
+        if not is_editing(self._table):
+            self._on_add_entry()
+
+    def _on_confirm_shortcut(self) -> None:
+        if not is_editing(self._table) and self._btn_confirm.isEnabled():
+            self._on_confirm()
+
+    def done(self, result: int) -> None:
+        # Covers accept (confirm) and every way of rejecting (Cancel, Esc, close)
+        save_geometry(self, _SETTINGS_KEY)
+        self._header_keeper.save()
+        super().done(result)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -241,6 +319,7 @@ class ReviewDialog(QDialog):
         btn_none.clicked.connect(lambda: self._set_all_checked(False))
         btn_del = QPushButton(t("review_btn_delete_sel"))
         btn_del.clicked.connect(self._delete_selected_rows)
+        self._btn_delete_sel = btn_del
         btn_add = QPushButton(t("review_btn_add_row"))
         btn_add.clicked.connect(self._add_empty_row)
 
@@ -253,12 +332,14 @@ class ReviewDialog(QDialog):
         self._search.textChanged.connect(self._on_search)
 
         # ── Editor tools (queue mode only) ────────────────────────────────────
+        self._btn_entry: QPushButton | None = None
         if not self._import_mode:
             tools = QHBoxLayout()
             tools.setSpacing(4)
             btn_entry = QPushButton(t("review_btn_add_entry"))
             btn_entry.setToolTip(t("review_btn_add_entry_tip"))
             btn_entry.clicked.connect(self._on_add_entry)
+            self._btn_entry = btn_entry
             btn_import = QPushButton(t("review_btn_import_csv"))
             btn_import.setToolTip(t("review_btn_import_csv_tip"))
             btn_import.clicked.connect(self._on_import_csv)
