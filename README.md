@@ -176,6 +176,12 @@ On Linux the `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` and `XDG_STATE
 variables are respected. On Windows, `%APPDATA%` is `C:\Users\<you>\AppData\Roaming` and
 `%LOCALAPPDATA%` is `C:\Users\<you>\AppData\Local`.
 
+`settings.json` and `credentials.json` are always replaced in one step, so a crash or power
+failure while saving leaves the previous version intact. If one of them is unreadable anyway
+(e.g. edited by hand), the app renames it to `settings.json.corrupt-YYYYmmdd-HHMMSS` (or
+`credentials.json.corrupt-…`), notes this in `app.log` and starts with the defaults (or without
+Discogs credentials) — the renamed file is kept, so nothing is lost.
+
 The print queue and your local record collection are stored in `labels.db`, a single SQLite
 file in the data folder. They are edited only inside the app: **Queue** (both modes) opens the
 queue editor, **Load data** (Local mode) opens the collection (see
@@ -339,9 +345,10 @@ and opens the **Discogs account** tab (see [Discogs Import](#discogs-import)).
 
 In Local mode you keep your records in the app's **collection** and pick the sides to print from
 it (**Load data**), or you fill the print queue directly in the **queue editor** (**Queue**).
-Typical round: **Load data** → tick the sides → **Add to print queue →** → **Create PDF** →
-**Print** → confirm that the labels were printed. The collection, its printed dates and how it
-stays in sync with the queue are described in [Collection (Local mode)](#collection-local-mode).
+Typical round: **Load data** → tick the sides → **Add to print queue →** → **Create PDF**
+(preview) → **Print** → confirm that the labels were printed. The collection, its printed dates
+and how it stays in sync with the queue are described in
+[Collection (Local mode)](#collection-local-mode).
 
 ##### Print queue editor
 
@@ -358,7 +365,8 @@ Click **Queue** in the sidebar. The queue editor opens — also when the queue i
   collection unchanged.
 - **Add row** adds an empty row to fill in directly in the table.
 - **Import CSV …** / **Export CSV …** — see [CSV import and export](#csv-import-and-export).
-- Edit cells, drag rows to reorder them, delete or duplicate rows via the context menu, filter
+- Edit cells, drag rows to reorder them (one or several selected rows at a time, while the
+  search field is empty), delete or duplicate rows via the context menu, filter
   with the search bar (the table works as described in
   [Step 5 — Review and confirm](#step-5--review-and-confirm)).
 
@@ -511,14 +519,14 @@ filters live over all text columns (every word must match).
 **Printed A** / **Printed B** show the date a side was last printed, in your system's date
 format, or nothing if it was never printed.
 
-- After a successful **Print** or **Create PDF**, if labels of the PDF are linked to the
-  collection, the app asks once: *"Mark the {n} labels from the collection as printed?"*
-  **Yes** sets today's date for the side of every linked label; labels that are not linked
-  (e.g. one-off entries) are ignored. For the same unchanged queue the question is not asked
-  again in this session — so **Create PDF** followed by **Print** asks only once; change the
-  queue and it is asked again. If the PDF could not be created or the print could not be
-  started (e.g. the watermark file is missing), there is no question. The system's print
-  dialog itself is outside the app: if you cancel printing there, answer **No**.
+- After a successful **Print**, if labels of the printed PDF are linked to the collection, the
+  app asks: *"Mark the {n} labels from the collection as printed?"* **Yes** sets today's date
+  for the side of every linked label; labels that are not linked (e.g. one-off entries) are
+  ignored. **Create PDF** is only a preview and never asks. For the same unchanged queue the
+  question is asked once in this session — printing the same labels again does not ask again;
+  change the queue and the next **Print** asks again. If the print could not be started, there
+  is no question. The system's print dialog itself is outside the app: if you cancel printing
+  there, answer **No**.
 - By hand: select records (Ctrl / Shift + click) and use **Mark as printed** (today's date for
   every side with a title) or **Mark as not printed** (clears both sides) — as buttons or in
   the context menu (right-click).
@@ -535,10 +543,13 @@ When one side changes, the app offers to update the other:
   linked entries whose title or shared fields differ from their record. If there are any, it
   asks once: *"{n} changed entries belong to records in the collection. Apply the changes to
   the collection too?"* — **Update collection** writes the changes into the records in the same
-  transaction as the queue, **Only the print queue** leaves the collection as it is. If the A
+  transaction as the queue, **Only the print queue** leaves the collection as it is (the
+  entries still differ from their record, so the next **Save** asks again). If the A
   and the B entry of the same record were changed differently (e.g. two different artists), the
   entry further down in the table wins; a field changed in only one entry is taken from that
-  entry. Printed dates are not touched.
+  entry. With **Update collection** every saved entry of an updated record then gets the
+  record's shared fields and the title of its side — also the entry you did not edit — so queue
+  and collection agree and the next **Save** asks nothing. Printed dates are not touched.
 - **Collection → queue.** When you edit a record whose linked queue entries would change, the
   app asks once: *"Also update the {n} entries in the print queue?"* **Yes** gives each entry
   the title of its side and the shared fields (an entry whose side no longer has a title keeps
@@ -629,8 +640,8 @@ Footer status: in Local mode it shows the collection — `{n} records · {m} not
 print queue — the queue editor, **Add to print queue** from the collection, a Discogs import, a
 record edit that updates linked queue rows — regenerates the PDF, and so does a change of the
 watermark or the printer calibration. **Print** therefore always prints what the preview shows.
-These automatic regenerations never ask whether to mark labels as printed; only **Create PDF**
-and **Print** do. If the queue becomes empty, the preview is cleared and **Print** is disabled;
+These automatic regenerations never ask whether to mark labels as printed; only **Print**
+does. If the queue becomes empty, the preview is cleared and **Print** is disabled;
 if a regeneration fails, an error is shown and **Print** stays disabled until a PDF could be
 created again. No PDF is created on app start: the preview shows a hint instead (what to load,
 or how many labels are waiting for **Create PDF**).
@@ -736,7 +747,9 @@ A **Review dialog** opens showing all expanded rows before anything is written t
 **Editing:**
 
 - Double-click or start typing to edit a cell. Edited cells flash yellow briefly.
-- Drag rows to reorder them.
+- Drag rows to reorder them: select one or several rows (Ctrl / Shift + click) and drop them
+  between two rows or below the last one. While the search field filters the table, rows cannot
+  be dragged (the table's tooltip says so); clear the search first.
 - Right-click a row to **delete** or **duplicate** it.
 - Use the toolbar buttons to select all / none, delete selected rows, or add a blank row.
 - The search bar filters visible rows by title or artist.
@@ -877,6 +890,7 @@ vinyl-label-printer/
 │   ├── discogs_client.py          # Discogs REST API client (verify, collection, release details; global throttle)
 │   ├── discogs_cache.py           # SQLite cache: collection fields + per-release details (6 h ToU each)
 │   ├── version_checker.py         # GitHub release check + semantic version comparison
+│   ├── json_store.py              # Atomic JSON writes; unreadable files are moved aside
 │   └── credentials_manager.py     # Load/save/clear credentials.json
 ├── ui/
 │   ├── app.py                     # QMainWindow — wires all components together (no menu bar)
@@ -902,7 +916,8 @@ vinyl-label-printer/
     ├── test_queue_editor.py       # Entry form, saving / clearing the queue, unsaved changes, CSV
     ├── test_collection.py         # Collection: schema 1 → 2, records, links, dialog, CSV grouping
     ├── test_collection_sync.py    # Printed marking, queue ↔ collection sync, collection CSV
-    └── test_ux_polish.py          # PDF follows the queue, start position, window state, shortcuts, footer
+    ├── test_ux_polish.py          # PDF follows the queue, start position, window state, shortcuts, footer
+    └── test_data_integrity.py     # No stale queue in the editor, row drag & drop, atomic settings
 ```
 
 User files (`settings.json`, `credentials.json`, `labels.db`, `discogs_cache.db`, generated
@@ -975,7 +990,7 @@ The five-line block is vertically centred inside the label cell. If a watermark 
 
 #### `config/settings.py`
 
-Reads and writes `settings.json` in the config folder (`modules.paths.get_settings_file()`). The file is not shipped with the app — missing keys (or a missing file) fall back to defaults, and the file is created on the first save. Keys:
+Reads and writes `settings.json` in the config folder (`modules.paths.get_settings_file()`). The file is not shipped with the app — missing keys (or a missing file) fall back to defaults, and the file is created on the first save. Reads and writes go through `modules/json_store.py` (atomic replace; an unreadable file is moved aside to `settings.json.corrupt-YYYYmmdd-HHMMSS` before the defaults are used). Keys:
 
 | Key | Type | Description |
 |---|---|---|
@@ -1151,7 +1166,7 @@ Timestamps are stored as timezone-aware UTC ISO strings; naive values from older
 |---|---|
 | `CredentialsManager()` | Reads/writes `credentials.json` in the config folder; copies from the bundled `credentials.example.json` if missing |
 | `load()` | Returns `{"discogs_username": str, "discogs_token": str}` |
-| `save(username, token)` | Writes credentials and sets file permissions to `600` on Linux/macOS |
+| `save(username, token)` | Writes credentials atomically (`modules/json_store.py`) with file permissions `600` on Linux/macOS; an unreadable file is moved aside to `credentials.json.corrupt-…` |
 | `are_valid()` | Returns `True` if both username and token are non-empty |
 | `clear()` | Overwrites the file with empty values |
 
@@ -1292,7 +1307,7 @@ import (import mode). Writes through `label_store`; nothing is written before th
 | Columns | ☐, Title, Artist, Label, Cat. No., Country, Year, Side |
 | Required fields | Title, Side — highlighted red when empty |
 | Edit feedback | Edited cell flashes yellow (600 ms) then returns to normal or red |
-| Row operations | Drag & drop reorder; context menu delete / duplicate; toolbar add / delete |
+| Row operations | Drag & drop reorder of whole rows (`_QueueTable`: selected rows, all columns incl. the checkbox item and its metadata, inserted above / below the drop row or at the end; disabled while the search filters); context menu delete / duplicate; toolbar add / delete |
 | Editor tools (queue mode) | **Add entry** (`ui/entry_dialog.py`), **Import CSV** (append / replace the table), **Export CSV** (all rows, also unchecked and hidden) |
 | Search | Live filter by title or artist (`setRowHidden`); **Select all / none** only affect visible rows |
 | Confirm | Writes all checked rows (visible or hidden) via `label_store`; sides saved via `normalise_side()`; rows without a title are not saved. Queue mode (**Save**): `replace_queue()`, nothing checked empties the queue after a confirmation. Import mode: disabled until ≥ 1 row is checked |

@@ -10,6 +10,8 @@ Tabs (left nav):
 Signals emitted to MainWindow:
   mode_changed(str)    — 'local' | 'discogs'
   language_changed()   — emitted after language switch (no arg)
+  queue_changed()      — "Change token" opened the Discogs dialog and its
+                         import wrote the print queue (labels.db)
 
 Theme changes go through ThemeManager, which restyles every open window.
 """
@@ -295,6 +297,8 @@ class SettingsDialog(QDialog):
     debug_mode_changed = pyqtSignal(bool)  # emitted when debug toggle changes
     # Watermark or printer calibration changed: an existing PDF is outdated
     print_layout_changed = pyqtSignal()
+    # The Discogs dialog of "Change token" imported rows into the print queue
+    queue_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1260,9 +1264,12 @@ class SettingsDialog(QDialog):
     def _on_change_token(self) -> None:
         from ui.discogs_dialog import DiscogsDialog
         dlg = DiscogsDialog(parent=self)
-        dlg.exec()
+        # Accepted only after its import wrote the print queue
+        accepted = dlg.exec() == QDialog.DialogCode.Accepted
         dlg.deleteLater()
         self._refresh_discogs_status()
+        if accepted:
+            self.queue_changed.emit()
 
     def _open_github(self) -> None:
         url = QUrl("https://github.com/EJAIS/vinylsticker")

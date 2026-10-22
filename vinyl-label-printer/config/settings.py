@@ -9,34 +9,32 @@ Currently stores:
   window_geometry   — {window key: base64 of QWidget.saveGeometry()}
   header_state      — {window key: {"columns": n, "state": base64 of
                       QHeaderView.saveState()}}
+
+Every write replaces settings.json atomically (modules.json_store).
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
-import json
 from pathlib import Path
 
 from modules.data_source import DataSourceMode
+from modules.json_store import read_json, write_json
 from modules.paths import get_settings_file
 
 
 def _load() -> dict:
-    settings_file = get_settings_file()
-    if settings_file.exists():
-        try:
-            return json.loads(settings_file.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
+    """The stored settings; {} if there are none or the file is unusable.
+
+    An unusable settings.json is moved aside first (modules.json_store), so
+    the next setter starts a new file instead of overwriting it.
+    """
+    return read_json(get_settings_file()) or {}
 
 
 def _save(data: dict) -> None:
-    get_settings_file().write_text(
-        json.dumps(data, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    write_json(get_settings_file(), data)
 
 
 def get_watermark_path() -> Path | None:

@@ -203,6 +203,8 @@ def test_automatic_regeneration_never_asks_the_printed_question(window):
     label_store.append_to_queue(queue_rows_for_sides(record, "AB"))
     window._load_queue()
     window.on_create_pdf()
+    assert window.asked == []                             # a preview never asks
+    window.on_print()
     assert window.asked == [2]
 
     label_store.append_to_queue(queue_rows_for_sides(record, "A"))
@@ -495,7 +497,8 @@ def test_footer_shows_the_collection_status_in_local_mode(window):
     window._load_queue()                                  # any queue change refreshes
     assert footer.collection_text() == "1 records · 1 not printed"
 
-    window.on_create_pdf()                                # printed marking: answered yes
+    window.on_create_pdf()
+    window.on_print()                                     # printed marking: answered yes
     assert footer.collection_text() == "1 records · 1 not printed"   # B is still open
     label_store.mark_sides_printed([(record.id, "B")])
     window._load_queue()
