@@ -18,8 +18,6 @@ _ROOT = Path(__file__).parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from PyQt6.QtCore import Qt
-
 from __version__ import __version__
 from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtWidgets import QApplication
@@ -29,8 +27,6 @@ from config.settings import (
     get_debug_logging,
     get_data_source_mode,
 )
-from config.themes import get_theme
-from config.stylesheet import build_stylesheet
 from modules.child_env import restore_user_environment
 from modules.i18n import set_language
 from modules.logger import setup_logger, get_logger
@@ -46,6 +42,7 @@ from modules.paths import (
     seed_example_database,
 )
 from ui.app import MainWindow
+from ui.theme_manager import ThemeManager
 
 APP_NAME = "Vinyl Label Printer"
 # Windows taskbar identity; see _set_windows_app_id()
@@ -55,21 +52,6 @@ APP_USER_MODEL_ID = "EJAIS.VinylLabelPrinter"
 # _GTK_APPLICATION_ID), QT_APP_NAME is the WM_CLASS class on X11 (StartupWMClass=).
 DESKTOP_FILE_NAME = "vinyl-label-printer"
 QT_APP_NAME = "Vinyl-Label-Drucker"
-
-
-def _resolve_theme(app: QApplication, theme: str) -> str:
-    """Resolve "auto" to "dark" or "light" based on the OS color scheme."""
-    if theme != "auto":
-        return theme
-    scheme = app.styleHints().colorScheme()
-    return "dark" if scheme == Qt.ColorScheme.Dark else "light"
-
-
-def apply_theme(app: QApplication, theme: str) -> None:
-    resolved = _resolve_theme(app, theme)
-    colors = get_theme(resolved)
-    app.setStyleSheet(build_stylesheet(colors))
-    app.setProperty("theme_colors", colors)
 
 
 def _attach_parent_console() -> None:
@@ -211,7 +193,7 @@ def main() -> None:
     logger.info(f"Platform: {sys.platform}")
     logger.info(f"Python: {sys.version.split()[0]}")
     logger.info(f"Debug logging: {debug_enabled}")
-    logger.info(f"Theme: {get_saved_theme()}")
+    logger.info(f"Theme setting: {get_saved_theme()}")
     logger.info(f"Language: {get_language_setting()}")
     logger.info(f"Data source: {get_data_source_mode().value}")
     logger.info("=" * 50)
@@ -225,7 +207,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     QGuiApplication.setDesktopFileName(DESKTOP_FILE_NAME)
     _apply_app_icon(app)
-    apply_theme(app, get_saved_theme())
+    ThemeManager.instance().set_setting(get_saved_theme(), persist=False)
     set_language(get_language_setting())
     # Must stay before the first window is created: Qt reads it for WM_CLASS then.
     app.setApplicationName(QT_APP_NAME)

@@ -290,11 +290,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "theme_auto":               "Automatisch (Systemeinstellung)",
         "theme_light":              "Hell",
         "theme_dark":               "Dunkel",
-        "theme_changed_title":      "Design geändert",
-        "theme_changed_msg":        "Bitte App neu starten, um das Theme vollständig anzuwenden.",
-
-        # Settings dialog — restart notice
-        "restart_required":         "Bitte starte die App neu, um das Theme vollständig anzuwenden.",
 
         # Settings dialog tabs
         "settings_tab_datasource":  "Datenquelle",
@@ -304,6 +299,7 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Settings dialog — appearance tab
         "settings_theme_label":         "Theme",
+        "settings_theme_auto_desc":     "Folgt dem Betriebssystem – aktuell {theme}",
         "settings_theme_dark_name":     "Dark Teal",
         "settings_theme_dark_desc":     "Dunkles Theme mit Teal-Akzent",
         "settings_theme_light_name":    "Light Teal",
@@ -692,11 +688,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "theme_auto":               "Automatic (system setting)",
         "theme_light":              "Light",
         "theme_dark":               "Dark",
-        "theme_changed_title":      "Theme changed",
-        "theme_changed_msg":        "Please restart the app to fully apply the new theme.",
-
-        # Settings dialog — restart notice
-        "restart_required":         "Please restart the app to fully apply the theme.",
 
         # Settings dialog tabs
         "settings_tab_datasource":  "Data source",
@@ -706,6 +697,7 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Settings dialog — appearance tab
         "settings_theme_label":         "Theme",
+        "settings_theme_auto_desc":     "Follows the operating system – currently {theme}",
         "settings_theme_dark_name":     "Dark Teal",
         "settings_theme_dark_desc":     "Dark theme with teal accent",
         "settings_theme_light_name":    "Light Teal",

@@ -362,6 +362,17 @@ jobs:
           /opt/venv/bin/pip install --upgrade pip
           /opt/venv/bin/pip install -r vinyl-label-printer/requirements.txt pyinstaller
 
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          # Test tools go to their own folder, not into /opt/venv, so the
+          # PyInstaller build below sees exactly the runtime dependencies.
+          /opt/venv/bin/pip install --target /opt/test-tools \
+            -r vinyl-label-printer/requirements-dev.txt
+          cd vinyl-label-printer
+          PYTHONPATH=/opt/test-tools /opt/venv/bin/python -m pytest -v -p no:cacheprovider tests
+
       - name: Build with PyInstaller
         run: /opt/venv/bin/pyinstaller --noconfirm --clean "$SPEC_FILE"
 

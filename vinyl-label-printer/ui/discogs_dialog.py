@@ -61,16 +61,12 @@ from modules.discogs_client import (
 )
 from modules.i18n import t
 from modules.logger import get_logger
+from config.themes import ThemeColors
 from ui.review_widget import ReviewDialog
 from ui.styles import apply_search_style, apply_table_style
+from ui.theme_manager import ThemeManager, current_colors
 
 logger = get_logger()
-
-
-def _get_colors():
-    from PyQt6.QtWidgets import QApplication
-    app = QApplication.instance()
-    return app.property("theme_colors") if app else None
 
 
 # ── Background workers ────────────────────────────────────────────────────────
@@ -325,6 +321,10 @@ class DiscogsDialog(QDialog):
         # Shared by all workers of this dialog; set on close to abort waits
         self._cancel_event      = threading.Event()
         self._workers_shut_down = False
+        # Last token verification error, shown in the danger color
+        self._verify_error = ""
+        # True while the cache status line shows the "expired" warning
+        self._cache_expired_shown = False
 
         self.setWindowTitle(t("dlg_discogs_title"))
         self.setWindowFlags(
@@ -338,6 +338,8 @@ class DiscogsDialog(QDialog):
 
         self._build_ui()
         self._init_state()
+        self._apply_theme()
+        ThemeManager.instance().theme_changed.connect(self._apply_theme)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -359,13 +361,11 @@ class DiscogsDialog(QDialog):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        info_html = t("discogs_setup_info").replace(
-            "<a href=", "<a style='color:#2196F3;' href="
-        )
-        info = QLabel(info_html)
-        info.setWordWrap(True)
-        info.setOpenExternalLinks(True)
-        layout.addWidget(info)
+        # Text with the themed link color: _apply_theme
+        self._setup_info = QLabel()
+        self._setup_info.setWordWrap(True)
+        self._setup_info.setOpenExternalLinks(True)
+        layout.addWidget(self._setup_info)
 
         form_grp    = QGroupBox(t("discogs_group_creds"))
         form_layout = QVBoxLayout(form_grp)
@@ -546,6 +546,7 @@ class DiscogsDialog(QDialog):
         username = self._setup_username.text().strip()
         token    = self._setup_token.text().strip()
 
+        self._verify_error = ""
         if not username or not token:
             self._setup_status.setText(t("discogs_enter_fields"))
             return
@@ -575,13 +576,22 @@ class DiscogsDialog(QDialog):
             return
         username, token = self._verify_creds
         self._cred_mgr.save(username, token)
+        self._verify_error = ""
         self._setup_status.setText("")
         self._show_collection_panel(username)
 
     def _on_verify_failure(self, message: str) -> None:
         if self._workers_shut_down:
             return
-        self._setup_status.setText(f"<span style='color:red'>{message}</span>")
+        self._verify_error = message
+        self._show_verify_error()
+
+    def _show_verify_error(self) -> None:
+        colors = current_colors()
+        color = colors.danger if colors else "red"
+        self._setup_status.setText(
+            f"<span style='color:{color}'>{self._verify_error}</span>"
+        )
 
     # ── Slot: logout ──────────────────────────────────────────────────────────
 
@@ -596,7 +606,7 @@ class DiscogsDialog(QDialog):
         self._lbl_progress.setText("")
         self._btn_import.setEnabled(False)
         self._lbl_cache_status.setText("")
-        self._lbl_cache_status.setStyleSheet("")
+        self._set_cache_status_expired(False)
         self._btn_cache_action.setVisible(False)
         self._lbl_cache_expired_reason.setVisible(False)
         self._stack.setCurrentIndex(_SETUP_IDX)
@@ -818,7 +828,7 @@ class DiscogsDialog(QDialog):
         self._update_selection_counter()
 
     def _update_selection_counter(self) -> None:
-        colors = _get_colors()
+        colors = current_colors()
         total_selected   = len(self._selected_ids)
         visible_selected = sum(
             1 for row in range(self._table.rowCount())
@@ -956,7 +966,7 @@ class DiscogsDialog(QDialog):
 
     def _show_no_cache_state(self) -> None:
         self._lbl_cache_status.setText(t("cache_no_data"))
-        self._lbl_cache_status.setStyleSheet("")
+        self._set_cache_status_expired(False)
         self._btn_cache_action.setText(t("cache_load_now"))
         self._btn_cache_action.setVisible(True)
         self._lbl_cache_expired_reason.setVisible(False)
@@ -964,21 +974,14 @@ class DiscogsDialog(QDialog):
         self._btn_import.setEnabled(False)
 
     def _show_expired_cache_state(self, status: dict) -> None:
-        colors = _get_colors()
         hours  = status["age_hours"] if status.get("age_hours") is not None else "?"
         self._lbl_cache_status.setText(t("cache_expired", hours=hours))
-        if colors:
-            self._lbl_cache_status.setStyleSheet(f"color: {colors.danger};")
+        self._set_cache_status_expired(True)
         self._btn_cache_action.setText(t("cache_reload"))
         self._btn_cache_action.setVisible(True)
 
-        # Show the ToU explanation below the warning line
+        # Show the ToU explanation below the warning line (style: _apply_theme)
         self._lbl_cache_expired_reason.setText(t("cache_expired_reason"))
-        if colors:
-            self._lbl_cache_expired_reason.setStyleSheet(
-                f"color: {colors.text_muted}; font-style: italic;"
-                " margin-top: 4px;"
-            )
         self._lbl_cache_expired_reason.setVisible(True)
 
         self._table.setVisible(False)
@@ -999,7 +1002,7 @@ class DiscogsDialog(QDialog):
         self._releases  = releases
         self._displayed = list(releases)
         self._table.setVisible(True)
-        self._lbl_cache_status.setStyleSheet("")
+        self._set_cache_status_expired(False)
         self._lbl_cache_expired_reason.setVisible(False)
 
         cached_at  = status["cached_at"]
@@ -1024,6 +1027,35 @@ class DiscogsDialog(QDialog):
             self._populate_table(self._displayed)
             self._update_selection_counter()
             self._btn_import.setEnabled(True)
+
+    def _set_cache_status_expired(self, expired: bool) -> None:
+        """Show the cache status line in the danger color (expired) or plain."""
+        self._cache_expired_shown = expired
+        colors = current_colors()
+        if expired and colors:
+            self._lbl_cache_status.setStyleSheet(f"color: {colors.danger};")
+        else:
+            self._lbl_cache_status.setStyleSheet("")
+
+    # ── Theme ─────────────────────────────────────────────────────────────────
+
+    def _apply_theme(self, colors: ThemeColors | None = None) -> None:
+        """(Re)apply all colors; runs at build time and on theme_changed."""
+        colors = colors or current_colors()
+        if not colors:
+            return
+        # The link color is part of the rich text
+        self._setup_info.setText(t("discogs_setup_info").replace(
+            "<a href=", f"<a style='color:{colors.link};' href="
+        ))
+        if self._verify_error:
+            self._show_verify_error()
+        self._set_cache_status_expired(self._cache_expired_shown)
+        self._lbl_cache_expired_reason.setStyleSheet(
+            f"color: {colors.text_muted}; font-style: italic;"
+            " margin-top: 4px;"
+        )
+        self._update_selection_counter()
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
 

@@ -28,6 +28,16 @@ class ThemeColors:
     label_filled:   str
     label_empty:    str
     label_skipped:  str
+    # Review table cells
+    cell_error_bg:  str   # empty required field
+    row_warn_bg:    str   # row that contains an empty required field
+    blink_bg:       str   # short flash after a cell was edited
+    # Info banners, links and status lines
+    info_border:    str
+    info_text:      str
+    link:           str
+    status_ok:      str
+    status_warn:    str
 
 
 THEMES = {
@@ -39,6 +49,9 @@ THEMES = {
         accent="#2e8b7a", accent_light="#7dd4c8", accent_bg="#1e4d45",
         success="#22c55e", warning="#f59e0b", danger="#ef4444",
         label_filled="#2e8b7a", label_empty="#2a3042", label_skipped="#313855",
+        cell_error_bg="#6b2d3a", row_warn_bg="#47303f", blink_bg="#5c5428",
+        info_border="#7dd4c8", info_text="#c8cfe0", link="#7dd4c8",
+        status_ok="#22c55e", status_warn="#f59e0b",
     ),
     "light": ThemeColors(
         bg_main="#f4f6fa", bg_sidebar="#eaeff7",
@@ -48,6 +61,9 @@ THEMES = {
         accent="#2e8b7a", accent_light="#1e5c53", accent_bg="#c8e8e4",
         success="#16a34a", warning="#d97706", danger="#dc2626",
         label_filled="#2e8b7a", label_empty="#f4f6fa", label_skipped="#eaeff7",
+        cell_error_bg="#ffebee", row_warn_bg="#fff5f5", blink_bg="#fff9c4",
+        info_border="#2196f3", info_text="#555555", link="#2196f3",
+        status_ok="#2e7d32", status_warn="#e65100",
     ),
 }
 

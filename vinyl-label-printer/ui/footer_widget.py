@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -17,8 +16,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from config.themes import ThemeColors
 from modules.data_source import DataSourceMode
 from modules.i18n import t
+from ui.theme_manager import ThemeManager, current_colors
 
 
 class FooterWidget(QWidget):
@@ -82,13 +83,14 @@ class FooterWidget(QWidget):
         layout.addWidget(self._divider, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._lbl_mode, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._apply_style()
+        self._apply_theme()
+        ThemeManager.instance().theme_changed.connect(self._apply_theme)
 
     # ── Style ─────────────────────────────────────────────────────────────────
 
-    def _apply_style(self) -> None:
-        app = QApplication.instance()
-        colors = app.property("theme_colors") if app else None
+    def _apply_theme(self, colors: ThemeColors | None = None) -> None:
+        """(Re)apply all footer colors; runs at build time and on theme_changed."""
+        colors = colors or current_colors()
         if not colors:
             return
 
@@ -116,10 +118,7 @@ class FooterWidget(QWidget):
         """)
         self._btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        dot_color = colors.success if self._connected else colors.text_muted
-        self._dot.setStyleSheet(
-            f"background-color: {dot_color}; border-radius: 4px;"
-        )
+        self._apply_dot_style(colors)
 
         self._lbl_username.setStyleSheet(
             f"color: {colors.text_primary}; background: transparent;"
@@ -139,10 +138,11 @@ class FooterWidget(QWidget):
             }}
         """)
 
+        # White text on the danger color in both themes
         self._debug_badge.setStyleSheet(f"""
             QPushButton {{
                 background-color: {colors.danger};
-                color: #ffffff;
+                color: white;
                 border: none;
                 border-radius: 20px;
                 padding: 3px 10px;
@@ -155,25 +155,26 @@ class FooterWidget(QWidget):
             }}
         """)
 
+    def _apply_dot_style(self, colors: ThemeColors) -> None:
+        dot_color = colors.success if self._connected else colors.text_muted
+        self._dot.setStyleSheet(
+            f"background-color: {dot_color}; border-radius: 4px;"
+        )
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def update_discogs_status(self, connected: bool, username: str) -> None:
         self._connected = connected
         self._username = username
 
-        app = QApplication.instance()
-        colors = app.property("theme_colors") if app else None
-
         if connected and username:
             self._lbl_username.setText(username)
         else:
             self._lbl_username.setText(t("sidebar_not_connected"))
 
+        colors = current_colors()
         if colors:
-            dot_color = colors.success if connected else colors.text_muted
-            self._dot.setStyleSheet(
-                f"background-color: {dot_color}; border-radius: 4px;"
-            )
+            self._apply_dot_style(colors)
 
     def update_mode(self, mode: DataSourceMode) -> None:
         self._mode = mode
