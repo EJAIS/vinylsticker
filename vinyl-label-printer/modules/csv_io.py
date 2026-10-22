@@ -16,8 +16,8 @@ Import
     are ignored.
 
 Export
-  English header, semicolon, UTF-8 with BOM (opens correctly in Excel and
-  LibreOffice). Exported files import back to identical rows.
+  English header, semicolon, UTF-8 with BOM (umlauts show correctly in
+  spreadsheet programs). Exported files import back to identical rows.
 """
 
 from __future__ import annotations

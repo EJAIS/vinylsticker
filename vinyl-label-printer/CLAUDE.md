@@ -11,7 +11,7 @@
 ## Project Context
 - Desktop app for printing 7" vinyl record labels
 - Target platform: Windows 11 & Linux (Ubuntu/Debian-based)
-- Stack: Python 3.10+, PyQt6, requests, ReportLab, openpyxl, pdf2image, Pillow
+- Stack: Python 3.10+, PyQt6, requests, ReportLab, pdf2image, Pillow
   (pdf2image requires the Poppler system package)
 
 ## Code Style

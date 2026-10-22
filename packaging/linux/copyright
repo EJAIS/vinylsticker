@@ -34,8 +34,6 @@ Comment: The executable is the PyInstaller bootloader (GPL-2.0-or-later WITH
  requests (Apache-2.0)
  urllib3 (MIT)
  idna (BSD-3-Clause)
- openpyxl (MIT)
- et-xmlfile (MIT)
  pdf2image (MIT)
  platformdirs (MIT)
  reportlab (BSD-3-Clause)

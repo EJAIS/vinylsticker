@@ -28,7 +28,7 @@ import pytest  # noqa: E402  (after the environment setup above)
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch) -> Path:
-    """A fresh, empty data dir per test: labels.db and database.xlsx live here."""
+    """A fresh, empty data dir per test: labels.db lives here."""
     from modules import paths
 
     folder = tmp_path / "data"
