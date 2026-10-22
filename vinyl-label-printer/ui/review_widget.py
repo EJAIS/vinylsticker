@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -71,6 +72,21 @@ _EDITABLE_COLS = (
     _COL_TITLE, _COL_ARTIST, _COL_LABEL, _COL_CATNO, _COL_COUNTRY, _COL_YEAR, _COL_SIDE,
 )
 _REQUIRED_COLS = (_COL_TITLE, _COL_SIDE)
+
+
+class _CellBackgroundDelegate(QStyledItemDelegate):
+    """Paints the per-cell background colors (BackgroundRole).
+
+    The global stylesheet styles QTableWidget::item, and with such a rule Qt
+    ignores the item's own background, so the error tints would never show.
+    Selection and hover colors from the stylesheet are still drawn on top.
+    """
+
+    def paint(self, painter, option, index) -> None:
+        brush = index.data(Qt.ItemDataRole.BackgroundRole)
+        if isinstance(brush, QBrush) and brush.style() != Qt.BrushStyle.NoBrush:
+            painter.fillRect(option.rect, brush)
+        super().paint(painter, option, index)
 
 
 class ReviewDialog(QDialog):
@@ -162,6 +178,7 @@ class ReviewDialog(QDialog):
         # ── Table ─────────────────────────────────────────────────────────────
         self._table = QTableWidget(0, _NUM_COLS)
         apply_table_style(self._table)
+        self._table.setItemDelegate(_CellBackgroundDelegate(self._table))
 
         edit_tip = t("review_col_edit_tip")
         self._table.setHorizontalHeaderLabels([

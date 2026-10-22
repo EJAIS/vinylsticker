@@ -110,6 +110,14 @@ def _assert_theme(app: QApplication, settings_dialog, review: ReviewDialog,
     assert row_tinted.background().color() == QColor(colors.row_warn_bg)
     assert complete.background().style() == Qt.BrushStyle.NoBrush
 
+    # ... and are actually painted (not hidden by the global item stylesheet)
+    if review.isVisible():
+        table.clearSelection()
+        image = table.viewport().grab().toImage()
+        rect = table.visualItemRect(title_missing)
+        painted = QColor(image.pixel(rect.right() - 2, rect.center().y()))
+        assert painted == QColor(colors.cell_error_bg)
+
 
 @pytest.fixture(scope="module")
 def app():
