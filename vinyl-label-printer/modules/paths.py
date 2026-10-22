@@ -8,12 +8,15 @@ where files live.
   User directories     writable per-user folders resolved via platformdirs and
                        created on demand:
                          config  settings.json, credentials.json
-                         data    database.xlsx
+                         data    labels.db (print queue, SQLite);
+                                 database.xlsx of versions before 1.1 — only
+                                 read once by modules.xlsx_migration, never
+                                 modified
                          cache   discogs_cache.db (+ sidecars), generated PDFs
                          log     app.log
   Legacy migration     one-time copy of user files from the old app-relative
                        layout (config/, data/ next to the code) into the user
-                       directories (migrate_legacy_data, seed_example_database).
+                       directories (migrate_legacy_data).
 
 Nothing in this module may write next to the application code.
 """
@@ -96,7 +99,7 @@ def get_config_dir() -> Path:
 
 
 def get_data_dir() -> Path:
-    """Directory for the user's database.xlsx."""
+    """Directory for labels.db (and a database.xlsx of versions before 1.1)."""
     return _ensure(Path(_ROAMING_DIRS.user_data_dir))
 
 
@@ -118,7 +121,13 @@ def get_credentials_file() -> Path:
     return get_config_dir() / "credentials.json"
 
 
+def get_labels_db_file() -> Path:
+    """The print queue database (modules.label_store)."""
+    return get_data_dir() / "labels.db"
+
+
 def get_database_file() -> Path:
+    """database.xlsx of versions before 1.1, read once by modules.xlsx_migration."""
     return get_data_dir() / "database.xlsx"
 
 
@@ -270,38 +279,3 @@ def _migrate_cache_db(legacy_dir: Path, result: MigrationResult) -> None:
     except Exception as exc:
         result.errors.append(f"{src_db}: {type(exc).__name__}: {exc}")
 
-
-def _example_database() -> Path | None:
-    """Locate the bundled example database.xlsx, if any.
-
-    Frozen builds ship it as examples/database.xlsx in the bundle; a git clone
-    has it one level up in the repository root.
-    """
-    candidates = [resource_path("examples/database.xlsx")]
-    if not getattr(sys, "frozen", False):
-        candidates.append(_RESOURCE_ROOT.parent / "examples" / "database.xlsx")
-    for path in candidates:
-        if path.is_file():
-            return path
-    return None
-
-
-def seed_example_database() -> tuple[Path | None, str | None]:
-    """Copy the example database into the data dir if no database.xlsx exists yet.
-
-    Never raises.
-
-    Returns:
-        (copied target path or None, error message or None)
-    """
-    try:
-        dst = get_database_file()
-        if dst.exists():
-            return None, None
-        example = _example_database()
-        if example is None:
-            return None, "example database not found"
-        _copy_new(example, dst)
-        return dst, None
-    except Exception as exc:
-        return None, f"{type(exc).__name__}: {exc}"

@@ -66,7 +66,7 @@ from config.settings import (
 )
 from config.themes import ThemeColors
 from modules.logger import set_debug_mode
-from modules.paths import get_data_dir, get_database_file, get_log_file, get_output_dir
+from modules.paths import get_data_dir, get_log_file, get_output_dir
 from ui.theme_manager import ThemedStyles, ThemeManager, current_colors
 
 
@@ -300,7 +300,6 @@ class SettingsDialog(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._nav_items: list[_NavItem] = []
-        self._db_path = None  # set from MainWindow after construction if needed
         # Static per-widget stylesheets, re-applied by _apply_theme()
         self._styles = ThemedStyles()
         # Color role (ThemeColors field) of the version check status line
@@ -1198,7 +1197,7 @@ class SettingsDialog(QDialog):
     # ── Data source handlers ───────────────────────────────────────────────────
 
     def _on_open_data_folder(self) -> None:
-        """Open the data folder (database.xlsx) in the system file manager."""
+        """Open the data folder (labels.db) in the system file manager."""
         import os
         import sys
         import subprocess
@@ -1245,10 +1244,7 @@ class SettingsDialog(QDialog):
 
     def _on_change_token(self) -> None:
         from ui.discogs_dialog import DiscogsDialog
-        db_path = self._db_path
-        if db_path is None:
-            db_path = get_database_file()
-        dlg = DiscogsDialog(db_path, parent=self)
+        dlg = DiscogsDialog(parent=self)
         dlg.exec()
         dlg.deleteLater()
         self._refresh_discogs_status()

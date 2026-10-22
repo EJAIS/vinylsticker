@@ -16,7 +16,7 @@ from typing import Callable
 import requests
 
 from __version__ import __version__
-from modules.excel_reader import resolve_side
+from modules.records import resolve_side
 from modules.logger import get_logger
 
 logger = get_logger()

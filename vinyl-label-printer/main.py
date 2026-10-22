@@ -20,7 +20,7 @@ if str(_ROOT) not in sys.path:
 
 from __version__ import __version__
 from PyQt6.QtGui import QGuiApplication, QIcon
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from config.settings import (
     get_theme as get_saved_theme,
     get_language_setting,
@@ -28,7 +28,7 @@ from config.settings import (
     get_data_source_mode,
 )
 from modules.child_env import restore_user_environment
-from modules.i18n import set_language
+from modules.i18n import set_language, t
 from modules.logger import setup_logger, get_logger
 from modules.paths import (
     MigrationResult,
@@ -39,7 +39,13 @@ from modules.paths import (
     get_log_dir,
     get_poppler_path,
     migrate_legacy_data,
-    seed_example_database,
+)
+from modules.xlsx_migration import (
+    ALREADY_DONE,
+    MIGRATED,
+    NO_XLSX,
+    XlsxMigrationResult,
+    migrate_xlsx_queue,
 )
 from ui.app import MainWindow
 from ui.theme_manager import ThemeManager
@@ -134,10 +140,9 @@ def _apply_app_icon(app: QApplication) -> None:
 
 def _log_data_setup(
     migration: MigrationResult,
-    seeded: Path | None,
-    seed_error: str | None,
+    xlsx_migration: XlsxMigrationResult | None,
 ) -> None:
-    """Log the outcome of the legacy migration and database seeding."""
+    """Log the outcome of the legacy migration and the database.xlsx migration."""
     logger = get_logger()
     logger.info(f"Config dir: {get_config_dir()}")
     logger.info(f"Data dir:   {get_data_dir()}")
@@ -156,10 +161,34 @@ def _log_data_setup(
     for error in migration.errors:
         logger.error(f"Legacy data migration failed: {error} (will retry on next start)")
 
-    if seeded is not None:
-        logger.warning(f"Example database copied to: {seeded}")
-    if seed_error is not None:
-        logger.warning(f"Could not create the example database: {seed_error}")
+    result = xlsx_migration
+    if result is None:
+        logger.warning(
+            "database.xlsx migration skipped because the legacy data migration "
+            "failed (will retry on next start)"
+        )
+    elif result.status == ALREADY_DONE:
+        logger.debug("database.xlsx migration already done — skipped")
+    elif result.status == NO_XLSX:
+        logger.warning(
+            f"database.xlsx migration: no file at {result.xlsx_path} — "
+            "starting with an empty print queue"
+        )
+    elif result.status == MIGRATED:
+        logger.warning(
+            f"database.xlsx migrated: {result.rows} rows of the Print sheet "
+            f"copied from {result.xlsx_path} into labels.db (the xlsx is unchanged)"
+        )
+        if result.database_rows:
+            logger.warning(
+                f"database.xlsx: the Database sheet has {result.database_rows} rows; "
+                "it was never used by the app and stays in the xlsx"
+            )
+    else:
+        logger.error(
+            f"database.xlsx migration failed: {result.error} "
+            f"(file: {result.xlsx_path}; will retry on next start)"
+        )
 
 
 def main() -> None:
@@ -178,11 +207,6 @@ def main() -> None:
     # Copy data from the legacy app-relative layout before anything reads
     # settings or opens the log file; results are logged once logging exists.
     migration = migrate_legacy_data()
-    seeded, seed_error = None, None
-    if not migration.errors:
-        # Skipped after a failed migration so a seeded example can never block
-        # the retry of the user's own database.xlsx on the next start.
-        seeded, seed_error = seed_example_database()
 
     debug_enabled = get_debug_logging()
     setup_logger(debug=debug_enabled)
@@ -201,7 +225,12 @@ def main() -> None:
     if debug_enabled:
         logger.info("Debug logging active (persistent)")
 
-    _log_data_setup(migration, seeded, seed_error)
+    # Print queue: take over the database.xlsx of an older version once (it may
+    # have just been copied by the legacy migration). Skipped after a failed
+    # legacy migration so a missing copy never sets the "nothing to migrate"
+    # marker; both are retried on the next start.
+    xlsx_migration = migrate_xlsx_queue() if not migration.errors else None
+    _log_data_setup(migration, xlsx_migration)
 
     _set_windows_app_id()
     app = QApplication(sys.argv)
@@ -213,6 +242,11 @@ def main() -> None:
     app.setApplicationName(QT_APP_NAME)
     window = MainWindow()   # sets its own title incl. version
     window.show()
+    if xlsx_migration is not None and xlsx_migration.failed:
+        QMessageBox.warning(
+            window, t("app_title"),
+            t("xlsx_migration_failed_msg", path=str(xlsx_migration.xlsx_path)),
+        )
     sys.exit(app.exec())
 
 
