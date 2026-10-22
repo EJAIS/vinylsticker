@@ -8,10 +8,7 @@ where files live.
   User directories     writable per-user folders resolved via platformdirs and
                        created on demand:
                          config  settings.json, credentials.json
-                         data    labels.db (print queue, SQLite);
-                                 database.xlsx of versions before 1.1 — only
-                                 read once by modules.xlsx_migration, never
-                                 modified
+                         data    labels.db (print queue, SQLite)
                          cache   discogs_cache.db (+ sidecars), generated PDFs
                          log     app.log
   Legacy migration     one-time copy of user files from the old app-relative
@@ -99,7 +96,7 @@ def get_config_dir() -> Path:
 
 
 def get_data_dir() -> Path:
-    """Directory for labels.db (and a database.xlsx of versions before 1.1)."""
+    """Directory for labels.db."""
     return _ensure(Path(_ROAMING_DIRS.user_data_dir))
 
 
@@ -126,11 +123,6 @@ def get_labels_db_file() -> Path:
     return get_data_dir() / "labels.db"
 
 
-def get_database_file() -> Path:
-    """database.xlsx of versions before 1.1, read once by modules.xlsx_migration."""
-    return get_data_dir() / "database.xlsx"
-
-
 def get_discogs_cache_file() -> Path:
     return get_cache_dir() / "discogs_cache.db"
 
@@ -150,7 +142,6 @@ def get_log_file() -> Path:
 _LEGACY_FILES = (
     ("config/settings.json", get_settings_file),
     ("config/credentials.json", get_credentials_file),
-    ("data/database.xlsx", get_database_file),
 )
 _LEGACY_CACHE_DB = "data/discogs_cache.db"
 _SQLITE_SIDECARS = ("-wal", "-shm", "-journal")

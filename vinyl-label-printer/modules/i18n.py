@@ -52,13 +52,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "err_pdf":           "PDF konnte nicht erstellt werden:\n{detail}",
         "err_queue_load":    "Die Druckwarteschlange konnte nicht geladen werden:\n{detail}",
-        "xlsx_migration_failed_msg": (
-            "Die Daten der bisherigen database.xlsx konnten nicht in die neue "
-            "Datenbank übernommen werden:\n{path}\n\n"
-            "Die Datei bleibt unverändert. Die Übernahme wird beim nächsten Start "
-            "erneut versucht; bis dahin ist die Druckwarteschlange leer. "
-            "Details stehen im Log (Einstellungen → Erscheinungsbild → Entwickler)."
-        ),
         "err_print":         "Druckfehler:\n{detail}",
 
         # Tooltips
@@ -391,9 +384,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_data_folder_info":    (
             "Hier liegt die Datenbank labels.db mit Ihrer Druckwarteschlange. "
             "Bearbeitet wird sie in der App (Warteschlange); für Massenänderungen "
-            "und Sicherungen gibt es CSV-Import und -Export. Eine database.xlsx "
-            "älterer Versionen wurde beim ersten Start übernommen und bleibt "
-            "unverändert hier liegen."
+            "und Sicherungen gibt es CSV-Import und -Export."
         ),
         "settings_open_folder":         "Ordner öffnen",
         "err_open_folder":              "Ordner konnte nicht geöffnet werden:\n{path}\n\n{detail}",
@@ -528,13 +519,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "err_pdf":           "Could not create PDF:\n{detail}",
         "err_queue_load":    "Could not load the print queue:\n{detail}",
-        "xlsx_migration_failed_msg": (
-            "The data of your previous database.xlsx could not be taken over "
-            "into the new database:\n{path}\n\n"
-            "The file is left unchanged. The takeover will be retried on the next "
-            "start; until then the print queue is empty. "
-            "See the log for details (Settings → Appearance → Developer)."
-        ),
         "err_print":         "Print error:\n{detail}",
 
         # Tooltips
@@ -860,8 +844,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings_data_folder_info":    (
             "Your print queue database labels.db is stored here. Edit the "
             "queue in the app (Queue); use CSV import and export for bulk "
-            "changes and backups. A database.xlsx of an older version was "
-            "taken over on the first start and is kept here unchanged."
+            "changes and backups."
         ),
         "settings_open_folder":         "Open folder",
         "err_open_folder":              "Could not open the folder:\n{path}\n\n{detail}",

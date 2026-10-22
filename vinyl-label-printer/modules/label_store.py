@@ -15,7 +15,10 @@ print_queue table readable for older app versions (add tables / columns only).
 
 Version 1
   print_queue  one row per label, ordered by the explicit position column
-  meta         key/value pairs, e.g. the xlsx migration marker
+  meta         key/value pairs written together with queue rows
+
+A labels.db written by a 1.1 pre-release may hold a meta key and a source
+value of a since removed one-time import; both are kept and simply ignored.
 """
 
 from __future__ import annotations
@@ -35,10 +38,6 @@ logger = get_logger()
 SOURCE_MANUAL = "manual"
 SOURCE_CSV = "csv"
 SOURCE_DISCOGS = "discogs"
-SOURCE_XLSX = "xlsx-migration"
-
-# meta key written by the one-time migration from database.xlsx
-META_XLSX_MIGRATED = "xlsx_migrated"
 
 _MIGRATIONS: tuple[tuple[str, ...], ...] = (
     # 1 — print queue + meta
@@ -232,8 +231,8 @@ def append_to_queue(
     """Append *records* as new rows after the current queue.
 
     Records keep their own source, or get *source* if they have none. *meta*
-    key/value pairs are written in the same transaction (e.g. a migration
-    marker that must only exist together with the migrated rows).
+    key/value pairs are written in the same transaction (e.g. a marker that
+    must only exist together with the rows).
 
     Raises:
         ValueError: if a record has an empty title (nothing is written).
