@@ -184,28 +184,15 @@ folder and has an **Open folder** button.
 
 A new installation starts with an empty print queue.
 
-### Upgrading from 1.0: what happens to your database.xlsx
-
-Versions up to 1.0 kept the print queue in the **Print** sheet of `database.xlsx` in the data
-folder. On the first start of 1.1 the app takes the rows of that sheet over into `labels.db`
-**once**, in a single step — either all rows are taken over or none.
-
-- `database.xlsx` is **never modified, renamed or deleted**. Keep it as a backup or delete it
-  yourself. After the takeover the app no longer reads it: later changes to the xlsx have no
-  effect — save the sheet as CSV and use **Import CSV** instead.
-- The **Database** sheet was never used by the app. It is not taken over and stays in the xlsx
-  (`app.log` notes how many rows it has).
-- If there is no `database.xlsx` on the first start of 1.1 (e.g. a new installation), nothing is
-  taken over and the app never checks again. A `database.xlsx` that you put into the data folder
-  **later is not taken over** — save its Print sheet as CSV and use **Import CSV**.
-- If the takeover fails (e.g. the file is damaged or cannot be read), the app shows a message,
-  starts with an empty print queue and tries again on the next start. Details are in `app.log`.
+**Coming from 1.0:** Your old database.xlsx is not imported automatically. To take entries
+over, open it in Excel or LibreOffice Calc, save the sheet 'Print' as CSV and use
+'Import CSV' in the queue editor.
 
 ### One-time migration from older versions
 
 Older versions kept all files next to the program code (`config/`, `data/`). On the first start
-of a newer version the app **copies** `settings.json`, `credentials.json`, `database.xlsx` and
-`discogs_cache.db` into the folders above. It looks in:
+of a newer version the app **copies** `settings.json`, `credentials.json` and `discogs_cache.db`
+into the folders above. It looks in:
 
 1. the program folder itself (git clone or an old script install up to v0.4.0),
 2. the program folder of the old script installs up to v0.4.0: `~/vinyl-label-printer` (Linux)
@@ -214,9 +201,7 @@ of a newer version the app **copies** `settings.json`, `credentials.json`, `data
 The original files are left untouched and existing files are never overwritten. Logs are not
 migrated. The migration runs once — a marker file `legacy-migration.json` in the settings folder
 records what was copied. To run it again, close the app, delete that marker file and start the
-app (files that already exist in the new folders are still never overwritten). A
-`database.xlsx` copied this way is then taken over into `labels.db` on the same start (see
-[Upgrading from 1.0](#upgrading-from-10-what-happens-to-your-databasexlsx)).
+app (files that already exist in the new folders are still never overwritten).
 
 ---
 
@@ -229,7 +214,9 @@ them. Do not keep both installations.
 Old script installs up to v0.4.0 keep your data inside their program folder, and the old
 uninstaller deletes that folder. So switch **in exactly this order**: the package version has to
 copy your data out (see [One-time migration](#one-time-migration-from-older-versions)) before
-the old uninstaller runs.
+the old uninstaller runs. The print queue of the old Local mode is not copied: if you still need
+it, copy the `data` folder out of the old program folder before uninstalling and import it as
+described under [Where your data is stored](#where-your-data-is-stored).
 
 ### Linux
 
@@ -247,7 +234,7 @@ the old uninstaller runs.
    /usr/bin/vinyl-label-printer
    ```
 
-   Check that your library is there (your database, and the Discogs account if you use it), then
+   Check that your library is there (your settings, and the Discogs account if you use it), then
    close the app.
 
 3. Download the old uninstaller (the tag `v1.0.0-rc.1` is the last version that contains it):
@@ -272,7 +259,7 @@ If a terminal still runs the old command, open a new terminal.
 
 2. Start the new app once from the new Start Menu folder **Vinyl Label Printer** (the old
    **Vinyl Label Printer** entry directly in the Start Menu still starts the script install).
-   Check that your library is there (your database, and the Discogs account if you use it), then
+   Check that your library is there (your settings, and the Discogs account if you use it), then
    close the app.
 
 3. Download the old uninstaller in PowerShell (the tag `v1.0.0-rc.1` is the last version that
@@ -380,20 +367,20 @@ to clear it after printing. Closing the editor with unsaved changes asks whether
 
 ##### CSV import and export
 
-CSV is the way to edit many entries at once in a spreadsheet (LibreOffice Calc, Excel) and to
-back up the queue in a readable format.
+CSV is the way to edit many entries at once in a spreadsheet program and to back up the queue
+in a readable format.
 
 **Export CSV …** writes all rows currently in the table — also unchecked rows and rows hidden by
 the search filter — to a file named `vinyl-labels-YYYY-MM-DD.csv` (proposed in your Documents
 folder). Format: header row `Title;Artist;Label;Country;Year;Side;CatNo`, semicolon as
-delimiter, UTF-8 with BOM, so umlauts show correctly in Excel and LibreOffice. An exported file
+delimiter, UTF-8 with BOM, so umlauts show correctly in spreadsheet programs. An exported file
 imports back to identical rows.
 
 **Import CSV …** reads a CSV file:
 
 - delimiter: comma, semicolon or tab — detected automatically;
-- encoding: UTF-8 (with or without BOM) or Windows-1252 (e.g. "CSV (semicolon separated)" from
-  a German Excel);
+- encoding: UTF-8 (with or without BOM) or Windows-1252 (e.g. a "CSV (semicolon separated)"
+  file saved by a spreadsheet program on a German Windows);
 - the first row must be a header row. Columns are matched by name — case-insensitive, in any
   order; other columns are ignored:
 
@@ -689,8 +676,6 @@ vinyl-label-printer/
 │   ├── data_source.py             # DataSourceMode enum (LOCAL / DISCOGS)
 │   ├── records.py                 # LabelRecord dataclass, side normalisation (no storage dependency)
 │   ├── label_store.py             # SQLite print queue labels.db — the only code that talks to it
-│   ├── xlsx_migration.py          # One-time takeover of the Print sheet of a pre-1.1 database.xlsx
-│   ├── excel_reader.py            # openpyxl — read-only reader of the pre-1.1 database.xlsx
 │   ├── csv_io.py                  # CSV import (delimiter / encoding / header detection) and export
 │   ├── logger.py                  # Centralised rotating-file logger; debug toggle
 │   ├── paths.py                   # All file locations: bundled resources, user dirs, legacy migration
@@ -717,7 +702,7 @@ vinyl-label-printer/
     ├── conftest.py                # Headless Qt + throw-away user directories
     ├── test_theme_switch.py       # Regression test: theme switches restyle every open window
     ├── test_label_store.py        # labels.db: schema, order, side CHECK, transactions, versions
-    ├── test_xlsx_migration.py     # database.xlsx takeover: rows, untouched file, retry, no file
+    ├── test_data_setup.py         # Old labels.db files open; leftover user files stay untouched
     ├── test_csv_io.py             # CSV delimiters, headers, encodings, round trip
     └── test_queue_editor.py       # Entry form, saving / clearing the queue, unsaved changes, CSV
 ```
@@ -732,10 +717,10 @@ PDFs, `app.log`) are not part of the project tree — see
 |---|---|---|
 | PyQt6 | ≥ 6.4 | UI framework |
 | reportlab | ≥ 4.0 | PDF generation |
-| openpyxl | ≥ 3.1 | Reading the `database.xlsx` of versions before 1.1, once, for the takeover into `labels.db` |
 | pdf2image | ≥ 1.17 | PDF → image for preview (requires Poppler system library) |
 | Pillow | ≥ 10.0 | Image loading and watermark alpha processing |
 | requests | ≥ 2.31 | HTTP client (Discogs API + GitHub version check) |
+| platformdirs | ≥ 4.0 | Per-user config, data, cache and log folders |
 
 The print queue (`labels.db`) and the Discogs cache use `sqlite3` from the Python standard
 library; CSV import / export uses the standard `csv` module.
@@ -848,25 +833,16 @@ CREATE TABLE print_queue (
     year       TEXT    NOT NULL DEFAULT '',               -- text, as entered
     side       TEXT    NOT NULL CHECK (side IN ('A', 'B')),
     catno      TEXT    NOT NULL DEFAULT '',
-    source     TEXT    NOT NULL DEFAULT 'manual',         -- manual | csv | discogs | xlsx-migration
+    source     TEXT    NOT NULL DEFAULT 'manual',         -- manual | csv | discogs
     created_at TEXT    NOT NULL,                          -- ISO 8601, UTC
     updated_at TEXT    NOT NULL
 );
 CREATE INDEX print_queue_position ON print_queue (position);
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);   -- e.g. xlsx_migrated
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 ```
 
-#### `modules/xlsx_migration.py`
-
-| Symbol | Description |
-|---|---|
-| `migrate_xlsx_queue()` | Called by `main.py` after `migrate_legacy_data()`, before the main window. Without the `xlsx_migrated` marker: copies the Print sheet of `database.xlsx` into `labels.db` (source `xlsx-migration`) together with the marker in one transaction, or sets the marker with 0 rows if there is no xlsx. Never raises; a failure leaves no marker, so it is retried on the next start |
-
-#### `modules/excel_reader.py`
-
-| Symbol | Description |
-|---|---|
-| `read_legacy_workbook(path)` | Opens a pre-1.1 `database.xlsx` read-only; returns the `Print` sheet as `LabelRecord`s (blank rows skipped, sides normalised, no column G → `catno=""`) and the row count of the `Database` sheet |
+A `labels.db` written by a 1.1 pre-release may contain an extra `meta` key and `source` value of
+a since removed one-time import; both are kept and ignored.
 
 #### `modules/csv_io.py`
 
@@ -960,7 +936,6 @@ The toggle is exposed in **Settings → Appearance → Developer → Debug loggi
 | `get_poppler_path()` | Bundled Poppler `bin` folder (Windows builds only) or `None`, in which case pdf2image uses Poppler from the system `PATH` |
 | `get_config_dir()` / `get_data_dir()` / `get_cache_dir()` / `get_log_dir()` | Per-user directories via [platformdirs](https://github.com/tox-dev/platformdirs) (app name `vinyl-label-printer`, no author folder), created on demand; config and data use the roaming profile on Windows |
 | `get_settings_file()`, `get_credentials_file()`, `get_labels_db_file()`, `get_discogs_cache_file()`, `get_output_dir()`, `get_log_file()` | Locations of the individual user files |
-| `get_database_file()` | `database.xlsx` of versions before 1.1 — only read by the one-time takeover and copied by the legacy migration |
 | `migrate_legacy_data()` | One-time copy of user files from the legacy app-relative layout; never overwrites, never raises; writes `legacy-migration.json` into the config dir on success |
 
 #### `modules/version_checker.py`
