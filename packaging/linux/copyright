@@ -11,6 +11,8 @@ Comment:
    third-party/debian/<package>.copyright         Debian copyright files of
                                                   the bundled Ubuntu 22.04
                                                   libraries
+   third-party/fonts/DejaVu-2.37.LICENSE          licence of the bundled
+                                                  DejaVu Sans fonts
  build_deb.sh fails if the bundle contains a Debian package or Python
  distribution that is not named below (first word of an indented line).
  .
@@ -109,6 +111,17 @@ Files: _internal/config/*
        _internal/icons/*
 Copyright: 2026 Alexander (EJAIS) <125554454+EJAIS@users.noreply.github.com>
 License: GPL-3.0-or-later
+
+Files: _internal/fonts/*
+Copyright: 2003 Bitstream, Inc.
+           2006 Tavmjong Bah
+           DejaVu changes: public domain
+License: Bitstream-Vera
+Comment: DejaVu Sans and DejaVu Sans Bold 2.37
+ (https://github.com/dejavu-fonts/dejavu-fonts/releases), the fallback font
+ for label text outside Windows-1252. Unmodified; the licence file is
+ installed as fonts/LICENSE in the bundle and as
+ third-party/fonts/DejaVu-2.37.LICENSE.
 
 Files: _internal/libglib-2.0.so.* _internal/libgio-2.0.so.* _internal/libgmodule-2.0.so.*
        _internal/libgobject-2.0.so.* _internal/libgthread-2.0.so.*
@@ -364,6 +377,11 @@ License: bzip2-1.0.6
 
 License: Libpng
  The complete text is in third-party/debian/libpng16-16.copyright.
+
+License: Bitstream-Vera
+ Bitstream Vera Fonts licence (with the matching Arev Fonts licence for the
+ glyphs from Arev); DejaVu's own changes are in the public domain. The
+ complete text is in third-party/fonts/DejaVu-2.37.LICENSE.
 
 License: public-domain
  The respective components are in the public domain; see

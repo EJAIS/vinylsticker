@@ -29,6 +29,14 @@ Collection CSV (one row per record instead of one per label)
   German spreadsheet program saves dates) and ISO timestamps are accepted too,
   anything else counts as empty. Export: same format as the queue export, all
   records, printed dates as local ISO dates.
+
+Formula protection (both formats)
+  A spreadsheet program runs a cell that starts with = + - @ (or a tab /
+  carriage return in front of one) as a formula. On export such a cell gets a
+  leading apostrophe, which the spreadsheet shows as text; on import exactly
+  that one apostrophe is removed again. A value that itself starts with
+  apostrophes in front of one of these characters gets one more, so every
+  value survives the round trip unchanged. Any other apostrophe stays.
 """
 
 from __future__ import annotations
@@ -53,6 +61,8 @@ COLLECTION_EXPORT_HEADER = (
 EXPORT_DELIMITER = ";"
 EXPORT_ENCODING = "utf-8-sig"
 _DELIMITERS = (",", ";", "\t")
+# First characters a spreadsheet program may treat as the start of a formula
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 # Normalised header name → LabelRecord / CollectionRecord field
 _HEADER_ALIASES: dict[str, str] = {
@@ -130,6 +140,28 @@ def map_header(header: list[str]) -> dict[str, int]:
     return mapping
 
 
+def _escape_cell(value: str) -> str:
+    """Prefix *value* with an apostrophe if a spreadsheet could run it as a formula.
+
+    Leading apostrophes are looked through, so a value like "'=x" gets one
+    more too and _unescape_cell() returns every value unchanged.
+    """
+    if value.lstrip("'").startswith(_FORMULA_START):
+        return "'" + value
+    return value
+
+
+def _unescape_cell(value: str) -> str:
+    """Remove the one apostrophe _escape_cell() put in front of *value*, if any."""
+    if value.startswith("'") and value.lstrip("'").startswith(_FORMULA_START):
+        return value[1:]
+    return value
+
+
+def _write_row(writer, cells: Sequence[str]) -> None:
+    writer.writerow([_escape_cell(str(cell)) for cell in cells])
+
+
 def _table(
     text: str, required: Sequence[str]
 ) -> tuple[str, Iterator[dict[str, str]]]:
@@ -153,7 +185,7 @@ def _table(
         for row in rows:
             if any(cell.strip() for cell in row):
                 yield {
-                    name: row[index].strip() if index < len(row) else ""
+                    name: _unescape_cell(row[index].strip()) if index < len(row) else ""
                     for name, index in columns.items()
                 }
 
@@ -215,7 +247,7 @@ def write_csv(path: Path, records: list[LabelRecord]) -> None:
         writer = csv.writer(handle, delimiter=EXPORT_DELIMITER)
         writer.writerow(EXPORT_HEADER)
         for rec in records:
-            writer.writerow([
+            _write_row(writer, [
                 rec.title, rec.artist, rec.label, rec.country, rec.year, rec.side, rec.catno,
             ])
 
@@ -296,7 +328,7 @@ def write_collection_csv(path: Path, records: Sequence[CollectionRecord]) -> Non
         writer = csv.writer(handle, delimiter=EXPORT_DELIMITER)
         writer.writerow(COLLECTION_EXPORT_HEADER)
         for rec in records:
-            writer.writerow([
+            _write_row(writer, [
                 rec.artist, rec.label, rec.country, rec.year, rec.catno,
                 rec.title_a, rec.title_b,
                 _printed_cell(rec.printed_a_at), _printed_cell(rec.printed_b_at),

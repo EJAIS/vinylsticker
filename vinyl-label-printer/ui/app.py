@@ -325,7 +325,12 @@ class MainWindow(QMainWindow):
         self._sidebar.set_start_position(self._start_index + 1, row, col)
 
     def _create_start_pos_dialog(self) -> QDialog:
-        """Build the modal start position picker (GridWidget + OK button)."""
+        """Build the modal start position picker (GridWidget + OK button).
+
+        A click only moves the start position; the PDF (if one was created in
+        this session) is regenerated once when the picker closes — by OK or
+        the window's close button — and only if the position changed.
+        """
         dlg = QDialog(self)
         dlg.setWindowTitle(t("sidebar_start_pos"))
         dlg.setModal(True)
@@ -339,13 +344,19 @@ class MainWindow(QMainWindow):
         grid.set_start_index(self._start_index)
         layout.addWidget(grid, 0, Qt.AlignmentFlag.AlignHCenter)
 
+        initial_index = self._start_index
+
         def _on_pos(index: int) -> None:
             self._start_index = index
-            if self._pdf_in_session and self._records:
+
+        def _on_closed() -> None:
+            if (self._start_index != initial_index
+                    and self._pdf_in_session and self._records):
                 # A new start position re-renders the same labels: no question
                 self._create_pdf()
 
         grid.startPositionChanged.connect(_on_pos)
+        dlg.finished.connect(_on_closed)
 
         btn_ok = QPushButton("OK")
         btn_ok.setProperty("primary", True)

@@ -36,7 +36,9 @@ def print_pdf(pdf_path: Path) -> None:
 
     Raises:
         FileNotFoundError: If *pdf_path* does not exist.
-        RuntimeError: If the print command fails on Linux/macOS.
+        RuntimeError: If the viewer cannot be started on Linux/macOS
+                      (xdg-open / open not installed).  The viewer is not
+                      waited for, so its own errors are not reported.
     """
     pdf_path = Path(pdf_path).resolve()
     if not pdf_path.exists():
@@ -92,27 +94,34 @@ def _print_linux(pdf_path: Path) -> None:
     over scaling, and driverless IPP printers may auto-scale the full-page
     label sheet.  Printing from the viewer's dialog matches Windows / macOS.
     """
-    try:
-        result = subprocess.run(
-            ["xdg-open", str(pdf_path)],
-            capture_output=True,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError("xdg-open not found — cannot open the PDF viewer") from exc
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"xdg-open failed (exit {result.returncode}): "
-            f"{result.stderr.decode(errors='replace')}"
-        )
+    _launch_detached(["xdg-open", str(pdf_path)])
 
 
 def _print_macos(pdf_path: Path) -> None:
-    result = subprocess.run(
-        ["open", "-a", "Preview", str(pdf_path)],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"open -a Preview failed (exit {result.returncode}): "
-            f"{result.stderr.decode(errors='replace')}"
+    _launch_detached(["open", "-a", "Preview", str(pdf_path)])
+
+
+def _launch_detached(command: list[str]) -> None:
+    """Start *command* without waiting for it.
+
+    Waiting would freeze the GUI until the viewer closes: generic xdg-open
+    may run the viewer in the foreground, and a viewer inherits pipes it is
+    given, so reading them waits for the viewer's exit.  The child therefore
+    gets no pipes (DEVNULL), its own session and the environment set up by
+    modules.child_env (os.environ, inherited).
+
+    Raises:
+        RuntimeError: If the program is not installed.
+    """
+    try:
+        subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"{command[0]} not found — cannot open the PDF viewer"
+        ) from exc

@@ -5,7 +5,7 @@ Tabs (left nav):
   0  Appearance   — theme + language
   1  Data source  — LOCAL vs DISCOGS mode + data folder location
   2  Discogs      — token management + account status
-  3  About        — app info, license, author, version check, GitHub link
+  3  About        — app info, license, author, label font, version check, GitHub link
 
 Signals emitted to MainWindow:
   mode_changed(str)    — 'local' | 'discogs'
@@ -67,10 +67,12 @@ from config.settings import (
     set_calibration_y,
 )
 from config.themes import ThemeColors
-from modules.logger import set_debug_mode
+from modules.logger import get_logger, set_debug_mode
 from modules.paths import get_data_dir, get_log_file, get_output_dir
 from ui.theme_manager import ThemedStyles, ThemeManager, current_colors
 from ui.window_state import restore_geometry, save_geometry
+
+logger = get_logger()
 
 _GEOMETRY_KEY = "settings_dialog"
 
@@ -854,13 +856,15 @@ class SettingsDialog(QDialog):
         ))
         layout.addWidget(app_card)
 
-        # Info rows (License + Author only) — store key labels for retranslation
+        # Info rows (License, Author, bundled font) — store key labels for retranslation
         self._lbl_about_license_key = QLabel(t("settings_license"))
         self._lbl_about_author_key  = QLabel(t("settings_author"))
+        self._lbl_about_font_key    = QLabel(t("settings_font"))
 
         info_rows = [
             (self._lbl_about_license_key, "GNU GPL v3.0"),
             (self._lbl_about_author_key,  "EJAIS"),
+            (self._lbl_about_font_key,    "DejaVu Sans 2.37 — Bitstream Vera License"),
         ]
         for lbl_key, value_text in info_rows:
             row = QWidget()
@@ -1170,7 +1174,10 @@ class SettingsDialog(QDialog):
         try:
             pdf = generate_calibration_pdf(out_path, fmt)
         except Exception as exc:
-            QMessageBox.critical(self, t("err_print"), str(exc))
+            logger.error(f"Calibration PDF failed: {type(exc).__name__}: {exc}")
+            QMessageBox.critical(
+                self, t("app_title"), t("err_calibration_pdf", detail=str(exc))
+            )
             return
 
         if sys.platform == "win32":
@@ -1490,6 +1497,7 @@ class SettingsDialog(QDialog):
         # About tab
         self._lbl_about_license_key.setText(t("settings_license"))
         self._lbl_about_author_key.setText(t("settings_author"))
+        self._lbl_about_font_key.setText(t("settings_font"))
         self._lbl_sec_version_check.setText(t("version_check").upper())
         self._lbl_about_installed_key.setText(t("installed_version"))
         self._lbl_about_available_key.setText(t("available_version"))

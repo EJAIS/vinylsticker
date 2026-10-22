@@ -397,7 +397,10 @@ in a readable format.
 the search filter — to a file named `vinyl-labels-YYYY-MM-DD.csv` (proposed in your Documents
 folder). Format: header row `Title;Artist;Label;Country;Year;Side;CatNo`, semicolon as
 delimiter, UTF-8 with BOM, so umlauts show correctly in spreadsheet programs. An exported file
-imports back to identical rows.
+imports back to identical rows. Cells that start with `=`, `+`, `-`, `@`, a tab or a carriage
+return are exported with a leading apostrophe (e.g. `'=1+1`), so a spreadsheet program shows
+them as text instead of running them as a formula; the import removes exactly that apostrophe
+again.
 
 **Import CSV …** reads a CSV file:
 
@@ -464,7 +467,7 @@ and pick the first free cell in the grid:
 
 The grid always shows 4 columns × 10 rows, mirroring the physical Avery 4780 sheet. Labels fill left-to-right, top-to-bottom from the chosen cell. If more labels are queued than slots remain on the first sheet, additional pages are generated automatically.
 
-Changing the start position after a PDF has been generated automatically regenerates the PDF and updates the preview.
+Changing the start position after a PDF has been generated regenerates the PDF and updates the preview once, when you close the picker (**OK** or the window's close button) — clicking around in the grid itself is instant.
 
 **Step 4 — Set a watermark (optional)**
 
@@ -572,9 +575,11 @@ folder). **Import CSV …** reads such a file back. The format differs from the
 | Rows skipped | without title | without any title |
 | Printed dates | — | ISO `YYYY-MM-DD` or empty |
 
-Both use the same rules otherwise: export with semicolons as UTF-8 with BOM; import detects the
-delimiter (comma, semicolon, tab) and the encoding (UTF-8 with / without BOM, Windows-1252), and
-matches the header names case-insensitively in any order:
+Both use the same rules otherwise: export with semicolons as UTF-8 with BOM, with the same
+[formula protection](#csv-import-and-export) (leading apostrophe before `=`, `+`, `-`, `@`, tab,
+carriage return); import detects the delimiter (comma, semicolon, tab) and the encoding (UTF-8
+with / without BOM, Windows-1252), and matches the header names case-insensitively in any
+order:
 
 | Field | English header | German header |
 |---|---|---|
@@ -884,7 +889,7 @@ vinyl-label-printer/
 │   ├── csv_io.py                  # CSV import / export of the queue and the collection
 │   ├── logger.py                  # Centralised rotating-file logger; debug toggle
 │   ├── paths.py                   # All file locations: bundled resources, user dirs, legacy migration
-│   ├── pdf_generator.py           # ReportLab — renders labels to PDF, dynamic font sizing
+│   ├── pdf_generator.py           # ReportLab — renders labels to PDF, dynamic font sizing, fallback font
 │   ├── printer.py                 # Cross-platform OS print dialog trigger
 │   ├── i18n.py                    # All UI strings, language switching (DE / EN)
 │   ├── discogs_client.py          # Discogs REST API client (verify, collection, release details; global throttle)
@@ -892,6 +897,7 @@ vinyl-label-printer/
 │   ├── version_checker.py         # GitHub release check + semantic version comparison
 │   ├── json_store.py              # Atomic JSON writes; unreadable files are moved aside
 │   └── credentials_manager.py     # Load/save/clear credentials.json
+├── fonts/                         # DejaVu Sans + Bold 2.37 and their LICENSE (fallback label font)
 ├── ui/
 │   ├── app.py                     # QMainWindow — wires all components together (no menu bar)
 │   ├── styles.py                  # Table/search-field style helpers used by dialogs
@@ -917,7 +923,9 @@ vinyl-label-printer/
     ├── test_collection.py         # Collection: schema 1 → 2, records, links, dialog, CSV grouping
     ├── test_collection_sync.py    # Printed marking, queue ↔ collection sync, collection CSV
     ├── test_ux_polish.py          # PDF follows the queue, start position, window state, shortcuts, footer
-    └── test_data_integrity.py     # No stale queue in the editor, row drag & drop, atomic settings
+    ├── test_data_integrity.py     # No stale queue in the editor, row drag & drop, atomic settings
+    ├── test_pdf_fonts.py          # Fallback font for text outside Windows-1252
+    └── test_review_robustness.py  # Non-blocking print, start position picker, calibration error box
 ```
 
 User files (`settings.json`, `credentials.json`, `labels.db`, `discogs_cache.db`, generated
@@ -937,6 +945,16 @@ PDFs, `app.log`) are not part of the project tree — see
 
 The print queue (`labels.db`) and the Discogs cache use `sqlite3` from the Python standard
 library; CSV import / export uses the standard `csv` module.
+
+### Third-party components
+
+| Component | Version | License | Where |
+|---|---|---|---|
+| [DejaVu Sans](https://github.com/dejavu-fonts/dejavu-fonts) (`DejaVuSans.ttf`, `DejaVuSans-Bold.ttf`) | 2.37 | Bitstream Vera Fonts license (plus the Arev Fonts license for glyphs from Arev); DejaVu changes are public domain | `vinyl-label-printer/fonts/`, unmodified, with the full licence text in `fonts/LICENSE`. Shipped in the `.deb` (`/opt/vinyl-label-printer/_internal/fonts/`, licence also in `/usr/share/doc/vinyl-label-printer/third-party/fonts/`) and the Windows setup (`_internal\fonts\`). Used for label text outside Windows-1252 — see [Label Layout](#label-layout). |
+
+The Python packages above and, in the packaged builds, Qt, Poppler (Windows) and the bundled
+system libraries keep their own licences; the `.deb` lists all of them in
+`/usr/share/doc/vinyl-label-printer/copyright`.
 
 Dark / Light / Auto theming is implemented in-house (`config/themes.py`, `config/stylesheet.py`,
 `ui/theme_manager.py`) — no external theming package is used.
@@ -970,6 +988,8 @@ Each label (48.5 × 25.4 mm) contains five centred text lines:
 | 3    | `---`                 | Helvetica      | 6 pt     | 6 pt     |
 | 4    | Label CatNo (Country, Year) | Helvetica | 7 pt   | 4.5 pt   |
 | 5    | Side (A or B)         | Helvetica-Bold | 14 pt    | 14 pt    |
+
+**Fonts.** Helvetica and Helvetica-Bold (built into every PDF reader) only cover Western European characters (Windows-1252). A field with any other character — e.g. Polish `Łódź`, Czech `ř`, Greek or Cyrillic — is drawn in the bundled **DejaVu Sans** / **DejaVu Sans Bold** instead, for that field only; its size is fitted with the widths of the font actually used. Labels with only Western European text are rendered exactly as before. Characters DejaVu Sans has no glyph for either (e.g. Japanese) are printed as empty boxes, and `app.log` gets one warning per PDF naming the affected labels. The calibration sheet always uses Helvetica.
 
 Each field is **independently scaled down** from its maximum font size until the text fits within the usable label width (label width minus 4 pt horizontal padding on each side). Scaling stops at the minimum size; text that is still too wide is shortened with `…` so it never leaves the label.
 
@@ -1120,6 +1140,7 @@ a since removed one-time import; both are kept and ignored.
 | `generate_pdf(records, output_path, format_name, start_position, watermark_path, debug_frames)` | Renders all records to a multi-page PDF; returns the resolved output path |
 | `generate_calibration_pdf(output_path, fmt)` | Renders a diagnostic calibration sheet with row/column indices, expected X/Y ranges, crosshairs, corner marks, and mm rulers; saved to `output/calibration_avery4780.pdf` in the cache folder |
 | `fit_text_to_width(c, text, max_width, font_name, size_max, size_min, step)` | Returns the largest font size ≤ `size_max` at which `text` fits within `max_width`; floors at `size_min` (the caller then truncates with `…` if needed) |
+| `_font_for(text, font)` | `font` (Helvetica / Helvetica-Bold) if `text` encodes in cp1252, else DejaVu Sans / DejaVu Sans Bold from `fonts/` (registered with ReportLab once, at the first PDF generation) |
 | `_WATERMARK_ALPHA` | Module constant (default `25`, range 0–255) — controls watermark opacity |
 
 #### `modules/discogs_client.py`
@@ -1218,8 +1239,9 @@ pdf2image's `pdfinfo` / `pdftoppm`) the environment the user started the app wit
 variables `LD_LIBRARY_PATH_ORIG`, `QT_PLUGIN_PATH`, `QML2_IMPORT_PATH` and `_PYI_*` are removed.
 Otherwise these programs load the bundle's older libraries and crash. The running app is not
 affected (glibc reads `LD_LIBRARY_PATH` only at process start). From source and on Windows it
-does nothing. `main.py --print-child-env` (hidden, used by CI) prints the resulting environment
-and runs the preview's Poppler call once.
+does nothing. `main.py --print-child-env` (hidden, used by CI) prints the resulting environment,
+generates a label PDF with Polish and Cyrillic text (it must use the bundled DejaVu Sans) and runs
+the preview's Poppler call on it once.
 
 #### `modules/printer.py`
 
@@ -1230,6 +1252,10 @@ Before opening the OS print dialog, `print_pdf()` shows a one-time `QMessageBox`
 | Windows | `os.startfile(path, "print")`; falls back to `os.startfile(path)` if no "print" verb is registered (e.g. Microsoft Edge as default viewer) |
 | Linux | `xdg-open` — opens the default PDF viewer; the user prints from its print dialog (no direct `lp` printing) |
 | macOS | `open -a Preview` |
+
+On Linux and macOS the viewer is started detached (`subprocess.Popen` with stdin / stdout /
+stderr on `/dev/null` and a session of its own) and not waited for, so the main window stays
+usable while the viewer is open. Only a missing `xdg-open` / `open` is reported as an error.
 
 #### `ui/styles.py`
 
@@ -1244,7 +1270,7 @@ Before opening the OS print dialog, `print_pdf()` shows a one-time `QMessageBox`
 | Appearance | Theme (Automatic / Dark / Light), language (DE / EN), watermark select/clear, Printer Calibration, Developer (debug logging) |
 | Data source | Switch between Local database and Discogs mode |
 | Discogs account | Token setup, change token, log out |
-| About | App info, license, author, version check, GitHub link |
+| About | App info, license, author, label font (DejaVu Sans, Bitstream Vera License), version check, GitHub link |
 
 Emits `mode_changed(str)` and `language_changed()` to `MainWindow`. A theme card calls
 `ThemeManager.set_setting()`; the dialog restyles itself on `ThemeManager.theme_changed` like

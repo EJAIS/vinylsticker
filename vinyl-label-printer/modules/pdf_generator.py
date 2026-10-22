@@ -17,6 +17,13 @@ Each text field is independently scaled down via fit_text_to_width() so that
 it never exceeds the usable label width; text that is still too wide at the
 minimum size is truncated with "…".  The vertical block is re-centred
 after fitting so the layout remains balanced.
+
+Fonts: Helvetica / Helvetica-Bold are ReportLab standard fonts and only cover
+Windows-1252 (Western European).  A field with any other character (Polish,
+Czech, Greek, Cyrillic, …) is drawn and measured in the bundled DejaVu Sans /
+DejaVu Sans Bold instead (fonts/, see _font_for()).  Characters DejaVu Sans
+has no glyph for either (e.g. Japanese) still render as empty boxes; one
+warning per PDF names the affected labels.
 """
 
 from __future__ import annotations
@@ -27,9 +34,12 @@ from pathlib import Path
 
 from PIL import Image as PILImage
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from config.avery_formats import MM_PER_PT, get_format, label_rect_pt, mm_to_pt
+from modules.paths import resource_path
 from modules.records import LabelRecord
 from modules.logger import get_logger
 
@@ -54,6 +64,59 @@ _LINES_SPEC: list[tuple[str, str, float, float]] = [
     ("info",                  "Helvetica",        7.0,          4.5),
     ("side",                  "Helvetica-Bold",  14.0,         14.0),   # fixed
 ]
+
+
+# Standard font → (fallback font name, file in fonts/) for text outside cp1252
+_FALLBACK_FONTS: dict[str, tuple[str, str]] = {
+    "Helvetica":      ("DejaVuSans",      "DejaVuSans.ttf"),
+    "Helvetica-Bold": ("DejaVuSans-Bold", "DejaVuSans-Bold.ttf"),
+}
+# Encoding of the standard fonts (ReportLab's WinAnsiEncoding)
+_STANDARD_ENCODING = "cp1252"
+
+# None until the first PDF generation; then True if the fallback fonts are registered
+_fallback_ready: bool | None = None
+
+
+def _register_fallback_fonts() -> bool:
+    """Register the DejaVu Sans fonts with ReportLab once; True if they are usable.
+
+    A missing or broken font file is logged and the standard fonts stay in use,
+    so labels are still created (as before the fallback existed).
+    """
+    global _fallback_ready
+    if _fallback_ready is None:
+        try:
+            for name, filename in _FALLBACK_FONTS.values():
+                if name not in pdfmetrics.getRegisteredFontNames():
+                    pdfmetrics.registerFont(
+                        TTFont(name, str(resource_path(f"fonts/{filename}")))
+                    )
+            _fallback_ready = True
+        except Exception as exc:
+            logger.error(f"Fallback font DejaVu Sans not available: {exc}")
+            _fallback_ready = False
+    return _fallback_ready
+
+
+def _font_for(text: str, font: str) -> str:
+    """The font to draw *text* in: *font* if it can show it, else its DejaVu fallback."""
+    try:
+        text.encode(_STANDARD_ENCODING)
+        return font
+    except UnicodeEncodeError:
+        pass
+    if font not in _FALLBACK_FONTS or not _register_fallback_fonts():
+        return font
+    return _FALLBACK_FONTS[font][0]
+
+
+def _has_missing_glyphs(text: str, font: str) -> bool:
+    """True if *font* is a fallback font without a glyph for a character of *text*."""
+    if font not in {name for name, _ in _FALLBACK_FONTS.values()}:
+        return False
+    widths = pdfmetrics.getFont(font).face.charWidths
+    return any(ord(char) not in widths for char in text if not char.isspace())
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -125,6 +188,8 @@ def generate_pdf(
     page_w = mm_to_pt(fmt["page_width_mm"])
     page_h = mm_to_pt(fmt["page_height_mm"])
 
+    _register_fallback_fonts()
+
     # Load and prepare the watermark image once for the whole PDF
     watermark_reader: ImageReader | None = None
     if watermark_path is not None:
@@ -138,6 +203,8 @@ def generate_pdf(
 
     total_slots = len(records) + start_position
     total_pages = ceil(total_slots / labels_per_sheet)
+    # Titles of labels with characters no bundled font has a glyph for
+    missing_glyphs: list[str] = []
 
     for page_idx in range(total_pages):
         if page_idx > 0:
@@ -161,8 +228,16 @@ def generate_pdf(
             if debug_frames:
                 _draw_debug_frame(c, x, y_bottom, w, h, empty=False)
 
-            _draw_label(c, records[record_idx], x, y_bottom, w, h,
-                        watermark_reader)
+            if _draw_label(c, records[record_idx], x, y_bottom, w, h,
+                           watermark_reader):
+                missing_glyphs.append(records[record_idx].title)
+
+    if missing_glyphs:
+        logger.warning(
+            f"{len(missing_glyphs)} label(s) contain characters that no bundled font "
+            f"can show (printed as empty boxes): "
+            + ", ".join(repr(title) for title in missing_glyphs)
+        )
 
     try:
         c.save()
@@ -226,12 +301,16 @@ def _draw_label(
     w: float,
     h: float,
     watermark: ImageReader | None = None,
-) -> None:
+) -> bool:
     """Draw watermark (if any) then all 5 text lines, centred in the cell.
 
     Each field is independently scaled down to fit the usable label width
     before the vertical block height is computed, so centering is always
-    based on the actual rendered sizes.
+    based on the actual rendered sizes.  Each field is measured and drawn in
+    the font _font_for() picks for its text.
+
+    Returns:
+        True if a character has no glyph in the font used for its field.
     """
     if watermark is not None:
         _draw_watermark(c, watermark, x, y_bottom, w, h)
@@ -239,9 +318,12 @@ def _draw_label(
     raw_lines = _resolve_lines(record)
     max_text_w = w - 2.0 * _H_PADDING_PT
 
-    # Pass 1: determine the actual font size for every line
+    # Pass 1: determine the actual font and font size for every line
     fitted: list[tuple[str, str, float]] = []
+    missing_glyphs = False
     for text, font, size_max, size_min in raw_lines:
+        font = _font_for(text, font)
+        missing_glyphs = missing_glyphs or _has_missing_glyphs(text, font)
         size = fit_text_to_width(c, text, max_text_w, font, size_max, size_min)
         fitted.append((_truncate_to_width(c, text, max_text_w, font, size), font, size))
 
@@ -253,6 +335,7 @@ def _draw_label(
         y_cursor -= size * _LINE_SPACING_FACTOR
         c.setFont(font, size)
         c.drawCentredString(x + w / 2.0, y_cursor, text)
+    return missing_glyphs
 
 
 def _prepare_watermark(image_path: Path) -> ImageReader | None:

@@ -26,6 +26,7 @@
 #   /usr/share/icons/hicolor/<size>/apps/vinyl-label-printer.png
 #   /usr/share/doc/vinyl-label-printer/copyright    DEP-5, incl. bundled components
 #   /usr/share/doc/vinyl-label-printer/third-party/ verbatim licence texts
+#                                                   (debian/, python/, fonts/)
 
 set -euo pipefail
 umask 022   # fpm's own temp dirs end up in the package (e.g. "./")
@@ -186,6 +187,11 @@ if missing:
     sys.exit(f"ERROR: Python packages not listed in {copyright_file}: {', '.join(missing)}")
 print(f"Licence files of {len(seen)} Python distributions collected")
 EOF
+
+# Licence of the bundled DejaVu Sans fonts (also in the bundle as fonts/LICENSE).
+FONT_LICENSE="$STAGING/opt/$NAME/_internal/fonts/LICENSE"
+[ -f "$FONT_LICENSE" ] || die "font licence not bundled: $FONT_LICENSE"
+install -D -m 644 "$FONT_LICENSE" "$DOC_DIR/third-party/fonts/DejaVu-2.37.LICENSE"
 
 # Plain permissions (independent of the build user's umask).
 chmod -R u+rwX,go+rX,go-w "$STAGING"

@@ -52,6 +52,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "err_pdf":           "PDF konnte nicht erstellt werden:\n{detail}",
         "err_queue_load":    "Die Druckwarteschlange konnte nicht geladen werden:\n{detail}",
         "err_print":         "Druckfehler:\n{detail}",
+        "err_calibration_pdf": "Die Kalibrierungs-PDF konnte nicht erstellt werden:\n{detail}",
 
         # Tooltips
         "tooltip_grid":      (
@@ -567,6 +568,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "open_github":                 "Projekt auf GitHub öffnen →",
         "settings_license":             "Lizenz",
         "settings_author":              "Autor",
+        "settings_font":                "Schrift (Etiketten)",
 
         # Discogs dialog — selection counter
         "selection_count":           "{count} ausgewählt",
@@ -673,6 +675,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "err_pdf":           "Could not create PDF:\n{detail}",
         "err_queue_load":    "Could not load the print queue:\n{detail}",
         "err_print":         "Print error:\n{detail}",
+        "err_calibration_pdf": "The calibration PDF could not be created:\n{detail}",
 
         # Tooltips
         "tooltip_grid":      "Click a cell to set the start position.",
@@ -1175,6 +1178,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "open_github":                 "Open project on GitHub →",
         "settings_license":             "License",
         "settings_author":              "Author",
+        "settings_font":                "Font (labels)",
 
         # Discogs dialog — selection counter
         "selection_count":           "{count} selected",
