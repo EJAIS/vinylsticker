@@ -847,6 +847,20 @@ def test_export_import_round_trip_leaves_the_collection_unchanged(app, monkeypat
     )
 
 
+def test_collection_csv_round_trip_with_formula_values(tmp_path):
+    records = [
+        CollectionRecord(artist="=1+1", label="-", country="+44", year="@home",
+                         catno="'quoted", title_a="-", title_b="'=x",
+                         printed_a_at="2024-05-06"),
+        CollectionRecord(artist="\tTab", title_a="@home", title_b="Don't"),
+    ]
+    path = tmp_path / "collection.csv"
+    write_collection_csv(path, records)
+    rows = path.read_text(encoding="utf-8-sig").splitlines()
+    assert rows[1] == "'=1+1;'-;'+44;'@home;'quoted;'-;''=x;2024-05-06;"
+    assert read_collection_csv(path).records == records
+
+
 def test_round_trip_with_duplicates_inside_the_collection(tmp_path):
     """Two records with the same artist and catalog number survive a round trip."""
     older = _add(title_a="Older")

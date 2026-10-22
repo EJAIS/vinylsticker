@@ -77,10 +77,12 @@ def _print_version() -> None:
 def _print_child_env() -> int:
     """Print the environment child processes inherit, one NAME=value per line.
 
-    Then runs the PDF preview's Poppler call (pdf2image -> pdfinfo, pdftoppm)
-    once on a generated one-page PDF and reports the result on a line starting
-    with "# ". Used by CI to check that no bundle path reaches child processes.
-    Returns the exit code: 0 if the Poppler call worked, 1 otherwise.
+    Then generates a one-page label PDF with Polish and Cyrillic text, reports
+    whether it uses the bundled fallback font, and runs the PDF preview's
+    Poppler call (pdf2image -> pdfinfo, pdftoppm) once on it. Results are on
+    lines starting with "# ". Used by CI to check that no bundle path reaches
+    child processes and that the bundled font loads.
+    Returns the exit code: 0 if both worked, 1 otherwise.
     """
     _attach_parent_console()
     if sys.stdout is None:
@@ -90,16 +92,17 @@ def _print_child_env() -> int:
     try:
         import tempfile
         from pdf2image import convert_from_path
-        from reportlab.pdfgen import canvas
+        from modules.pdf_generator import generate_pdf
+        from modules.records import LabelRecord
 
         with tempfile.TemporaryDirectory() as tmp:
             pdf = Path(tmp) / "child-env-check.pdf"
-            page = canvas.Canvas(str(pdf))
-            page.drawString(72, 72, APP_NAME)
-            page.save()
+            generate_pdf([LabelRecord("Łódź", "Кино", "", "", "", "A")], pdf)
+            fallback_font = b"DejaVuSans" in pdf.read_bytes()
+            print(f"# fallback font: {'OK' if fallback_font else 'MISSING'}")
             pages = convert_from_path(str(pdf), dpi=10, poppler_path=get_poppler_path())
         print(f"# pdf2image: OK ({len(pages)} page)")
-        return 0
+        return 0 if fallback_font else 1
     except Exception as exc:
         print(f"# pdf2image: FAILED: {type(exc).__name__}: {exc}")
         return 1

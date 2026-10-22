@@ -142,6 +142,10 @@ def test_export_import_round_trip(tmp_path):
                     "", "B", "Ä-1;2"),
         LabelRecord("Tab\there", "", "", "", "2001", "A", ""),
         LabelRecord("No other fields", "", "", "", "", "A", ""),
+        # Formula protection: values a spreadsheet would run as a formula
+        LabelRecord("=1+1", "-", "+44", "@home", "-1", "A", "'quoted"),
+        LabelRecord("'=already quoted", "''=twice", "\tTab first", "\rCR first",
+                    "", "B", "it's"),
     ]
     out = tmp_path / "out.csv"
     write_csv(out, records)
@@ -153,3 +157,27 @@ def test_export_import_round_trip(tmp_path):
 
 def test_default_export_name():
     assert default_export_name(date(2026, 10, 22)) == "vinyl-labels-2026-10-22.csv"
+
+
+def test_export_protects_formula_cells(tmp_path):
+    out = tmp_path / "out.csv"
+    write_csv(out, [
+        LabelRecord("=1+1", "-", "+44", "@home", "1969", "A", "'quoted"),
+        LabelRecord("A-side", "Don't", "", "", "", "B", "=HYPERLINK(\"x\")"),
+    ])
+    rows = out.read_text(encoding="utf-8-sig").splitlines()[1:]
+    assert rows[0] == "'=1+1;'-;'+44;'@home;1969;A;'quoted"
+    assert rows[1] == "A-side;Don't;;;;B;\"'=HYPERLINK(\"\"x\"\")\""
+
+
+def test_import_removes_only_the_protecting_apostrophe(tmp_path):
+    text = (
+        "Title;Artist;Label;Country;CatNo\n"
+        "'=1+1;'-;'+44;'@home;'quoted\n"
+        "''=x;'Til Tuesday;it's;'';'1\n"
+    )
+    records = read_csv(_write(tmp_path / "in.csv", text)).records
+    assert [(r.title, r.artist, r.label, r.country, r.catno) for r in records] == [
+        ("=1+1", "-", "+44", "@home", "'quoted"),
+        ("'=x", "'Til Tuesday", "it's", "''", "'1"),
+    ]

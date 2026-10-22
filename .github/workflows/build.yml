@@ -169,6 +169,11 @@ jobs:
           if (-not (Test-Path "dist/vinyl-label-printer/_internal/poppler/bin/pdftoppm.exe")) {
             throw "Poppler not bundled"
           }
+          foreach ($f in "DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "LICENSE") {
+            if (-not (Test-Path "dist/vinyl-label-printer/_internal/fonts/$f")) {
+              throw "Font file not bundled: fonts/$f"
+            }
+          }
 
       - name: Verify app icon
         run: |
@@ -255,6 +260,11 @@ jobs:
           if (Test-Path $stale) { throw "Upgrade did not remove the old _internal: $stale" }
           if (-not (Test-Path $exe)) { throw "Installed exe not found: $exe" }
           if (-not (Test-Path $shortcut)) { throw "Start Menu shortcut not found: $shortcut" }
+          foreach ($f in "DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "LICENSE") {
+            if (-not (Test-Path (Join-Path $appDir "_internal\fonts\$f"))) {
+              throw "Font file not installed: _internal\fonts\$f"
+            }
+          }
           if (Test-Path (Join-Path $appDir "unins001.exe")) { throw "Second uninstaller: upgrade created a new installation" }
           $entry = Get-ItemProperty $uninstKey
           Write-Host "Uninstall entry: $($entry.DisplayName) $($entry.DisplayVersion)"
@@ -384,6 +394,9 @@ jobs:
           echo "Output: $out"
           echo "$out" | grep -F "$VERSION"
           test -f dist/vinyl-label-printer/_internal/icons/vinyl-label-printer.png
+          for f in DejaVuSans.ttf DejaVuSans-Bold.ttf LICENSE; do
+            test -f "dist/vinyl-label-printer/_internal/fonts/$f"
+          done
           # The committed window icon is the 256 px hicolor PNG (build_icons.py).
           cmp vinyl-label-printer/icons/vinyl-label-printer.png \
             packaging/icons/hicolor/256x256/apps/vinyl-label-printer.png
@@ -476,7 +489,8 @@ jobs:
         # inherit them, or they load the bundle's libraries and crash.
         # --print-child-env prints the app's os.environ after the restore, which is
         # what subprocess, QProcess, QDesktopServices and pdf2image pass on, and
-        # then runs the PDF preview's Poppler call through pdf2image.
+        # then runs the PDF preview's Poppler call through pdf2image on a label PDF
+        # that must use the bundled fallback font (Polish / Cyrillic text).
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
@@ -496,6 +510,7 @@ jobs:
           fail_if_found '^(LD_LIBRARY_PATH|LD_LIBRARY_PATH_ORIG|QT_PLUGIN_PATH|QML2_IMPORT_PATH|_PYI_[A-Z_]*)=' \
             child-env.txt "A variable set for the bundle reaches child processes"
           grep -qx '# pdf2image: OK (1 page)' child-env.txt
+          grep -qx '# fallback font: OK' child-env.txt
 
           # pdftoppm with exactly this environment resolves only system libraries.
           mapfile -t child_env < <(grep -v '^# ' child-env.txt)
@@ -509,6 +524,14 @@ jobs:
             > child-env-user.txt
           fail_if_found "$bundle" child-env-user.txt "A bundle path reaches child processes"
           grep -x 'LD_LIBRARY_PATH=/usr/local/lib/user-test' child-env-user.txt
+
+      - name: Check the bundled fallback font
+        run: |
+          for f in DejaVuSans.ttf DejaVuSans-Bold.ttf LICENSE; do
+            test -f "/opt/vinyl-label-printer/_internal/fonts/$f" \
+              || { echo "::error::fonts/$f missing in the .deb"; exit 1; }
+          done
+          test -f /usr/share/doc/vinyl-label-printer/third-party/fonts/DejaVu-2.37.LICENSE
 
       - name: Check that all bundled libraries resolve
         run: packaging/linux/check_bundle_libs.sh /opt/vinyl-label-printer

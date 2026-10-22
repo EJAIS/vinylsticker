@@ -27,6 +27,9 @@ datas = [
     (str(APP_DIR / "config" / "credentials.example.json"), "config"),
     # Window icon, loaded by main.py as icons/vinyl-label-printer.png
     (str(APP_DIR / "icons" / "vinyl-label-printer.png"), "icons"),
+    # Fallback font of the labels (DejaVu Sans 2.37) with its licence,
+    # loaded by modules.pdf_generator as fonts/<file>
+    (str(APP_DIR / "fonts"), "fonts"),
 ]
 
 # Windows only: bundle Poppler (pdftoppm/pdfinfo + DLLs) if it was downloaded to
