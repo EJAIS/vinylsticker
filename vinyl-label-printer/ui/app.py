@@ -184,11 +184,23 @@ class MainWindow(QMainWindow):
             self._db_path,
             parent=self,
         )
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        accepted = dlg.exec() == QDialog.DialogCode.Accepted
+        dlg.deleteLater()
+        if accepted:
             self._load_queue()
 
     def on_pick_start_pos(self) -> None:
         """Start position button: open the GridWidget in a small dialog."""
+        dlg = self._create_start_pos_dialog()
+        dlg.exec()
+        dlg.deleteLater()
+
+        row = self._start_index // GridWidget.COLS + 1
+        col = self._start_index % GridWidget.COLS + 1
+        self._sidebar.set_start_position(self._start_index + 1, row, col)
+
+    def _create_start_pos_dialog(self) -> QDialog:
+        """Build the modal start position picker (GridWidget + OK button)."""
         dlg = QDialog(self)
         dlg.setWindowTitle(t("sidebar_start_pos"))
         dlg.setModal(True)
@@ -213,12 +225,7 @@ class MainWindow(QMainWindow):
         btn_ok.setProperty("primary", True)
         btn_ok.clicked.connect(dlg.accept)
         layout.addWidget(btn_ok, 0, Qt.AlignmentFlag.AlignRight)
-
-        dlg.exec()
-
-        row = self._start_index // GridWidget.COLS + 1
-        col = self._start_index % GridWidget.COLS + 1
-        self._sidebar.set_start_position(self._start_index + 1, row, col)
+        return dlg
 
     def on_create_pdf(self) -> None:
         """Create PDF button: generate PDF and load it into the preview."""
@@ -275,15 +282,11 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_settings_dialog"):
             self._settings_dialog = SettingsDialog(self)
             self._settings_dialog._db_path = self._db_path
-            self._settings_dialog.theme_changed.connect(self.on_theme_changed)
             self._settings_dialog.mode_changed.connect(self.on_mode_changed)
             self._settings_dialog.language_changed.connect(self._retranslate_ui)
             self._settings_dialog.debug_mode_changed.connect(
                 self._footer.update_debug_mode
             )
-            app_inst = QApplication.instance()
-            if app_inst:
-                self._settings_dialog.setStyleSheet(app_inst.styleSheet())
         self._settings_dialog.show()
         self._settings_dialog.raise_()
 
@@ -291,19 +294,6 @@ class MainWindow(QMainWindow):
         """Open Settings dialog and navigate to the Appearance tab."""
         self.on_open_settings()
         self._settings_dialog.switch_to_tab(0)
-
-    def on_theme_changed(self, theme_name: str) -> None:
-        """Apply a new theme to the whole application."""
-        from config.themes import get_theme as _gc
-        from config.stylesheet import build_stylesheet
-        colors = _gc(theme_name)
-        app = QApplication.instance()
-        app.setStyleSheet(build_stylesheet(colors))
-        app.setProperty("theme_colors", colors)
-        self._sidebar._apply_sidebar_style()
-        self._footer._apply_style()
-        for w in app.allWidgets():
-            w.update()
 
     def on_mode_changed(self, mode_str: str) -> None:
         """React to data-source mode change from the settings dialog."""

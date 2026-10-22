@@ -9,15 +9,16 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication,
     QLabel,
     QVBoxLayout,
     QWidget,
 )
 
 from __version__ import __version__, __status__
+from config.themes import ThemeColors
 from modules.data_source import DataSourceMode
 from modules.i18n import t
+from ui.theme_manager import ThemeManager, current_colors
 
 
 class SidebarButton(QWidget):
@@ -98,8 +99,8 @@ class SidebarButton(QWidget):
     # ── Style ─────────────────────────────────────────────────────────────────
 
     def _update_style(self) -> None:
-        app = QApplication.instance()
-        colors = app.property("theme_colors") if app else None
+        """(Re)apply the state-dependent style; the sidebar calls it on theme changes."""
+        colors = current_colors()
         if not colors:
             return
 
@@ -230,7 +231,8 @@ class SidebarWidget(QWidget):
 
         layout.addStretch()
 
-        self._apply_sidebar_style()
+        self._apply_theme()
+        ThemeManager.instance().theme_changed.connect(self._apply_theme)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -244,9 +246,9 @@ class SidebarWidget(QWidget):
         lbl.setProperty("top_border", top_border)
         return lbl
 
-    def _apply_sidebar_style(self) -> None:
-        app = QApplication.instance()
-        colors = app.property("theme_colors") if app else None
+    def _apply_theme(self, colors: ThemeColors | None = None) -> None:
+        """(Re)apply all sidebar colors; runs at build time and on theme_changed."""
+        colors = colors or current_colors()
         if not colors:
             return
 

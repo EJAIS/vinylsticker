@@ -8,9 +8,10 @@ Tabs (left nav):
   3  About        — app info, license, author, version check, GitHub link
 
 Signals emitted to MainWindow:
-  theme_changed(str)   — 'dark' | 'light'
   mode_changed(str)    — 'local' | 'discogs'
   language_changed()   — emitted after language switch (no arg)
+
+Theme changes go through ThemeManager, which restyles every open window.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QThread
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
@@ -49,8 +49,6 @@ from modules.version_checker import (
     is_update_available,
 )
 from config.settings import (
-    get_theme,
-    set_theme,
     get_data_source_mode,
     set_data_source_mode,
     get_language_setting,
@@ -66,43 +64,42 @@ from config.settings import (
     get_calibration_y,
     set_calibration_y,
 )
+from config.themes import ThemeColors
 from modules.logger import set_debug_mode
 from modules.paths import get_data_dir, get_database_file, get_log_file, get_output_dir
+from ui.theme_manager import ThemedStyles, ThemeManager, current_colors
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
 
-def _get_colors():
-    app = QApplication.instance()
-    return app.property("theme_colors") if app else None
-
-
-def _make_section_label(text: str, first: bool = False) -> QLabel:
-    """Styled section heading — matches sidebar section label style."""
-    lbl = QLabel(text.upper())
-    font = lbl.font()
-    font.setPixelSize(10)
-    font.setBold(True)
-    lbl.setFont(font)
-    _apply_section_label_style(lbl, first)
-    return lbl
-
-
-def _apply_section_label_style(lbl: QLabel, first: bool = False) -> None:
-    """Apply (or re-apply) the section label stylesheet from current theme colors."""
-    colors = _get_colors()
-    border_top = "" if first else f"border-top: 1px solid {colors.border};" if colors else ""
-    color = colors.text_muted if colors else ""
-    lbl.setStyleSheet(f"""
+def _section_label_style(colors: ThemeColors, first: bool = False) -> str:
+    """Section heading stylesheet — matches the sidebar section label style."""
+    border_top = "" if first else f"border-top: 1px solid {colors.border};"
+    return f"""
         QLabel {{
-            color: {color};
+            color: {colors.text_muted};
             background: transparent;
             border: none;
             {border_top}
             padding: 16px 0px 4px 0px;
             letter-spacing: 1px;
         }}
-    """)
+    """
+
+
+def _label_style(color: str) -> str:
+    return f"color: {color}; background: transparent;"
+
+
+def _card_style(colors: ThemeColors) -> str:
+    """Rounded info card (status, watermark, app and version rows)."""
+    return f"""
+        QWidget {{
+            background-color: {colors.bg_sidebar};
+            border: 1px solid {colors.border};
+            border-radius: 6px;
+        }}
+    """
 
 
 # ── _NavItem ───────────────────────────────────────────────────────────────────
@@ -154,7 +151,8 @@ class _NavItem(QWidget):
         self._update_style()
 
     def _update_style(self) -> None:
-        colors = _get_colors()
+        """(Re)apply the state style; SettingsDialog calls it on theme changes."""
+        colors = current_colors()
         if not colors:
             return
 
@@ -241,7 +239,8 @@ class _RadioCard(QWidget):
             self.clicked.emit()
 
     def _update_style(self) -> None:
-        colors = _get_colors()
+        """(Re)apply the state style; SettingsDialog calls it on theme changes."""
+        colors = current_colors()
         if not colors:
             return
 
@@ -288,7 +287,6 @@ class _VersionCheckThread(QThread):
 class SettingsDialog(QDialog):
     """Central settings dialog with left-nav + stacked content panels."""
 
-    theme_changed    = pyqtSignal(str)   # 'dark' | 'light'
     mode_changed     = pyqtSignal(str)   # 'local' | 'discogs'
     language_changed = pyqtSignal()      # emitted after language switch
     debug_mode_changed = pyqtSignal(bool)  # emitted when debug toggle changes
@@ -303,15 +301,24 @@ class SettingsDialog(QDialog):
 
         self._nav_items: list[_NavItem] = []
         self._db_path = None  # set from MainWindow after construction if needed
+        # Static per-widget stylesheets, re-applied by _apply_theme()
+        self._styles = ThemedStyles()
+        # Color role (ThemeColors field) of the version check status line
+        self._update_status_role = ""
+        # i18n key of the update hint, "" while it is hidden
+        self._update_hint_key = ""
+        self._discogs_connected = False
 
         self._build_ui()
         self._switch_tab(0)
 
+        theme = ThemeManager.instance()
+        theme.theme_changed.connect(self._apply_theme)
+        theme.setting_changed.connect(self._update_theme_cards)
+
     # ── UI construction ────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        colors = _get_colors()
-
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -325,16 +332,23 @@ class SettingsDialog(QDialog):
         self._stack.addWidget(self._build_about_tab())
         outer.addWidget(self._stack, 1)
 
-        if colors:
-            self.setStyleSheet(f"""
-                QDialog {{
-                    background-color: {colors.bg_main};
-                }}
-            """)
+        self._styles.add(self, lambda c: f"""
+            QDialog {{
+                background-color: {c.bg_main};
+            }}
+        """)
+
+    def _section_label(self, text: str, first: bool = False) -> QLabel:
+        """Section heading in the settings tabs."""
+        lbl = QLabel(text.upper())
+        font = lbl.font()
+        font.setPixelSize(10)
+        font.setBold(True)
+        lbl.setFont(font)
+        self._styles.add(lbl, lambda c: _section_label_style(c, first))
+        return lbl
 
     def _build_nav(self) -> QWidget:
-        colors = _get_colors()
-
         nav = QWidget()
         nav.setFixedWidth(160)
         nav.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -350,10 +364,7 @@ class SettingsDialog(QDialog):
         header_font.setPixelSize(14)
         self._nav_header.setFont(header_font)
         self._nav_header.setContentsMargins(4, 0, 4, 8)
-        if colors:
-            self._nav_header.setStyleSheet(
-                f"color: {colors.text_primary}; background: transparent;"
-            )
+        self._styles.add(self._nav_header, lambda c: _label_style(c.text_primary))
         layout.addWidget(self._nav_header)
 
         # Nav items
@@ -371,31 +382,29 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
 
-        if colors:
-            nav.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {colors.bg_sidebar};
-                    border-right: 1px solid {colors.border};
-                }}
-            """)
+        self._styles.add(nav, lambda c: f"""
+            QWidget {{
+                background-color: {c.bg_sidebar};
+                border-right: 1px solid {c.border};
+            }}
+        """)
 
         return nav
 
     def _scrollable(self, inner: QWidget) -> QWidget:
         """Wrap *inner* in a QScrollArea with matching background."""
-        colors = _get_colors()
-        if colors:
-            inner.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-            inner.setStyleSheet(f"QWidget {{ background-color: {colors.bg_main}; }}")
+        inner.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._styles.add(
+            inner, lambda c: f"QWidget {{ background-color: {c.bg_main}; }}"
+        )
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(inner)
-        if colors:
-            scroll.setStyleSheet(f"""
-                QScrollArea {{ background-color: {colors.bg_main}; border: none; }}
-                QScrollArea > QWidget > QWidget {{ background-color: {colors.bg_main}; }}
-            """)
+        self._styles.add(scroll, lambda c: f"""
+            QScrollArea {{ background-color: {c.bg_main}; border: none; }}
+            QScrollArea > QWidget > QWidget {{ background-color: {c.bg_main}; }}
+        """)
         return scroll
 
     # ── Tab 0: Appearance ──────────────────────────────────────────────────────
@@ -406,9 +415,10 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(24, 8, 24, 24)
         layout.setSpacing(8)
 
-        self._lbl_sec_theme = _make_section_label(t("settings_theme_label"), first=True)
+        self._lbl_sec_theme = self._section_label(t("settings_theme_label"), first=True)
         layout.addWidget(self._lbl_sec_theme)
 
+        self._card_auto = _RadioCard(t("theme_auto"), self._theme_auto_desc())
         self._card_dark = _RadioCard(
             t("settings_theme_dark_name"),
             t("settings_theme_dark_desc"),
@@ -417,27 +427,17 @@ class SettingsDialog(QDialog):
             t("settings_theme_light_name"),
             t("settings_theme_light_desc"),
         )
-        current_theme = get_theme()
-        self._card_dark.set_active(current_theme == "dark")
-        self._card_light.set_active(current_theme == "light")
-        self._card_dark.clicked.connect(lambda: self._on_theme_card("dark"))
-        self._card_light.clicked.connect(lambda: self._on_theme_card("light"))
-        layout.addWidget(self._card_dark)
-        layout.addWidget(self._card_light)
+        self._theme_cards = {
+            "auto": self._card_auto,
+            "dark": self._card_dark,
+            "light": self._card_light,
+        }
+        for setting, card in self._theme_cards.items():
+            card.clicked.connect(lambda name=setting: self._on_theme_card(name))
+            layout.addWidget(card)
+        self._update_theme_cards(ThemeManager.instance().setting)
 
-        # Restart notice (hidden until theme is changed)
-        self._restart_notice = QWidget()
-        self._restart_notice.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        notice_layout = QHBoxLayout(self._restart_notice)
-        notice_layout.setContentsMargins(12, 8, 12, 8)
-        self._restart_notice_lbl = QLabel(t("restart_required"))
-        self._restart_notice_lbl.setWordWrap(True)
-        notice_layout.addWidget(self._restart_notice_lbl)
-        self._restart_notice.setVisible(False)
-        self._apply_restart_notice_style()
-        layout.addWidget(self._restart_notice)
-
-        self._lbl_sec_lang = _make_section_label(t("menu_language"))
+        self._lbl_sec_lang = self._section_label(t("menu_language"))
         layout.addWidget(self._lbl_sec_lang)
 
         self._card_de = _RadioCard("Deutsch")
@@ -454,15 +454,11 @@ class SettingsDialog(QDialog):
         lang_info_font = self._lbl_lang_info.font()
         lang_info_font.setPixelSize(11)
         self._lbl_lang_info.setFont(lang_info_font)
-        colors = _get_colors()
-        if colors:
-            self._lbl_lang_info.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
+        self._styles.add(self._lbl_lang_info, lambda c: _label_style(c.text_muted))
         layout.addWidget(self._lbl_lang_info)
 
         # ── Watermark section ──────────────────────────────────────────────
-        self._lbl_sec_watermark = _make_section_label(t("watermark_section"))
+        self._lbl_sec_watermark = self._section_label(t("watermark_section"))
         layout.addWidget(self._lbl_sec_watermark)
 
         # Status card
@@ -476,14 +472,7 @@ class SettingsDialog(QDialog):
         self._lbl_watermark_status.setFont(wm_status_font)
         self._lbl_watermark_status.setWordWrap(True)
         wm_card_layout.addWidget(self._lbl_watermark_status)
-        if colors:
-            wm_card.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {colors.bg_sidebar};
-                    border: 1px solid {colors.border};
-                    border-radius: 6px;
-                }}
-            """)
+        self._styles.add(wm_card, _card_style)
         layout.addWidget(wm_card)
 
         # Buttons row
@@ -505,7 +494,7 @@ class SettingsDialog(QDialog):
         self._refresh_watermark_status()
 
         # ── Printer calibration section ────────────────────────────────────
-        self._lbl_sec_calibration = _make_section_label(t("print_calibration"))
+        self._lbl_sec_calibration = self._section_label(t("print_calibration"))
         layout.addWidget(self._lbl_sec_calibration)
 
         self._lbl_calibration_info = QLabel(t("calibration_info"))
@@ -513,10 +502,9 @@ class SettingsDialog(QDialog):
         cal_info_font = self._lbl_calibration_info.font()
         cal_info_font.setPixelSize(11)
         self._lbl_calibration_info.setFont(cal_info_font)
-        if colors:
-            self._lbl_calibration_info.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
+        self._styles.add(
+            self._lbl_calibration_info, lambda c: _label_style(c.text_muted)
+        )
         layout.addWidget(self._lbl_calibration_info)
 
         def _make_spin(value: float) -> QDoubleSpinBox:
@@ -527,16 +515,15 @@ class SettingsDialog(QDialog):
             spin.setValue(value)
             spin.setSuffix(" mm")
             spin.setFixedWidth(100)
-            if colors:
-                spin.setStyleSheet(f"""
-                    QDoubleSpinBox {{
-                        background-color: {colors.bg_input};
-                        color: {colors.text_primary};
-                        border: 1px solid {colors.border};
-                        border-radius: 6px;
-                        padding: 4px 6px;
-                    }}
-                """)
+            self._styles.add(spin, lambda c: f"""
+                QDoubleSpinBox {{
+                    background-color: {c.bg_input};
+                    color: {c.text_primary};
+                    border: 1px solid {c.border};
+                    border-radius: 6px;
+                    padding: 4px 6px;
+                }}
+            """)
             return spin
 
         cal_x_row = QHBoxLayout()
@@ -580,7 +567,7 @@ class SettingsDialog(QDialog):
         self._spin_cal_y.valueChanged.connect(self._on_calibration_y_changed)
 
         # ── Developer section ──────────────────────────────────────────────
-        self._lbl_sec_debug = _make_section_label(t("debug_section"))
+        self._lbl_sec_debug = self._section_label(t("debug_section"))
         layout.addWidget(self._lbl_sec_debug)
 
         # Toggle row: [title + subtitle on left] | [checkbox on right]
@@ -618,19 +605,13 @@ class SettingsDialog(QDialog):
         self._lbl_log_path.setVisible(get_debug_logging())
         layout.addWidget(self._lbl_log_path)
 
-        if colors:
-            self._lbl_debug_subtitle.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
-            self._lbl_log_path.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
+        self._styles.add(self._lbl_debug_subtitle, lambda c: _label_style(c.text_muted))
+        self._styles.add(self._lbl_log_path, lambda c: _label_style(c.text_muted))
 
         self._chk_debug.toggled.connect(self._on_debug_toggle)
 
         layout.addStretch()
 
-        self._inner_appearance = inner
         return self._scrollable(inner)
 
     # ── Tab 1: Data source ─────────────────────────────────────────────────────
@@ -641,7 +622,7 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(24, 8, 24, 24)
         layout.setSpacing(8)
 
-        self._lbl_sec_mode = _make_section_label(t("settings_active_mode"), first=True)
+        self._lbl_sec_mode = self._section_label(t("settings_active_mode"), first=True)
         layout.addWidget(self._lbl_sec_mode)
 
         self._card_local = _RadioCard(
@@ -669,22 +650,18 @@ class SettingsDialog(QDialog):
         self._lbl_mode_warn.setWordWrap(True)
         warn_layout.addWidget(self._lbl_mode_warn)
 
-        colors = _get_colors()
-        if colors:
-            warn_box.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {colors.bg_card};
-                    border-left: 3px solid {colors.warning};
-                    border-radius: 0px;
-                }}
-            """)
-            self._lbl_mode_warn.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
+        self._styles.add(warn_box, lambda c: f"""
+            QWidget {{
+                background-color: {c.bg_card};
+                border-left: 3px solid {c.warning};
+                border-radius: 0px;
+            }}
+        """)
+        self._styles.add(self._lbl_mode_warn, lambda c: _label_style(c.text_muted))
         layout.addWidget(warn_box)
 
         # ── Data folder section ────────────────────────────────────────────
-        self._lbl_sec_data_folder = _make_section_label(t("settings_data_folder"))
+        self._lbl_sec_data_folder = self._section_label(t("settings_data_folder"))
         layout.addWidget(self._lbl_sec_data_folder)
 
         self._lbl_data_folder_info = QLabel(t("settings_data_folder_info"))
@@ -692,10 +669,9 @@ class SettingsDialog(QDialog):
         data_info_font = self._lbl_data_folder_info.font()
         data_info_font.setPixelSize(11)
         self._lbl_data_folder_info.setFont(data_info_font)
-        if colors:
-            self._lbl_data_folder_info.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
+        self._styles.add(
+            self._lbl_data_folder_info, lambda c: _label_style(c.text_muted)
+        )
         layout.addWidget(self._lbl_data_folder_info)
 
         data_folder_row = QHBoxLayout()
@@ -715,7 +691,6 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
 
-        self._inner_datasource = inner
         return self._scrollable(inner)
 
     # ── Tab 2: Discogs account ─────────────────────────────────────────────────
@@ -725,8 +700,6 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(inner)
         layout.setContentsMargins(24, 8, 24, 24)
         layout.setSpacing(12)
-
-        colors = _get_colors()
 
         # Status card
         status_card = QWidget()
@@ -751,18 +724,13 @@ class SettingsDialog(QDialog):
         status_layout.addStretch()
         status_layout.addWidget(self._lbl_discogs_username, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        if colors:
-            status_card.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {colors.bg_sidebar};
-                    border: 1px solid {colors.border};
-                    border-radius: 6px;
-                }}
-            """)
+        self._styles.add(status_card, _card_style)
+        self._styles.add(self._lbl_discogs_status, lambda c: _label_style(c.text_primary))
+        self._styles.add(self._lbl_discogs_username, lambda c: _label_style(c.text_muted))
         layout.addWidget(status_card)
 
         # Token section
-        self._lbl_sec_token = _make_section_label(t("discogs_lbl_token"))
+        self._lbl_sec_token = self._section_label(t("discogs_lbl_token"))
         layout.addWidget(self._lbl_sec_token)
 
         token_row = QWidget()
@@ -777,17 +745,16 @@ class SettingsDialog(QDialog):
         mono_font = self._token_edit.font()
         mono_font.setFamily("monospace")
         self._token_edit.setFont(mono_font)
-        if colors:
-            self._token_edit.setStyleSheet(f"""
-                QLineEdit {{
-                    background-color: {colors.bg_input};
-                    color: {colors.text_primary};
-                    border: 1px solid {colors.border};
-                    border-radius: 6px;
-                    padding: 6px 10px;
-                    font-size: 12px;
-                }}
-            """)
+        self._styles.add(self._token_edit, lambda c: f"""
+            QLineEdit {{
+                background-color: {c.bg_input};
+                color: {c.text_primary};
+                border: 1px solid {c.border};
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+            }}
+        """)
 
         self._btn_toggle_token = QPushButton(t("settings_discogs_show_token"))
         self._btn_toggle_token.setFixedHeight(32)
@@ -814,25 +781,24 @@ class SettingsDialog(QDialog):
         self._btn_logout.clicked.connect(self._on_logout)
         self._btn_logout.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        if colors:
-            btn_style = f"""
+        def btn_style(c: ThemeColors) -> str:
+            return f"""
                 QPushButton {{
-                    background-color: {colors.bg_card};
-                    color: {colors.text_primary};
-                    border: 1px solid {colors.border};
+                    background-color: {c.bg_card};
+                    color: {c.text_primary};
+                    border: 1px solid {c.border};
                     border-radius: 6px;
                     padding: 4px 14px;
                     font-size: 12px;
                 }}
                 QPushButton:hover {{
-                    background-color: {colors.accent_bg};
-                    border-color: {colors.accent};
-                    color: {colors.accent_light};
+                    background-color: {c.accent_bg};
+                    border-color: {c.accent};
+                    color: {c.accent_light};
                 }}
             """
-            self._btn_toggle_token.setStyleSheet(btn_style)
-            self._btn_change_token.setStyleSheet(btn_style)
-            self._btn_logout.setStyleSheet(btn_style)
+        for btn in (self._btn_toggle_token, self._btn_change_token, self._btn_logout):
+            self._styles.add(btn, btn_style)
 
         btn_row_layout.addWidget(self._btn_change_token)
         btn_row_layout.addWidget(self._btn_logout)
@@ -843,7 +809,6 @@ class SettingsDialog(QDialog):
 
         self._refresh_discogs_status()
 
-        self._inner_discogs = inner
         return self._scrollable(inner)
 
     # ── Tab 3: About ───────────────────────────────────────────────────────────
@@ -853,8 +818,6 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(inner)
         layout.setContentsMargins(24, 8, 24, 24)
         layout.setSpacing(12)
-
-        colors = _get_colors()
 
         # App card
         app_card = QWidget()
@@ -871,17 +834,10 @@ class SettingsDialog(QDialog):
 
         app_layout.addWidget(lbl_app_name)
 
-        if colors:
-            app_card.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {colors.bg_sidebar};
-                    border: 1px solid {colors.border};
-                    border-radius: 6px;
-                }}
-            """)
-            lbl_app_name.setStyleSheet(
-                f"color: {colors.text_primary}; font-weight: bold; background: transparent;"
-            )
+        self._styles.add(app_card, _card_style)
+        self._styles.add(lbl_app_name, lambda c: (
+            f"color: {c.text_primary}; font-weight: bold; background: transparent;"
+        ))
         layout.addWidget(app_card)
 
         # Info rows (License + Author only) — store key labels for retranslation
@@ -907,20 +863,15 @@ class SettingsDialog(QDialog):
             val_font.setPixelSize(12)
             lbl_val.setFont(val_font)
 
-            if colors:
-                lbl_key.setStyleSheet(
-                    f"color: {colors.text_secondary}; background: transparent;"
-                )
-                lbl_val.setStyleSheet(
-                    f"color: {colors.text_primary}; background: transparent;"
-                )
-                row.setStyleSheet(f"""
-                    QWidget {{
-                        background-color: {colors.bg_card};
-                        border-bottom: 1px solid {colors.border};
-                        border-radius: 0px;
-                    }}
-                """)
+            self._styles.add(lbl_key, lambda c: _label_style(c.text_secondary))
+            self._styles.add(lbl_val, lambda c: _label_style(c.text_primary))
+            self._styles.add(row, lambda c: f"""
+                QWidget {{
+                    background-color: {c.bg_card};
+                    border-bottom: 1px solid {c.border};
+                    border-radius: 0px;
+                }}
+            """)
 
             row_layout.addWidget(lbl_key)
             row_layout.addStretch()
@@ -928,7 +879,7 @@ class SettingsDialog(QDialog):
             layout.addWidget(row)
 
         # Version check section
-        self._lbl_sec_version_check = _make_section_label(t("version_check"))
+        self._lbl_sec_version_check = self._section_label(t("version_check"))
         layout.addWidget(self._lbl_sec_version_check)
 
         # Version rows: installed + available
@@ -958,20 +909,9 @@ class SettingsDialog(QDialog):
             val_font.setPixelSize(12)
             lbl_val.setFont(val_font)
 
-            if colors:
-                lbl_key.setStyleSheet(
-                    f"color: {colors.text_secondary}; background: transparent;"
-                )
-                lbl_val.setStyleSheet(
-                    f"color: {colors.text_muted}; background: transparent;"
-                )
-                row.setStyleSheet(f"""
-                    QWidget {{
-                        background-color: {colors.bg_sidebar};
-                        border: 1px solid {colors.border};
-                        border-radius: 6px;
-                    }}
-                """)
+            self._styles.add(lbl_key, lambda c: _label_style(c.text_secondary))
+            self._styles.add(lbl_val, lambda c: _label_style(c.text_muted))
+            self._styles.add(row, _card_style)
 
             row_layout.addWidget(lbl_key)
             row_layout.addStretch()
@@ -983,24 +923,23 @@ class SettingsDialog(QDialog):
         self._btn_about_check_updates.setFixedHeight(32)
         self._btn_about_check_updates.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_about_check_updates.clicked.connect(self._check_for_updates)
-        if colors:
-            self._btn_about_check_updates.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {colors.bg_card};
-                    color: {colors.text_primary};
-                    border: 1px solid {colors.accent};
-                    border-radius: 6px;
-                    padding: 4px 14px;
-                    font-size: 12px;
-                }}
-                QPushButton:hover {{
-                    background-color: {colors.accent_bg};
-                }}
-                QPushButton:disabled {{
-                    color: {colors.text_muted};
-                    border-color: {colors.border};
-                }}
-            """)
+        self._styles.add(self._btn_about_check_updates, lambda c: f"""
+            QPushButton {{
+                background-color: {c.bg_card};
+                color: {c.text_primary};
+                border: 1px solid {c.accent};
+                border-radius: 6px;
+                padding: 4px 14px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {c.accent_bg};
+            }}
+            QPushButton:disabled {{
+                color: {c.text_muted};
+                border-color: {c.border};
+            }}
+        """)
         layout.addWidget(self._btn_about_check_updates)
 
         # Status label (shown after check completes)
@@ -1019,10 +958,9 @@ class SettingsDialog(QDialog):
         self._lbl_about_release_notes.setFont(rn_font)
         self._lbl_about_release_notes.setVisible(False)
         self._lbl_about_release_notes.setCursor(Qt.CursorShape.PointingHandCursor)
-        if colors:
-            self._lbl_about_release_notes.setStyleSheet(
-                f"color: {colors.accent_light}; background: transparent;"
-            )
+        self._styles.add(
+            self._lbl_about_release_notes, lambda c: _label_style(c.accent_light)
+        )
         self._lbl_about_release_notes.mousePressEvent = (
             lambda _event: self._open_release_notes()
         )
@@ -1038,16 +976,15 @@ class SettingsDialog(QDialog):
         )
         self._lbl_about_update_hint.setOpenExternalLinks(True)
         self._lbl_about_update_hint.setWordWrap(True)
-        if colors:
-            self._lbl_about_update_hint.setStyleSheet(f"""
-                QLabel {{
-                    background-color: {colors.bg_sidebar};
-                    border: 1px solid {colors.border};
-                    border-radius: 6px;
-                    padding: 10px 12px;
-                    color: {colors.text_secondary};
-                }}
-            """)
+        self._styles.add(self._lbl_about_update_hint, lambda c: f"""
+            QLabel {{
+                background-color: {c.bg_sidebar};
+                border: 1px solid {c.border};
+                border-radius: 6px;
+                padding: 10px 12px;
+                color: {c.text_secondary};
+            }}
+        """)
         layout.addWidget(self._lbl_about_update_hint)
 
         # Pre-fill available version from cache (no network call on open)
@@ -1060,8 +997,9 @@ class SettingsDialog(QDialog):
         divider.setFrameShape(QFrame.Shape.HLine)
         divider.setFrameShadow(QFrame.Shadow.Plain)
         divider.setFixedHeight(1)
-        if colors:
-            divider.setStyleSheet(f"background-color: {colors.border}; border: none;")
+        self._styles.add(
+            divider, lambda c: f"background-color: {c.border}; border: none;"
+        )
         layout.addWidget(divider)
 
         # GitHub button
@@ -1069,20 +1007,19 @@ class SettingsDialog(QDialog):
         self._btn_about_github.setFixedHeight(32)
         self._btn_about_github.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_about_github.clicked.connect(self._open_github)
-        if colors:
-            self._btn_about_github.setStyleSheet(f"""
-                QPushButton {{
-                    color: {colors.accent_light};
-                    background: transparent;
-                    border: none;
-                    font-size: 12px;
-                    text-align: left;
-                    padding: 4px 0px;
-                }}
-                QPushButton:hover {{
-                    color: {colors.accent};
-                }}
-            """)
+        self._styles.add(self._btn_about_github, lambda c: f"""
+            QPushButton {{
+                color: {c.accent_light};
+                background: transparent;
+                border: none;
+                font-size: 12px;
+                text-align: left;
+                padding: 4px 0px;
+            }}
+            QPushButton:hover {{
+                color: {c.accent};
+            }}
+        """)
         layout.addWidget(self._btn_about_github)
 
         # Discogs attribution section — legal requirement per Discogs API ToU
@@ -1091,23 +1028,21 @@ class SettingsDialog(QDialog):
         attr_lbl_font.setPixelSize(10)
         attr_lbl_font.setBold(True)
         self._lbl_discogs_attribution_label.setFont(attr_lbl_font)
-        if colors:
-            self._lbl_discogs_attribution_label.setStyleSheet(
-                f"color: {colors.text_secondary}; background: transparent;"
-                " padding-top: 12px;"
-            )
+        self._styles.add(self._lbl_discogs_attribution_label, lambda c: (
+            f"color: {c.text_secondary}; background: transparent;"
+            " padding-top: 12px;"
+        ))
         layout.addWidget(self._lbl_discogs_attribution_label)
 
         attr_box = QWidget()
         attr_box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        if colors:
-            attr_box.setStyleSheet(f"""
-                QWidget {{
-                    background: {colors.bg_sidebar};
-                    border: 1px solid {colors.border};
-                    border-radius: 6px;
-                }}
-            """)
+        self._styles.add(attr_box, lambda c: f"""
+            QWidget {{
+                background: {c.bg_sidebar};
+                border: 1px solid {c.border};
+                border-radius: 6px;
+            }}
+        """)
         attr_layout = QVBoxLayout(attr_box)
         attr_layout.setContentsMargins(14, 10, 14, 10)
 
@@ -1120,10 +1055,9 @@ class SettingsDialog(QDialog):
         attr_text_font = _lbl_attr_text.font()
         attr_text_font.setPixelSize(11)
         _lbl_attr_text.setFont(attr_text_font)
-        if colors:
-            _lbl_attr_text.setStyleSheet(
-                f"color: {colors.text_muted}; font-style: italic; background: transparent;"
-            )
+        self._styles.add(_lbl_attr_text, lambda c: (
+            f"color: {c.text_muted}; font-style: italic; background: transparent;"
+        ))
         attr_layout.addWidget(_lbl_attr_text)
 
         # Cache policy notice — translatable
@@ -1132,18 +1066,16 @@ class SettingsDialog(QDialog):
         cache_notice_font = self._lbl_discogs_cache_notice.font()
         cache_notice_font.setPixelSize(11)
         self._lbl_discogs_cache_notice.setFont(cache_notice_font)
-        if colors:
-            self._lbl_discogs_cache_notice.setStyleSheet(
-                f"color: {colors.text_muted}; font-style: italic;"
-                " background: transparent; margin-top: 8px;"
-            )
+        self._styles.add(self._lbl_discogs_cache_notice, lambda c: (
+            f"color: {c.text_muted}; font-style: italic;"
+            " background: transparent; margin-top: 8px;"
+        ))
         attr_layout.addWidget(self._lbl_discogs_cache_notice)
 
         layout.addWidget(attr_box)
 
         layout.addStretch()
 
-        self._inner_about = inner
         return self._scrollable(inner)
 
     # ── Tab switching ──────────────────────────────────────────────────────────
@@ -1161,22 +1093,24 @@ class SettingsDialog(QDialog):
 
     # ── Appearance handlers ────────────────────────────────────────────────────
 
-    def _on_theme_card(self, theme: str) -> None:
-        from config.themes import get_theme as _gc
-        from config.stylesheet import build_stylesheet
+    def _on_theme_card(self, setting: str) -> None:
+        # Saves and applies the setting; _apply_theme / _update_theme_cards
+        # follow via the ThemeManager signals.
+        ThemeManager.instance().set_setting(setting)
 
-        set_theme(theme)
-        colors = _gc(theme)
-        app = QApplication.instance()
-        app.setStyleSheet(build_stylesheet(colors))
-        app.setProperty("theme_colors", colors)
+    def _update_theme_cards(self, setting: str) -> None:
+        """Mark the card of the saved theme setting as active."""
+        for name, card in self._theme_cards.items():
+            card.set_active(name == setting)
 
-        self._card_dark.set_active(theme == "dark")
-        self._card_light.set_active(theme == "light")
-
-        self._refresh_nav_style()
-        self._restart_notice.setVisible(True)
-        self.theme_changed.emit(theme)
+    def _theme_auto_desc(self) -> str:
+        """Subtitle of the "auto" card, naming the theme the system resolves to."""
+        resolved = ThemeManager.instance().resolved
+        name_key = (
+            "settings_theme_light_name" if resolved == "light"
+            else "settings_theme_dark_name"
+        )
+        return t("settings_theme_auto_desc", theme=t(name_key))
 
     def _on_lang_card(self, lang: str) -> None:
         i18n.set_language(lang)
@@ -1246,24 +1180,20 @@ class SettingsDialog(QDialog):
 
     def _refresh_watermark_status(self) -> None:
         """Update the watermark status card to reflect current settings."""
-        colors = _get_colors()
+        colors = current_colors()
         path   = get_watermark_path()
-        if path and path.exists():
+        active = bool(path and path.exists())
+        if active:
             self._lbl_watermark_status.setText(
                 t("watermark_active", filename=path.name)
             )
-            if colors:
-                self._lbl_watermark_status.setStyleSheet(
-                    f"color: {colors.success}; background: transparent;"
-                )
-            self._btn_watermark_clear.setEnabled(True)
         else:
             self._lbl_watermark_status.setText(t("watermark_none"))
-            if colors:
-                self._lbl_watermark_status.setStyleSheet(
-                    f"color: {colors.text_muted}; background: transparent;"
-                )
-            self._btn_watermark_clear.setEnabled(False)
+        if colors:
+            self._lbl_watermark_status.setStyleSheet(
+                _label_style(colors.success if active else colors.text_muted)
+            )
+        self._btn_watermark_clear.setEnabled(active)
 
     # ── Data source handlers ───────────────────────────────────────────────────
 
@@ -1344,7 +1274,6 @@ class SettingsDialog(QDialog):
 
     def _on_version_check_complete(self, result: dict) -> None:
         """Handle version check result from the background thread."""
-        colors = _get_colors()
         self._btn_about_check_updates.setEnabled(True)
         self._btn_about_check_updates.setText(t("check_updates"))
 
@@ -1352,61 +1281,65 @@ class SettingsDialog(QDialog):
             self._lbl_about_available_val.setText("—")
             error = result["error"]
             if error == "no_releases":
-                msg = t("no_releases_yet")
-                style_color = colors.text_muted if colors else ""
+                msg, role = t("no_releases_yet"), "text_muted"
             elif error == "network":
-                msg = t("check_failed_network")
-                style_color = colors.danger if colors else ""
+                msg, role = t("check_failed_network"), "danger"
             else:
-                msg = t("check_failed_error")
-                style_color = colors.danger if colors else ""
-            self._lbl_about_update_status.setText(msg)
-            if colors:
-                self._lbl_about_update_status.setStyleSheet(
-                    f"color: {style_color}; background: transparent;"
-                )
-            self._lbl_about_update_status.setVisible(True)
-            self._lbl_about_update_hint.setVisible(False)
+                msg, role = t("check_failed_error"), "danger"
+            self._set_update_status(msg, role)
+            self._set_update_hint("")
             return
 
         self._lbl_about_available_val.setText(result["tag_name"])
         set_last_known_version(result["tag_name"])
         set_last_version_check(datetime.now().isoformat())
 
-        self._lbl_about_update_status.setVisible(True)
         if is_update_available(result["latest_version"]):
-            msg = t("update_available", version=result["tag_name"])
-            self._lbl_about_update_status.setText(msg)
-            if colors:
-                self._lbl_about_update_status.setStyleSheet(
-                    f"color: {colors.accent}; background: transparent;"
-                )
+            self._set_update_status(
+                t("update_available", version=result["tag_name"]), "accent"
+            )
             self._release_url = result["release_url"]
             self._lbl_about_release_notes.setVisible(True)
             import sys
             hint_key = "update_hint_windows" if sys.platform == "win32" else "update_hint_linux"
-            link_style = f' style="color: {colors.accent_light};"' if colors else ""
-            self._lbl_about_update_hint.setText(
-                f"{t(hint_key)}<br>"
-                f'<a href="{GITHUB_RELEASES_URL}"{link_style}>{t("update_releases_link")}</a>'
-            )
-            self._lbl_about_update_hint.setVisible(True)
+            self._set_update_hint(hint_key)
         elif is_newer_than_latest(result["latest_version"]):
-            self._lbl_about_update_status.setText(
-                t("newer_than_latest", version=result["tag_name"])
+            self._set_update_status(
+                t("newer_than_latest", version=result["tag_name"]), "success"
             )
-            if colors:
-                self._lbl_about_update_status.setStyleSheet(
-                    f"color: {colors.success}; background: transparent;"
-                )
-            self._lbl_about_update_hint.setVisible(False)
+            self._set_update_hint("")
         else:
-            self._lbl_about_update_status.setText(t("up_to_date"))
-            if colors:
-                self._lbl_about_update_status.setStyleSheet(
-                    f"color: {colors.success}; background: transparent;"
-                )
-            self._lbl_about_update_hint.setVisible(False)
+            self._set_update_status(t("up_to_date"), "success")
+            self._set_update_hint("")
+
+    def _set_update_status(self, text: str, role: str) -> None:
+        """Show the version check result in the color *role* (a ThemeColors field)."""
+        self._update_status_role = role
+        self._lbl_about_update_status.setText(text)
+        self._apply_update_status_style()
+        self._lbl_about_update_status.setVisible(True)
+
+    def _apply_update_status_style(self) -> None:
+        colors = current_colors()
+        if colors and self._update_status_role:
+            self._lbl_about_update_status.setStyleSheet(
+                _label_style(getattr(colors, self._update_status_role))
+            )
+
+    def _set_update_hint(self, hint_key: str) -> None:
+        """Show the download hint *hint_key* with the releases link ("" hides it)."""
+        self._update_hint_key = hint_key
+        self._lbl_about_update_hint.setVisible(bool(hint_key))
+        if not hint_key:
+            return
+        colors = current_colors()
+        # The link color is part of the rich text, so the text is rebuilt on
+        # every theme change
+        link_style = f' style="color: {colors.accent_light};"' if colors else ""
+        self._lbl_about_update_hint.setText(
+            f"{t(hint_key)}<br>"
+            f'<a href="{GITHUB_RELEASES_URL}"{link_style}>{t("update_releases_link")}</a>'
+        )
 
     def _open_release_notes(self) -> None:
         """Open the GitHub release page in the system browser."""
@@ -1428,19 +1361,9 @@ class SettingsDialog(QDialog):
         connected = CredentialsManager().are_valid()
         username = creds.get("discogs_username", "")
         token = creds.get("discogs_token", "")
-        colors = _get_colors()
 
-        if colors:
-            dot_color = colors.success if connected else colors.text_muted
-            self._discogs_dot.setStyleSheet(
-                f"background-color: {dot_color}; border-radius: 4px;"
-            )
-            self._lbl_discogs_status.setStyleSheet(
-                f"color: {colors.text_primary}; background: transparent;"
-            )
-            self._lbl_discogs_username.setStyleSheet(
-                f"color: {colors.text_muted}; background: transparent;"
-            )
+        self._discogs_connected = connected
+        self._apply_discogs_dot_style()
 
         if connected:
             self._lbl_discogs_status.setText(t("settings_discogs_connected"))
@@ -1456,78 +1379,37 @@ class SettingsDialog(QDialog):
         self._token_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self._btn_toggle_token.setText(t("settings_discogs_show_token"))
 
-    # ── Style refresh (called after theme change) ──────────────────────────────
+    def _apply_discogs_dot_style(self) -> None:
+        colors = current_colors()
+        if colors:
+            dot_color = colors.success if self._discogs_connected else colors.text_muted
+            self._discogs_dot.setStyleSheet(
+                f"background-color: {dot_color}; border-radius: 4px;"
+            )
 
-    def _apply_restart_notice_style(self) -> None:
-        colors = _get_colors()
+    # ── Theme ──────────────────────────────────────────────────────────────────
+
+    def _apply_theme(self, colors: ThemeColors | None = None) -> None:
+        """Re-apply every color of the dialog; runs on ThemeManager.theme_changed."""
+        colors = colors or current_colors()
         if not colors:
             return
-        self._restart_notice.setStyleSheet(f"""
-            QWidget {{
-                background-color: {colors.accent_bg};
-                border: 1px solid {colors.accent};
-                border-radius: 6px;
-            }}
-        """)
-        self._restart_notice_lbl.setStyleSheet(
-            f"color: {colors.accent_light}; background: transparent;"
-        )
+        self._styles.apply(colors)
 
-    def _refresh_nav_style(self) -> None:
-        """Re-apply nav panel and dialog background after a theme change."""
-        colors = _get_colors()
-        if not colors:
-            return
-
-        # Dialog background
-        self.setStyleSheet(f"QDialog {{ background-color: {colors.bg_main}; }}")
-
-        # Re-style all stored section labels
-        _apply_section_label_style(self._lbl_sec_theme, first=True)
-        _apply_section_label_style(self._lbl_sec_lang)
-        _apply_section_label_style(self._lbl_sec_watermark)
-        _apply_section_label_style(self._lbl_sec_calibration)
-        _apply_section_label_style(self._lbl_sec_debug)
-        _apply_section_label_style(self._lbl_sec_mode, first=True)
-        _apply_section_label_style(self._lbl_sec_token)
-        _apply_section_label_style(self._lbl_sec_version_check)
-
-        # Re-apply inner tab widget backgrounds
-        bg_qss = f"QWidget {{ background-color: {colors.bg_main}; }}"
-        for inner in (
-            self._inner_appearance, self._inner_datasource,
-            self._inner_discogs, self._inner_about,
-        ):
-            inner.setStyleSheet(bg_qss)
-
-        # Re-style info label
-        self._lbl_lang_info.setStyleSheet(
-            f"color: {colors.text_muted}; background: transparent;"
-        )
-
-        # Re-style restart notice
-        self._apply_restart_notice_style()
-
-        # Refresh nav items
+        # State-dependent styles
         for item in self._nav_items:
             item._update_style()
-
-        # Refresh radio cards
         for card in (
-            self._card_dark, self._card_light,
+            *self._theme_cards.values(),
             self._card_de, self._card_en,
             self._card_local, self._card_discogs,
         ):
             card._update_style()
-
-        # Refresh Discogs status labels
-        self._refresh_discogs_status()
-
-    # ── Qt event overrides ─────────────────────────────────────────────────────
-
-    def showEvent(self, event) -> None:  # noqa: N802
-        super().showEvent(event)
-        self._restart_notice.setVisible(False)
+        self._card_auto.set_subtitle(self._theme_auto_desc())
+        self._refresh_watermark_status()
+        self._apply_discogs_dot_style()
+        self._apply_update_status_style()
+        self._set_update_hint(self._update_hint_key)
 
     # ── Retranslate ────────────────────────────────────────────────────────────
 
@@ -1552,7 +1434,8 @@ class SettingsDialog(QDialog):
         self._card_dark.set_subtitle(t("settings_theme_dark_desc"))
         self._card_light.set_title(t("settings_theme_light_name"))
         self._card_light.set_subtitle(t("settings_theme_light_desc"))
-        self._restart_notice_lbl.setText(t("restart_required"))
+        self._card_auto.set_title(t("theme_auto"))
+        self._card_auto.set_subtitle(self._theme_auto_desc())
         self._lbl_sec_lang.setText(t("menu_language").upper())
         self._lbl_lang_info.setText(t("settings_lang_change_info"))
         self._lbl_sec_watermark.setText(t("watermark_section").upper())
@@ -1597,3 +1480,4 @@ class SettingsDialog(QDialog):
         self._btn_about_github.setText(t("open_github"))
         self._lbl_discogs_attribution_label.setText(t("discogs_attribution_label"))
         self._lbl_discogs_cache_notice.setText(t("discogs_cache_notice"))
+        self._set_update_hint(self._update_hint_key)

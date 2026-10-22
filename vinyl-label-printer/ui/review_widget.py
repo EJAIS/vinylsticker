@@ -10,10 +10,10 @@ The user can:
   • Filter visible rows with a live search bar
   • Check / uncheck individual rows — only checked rows are written
 
-Visual cues:
-  • Empty required field (Title / Side) → cell red (#FFEBEE) + tooltip
-  • Row with any empty required field  → all cells lightly tinted (#FFF5F5)
-  • Cell just edited → brief yellow flash (#FFF9C4, 600 ms), then returns
+Visual cues (colors from the active ThemeColors, refreshed on theme changes):
+  • Empty required field (Title / Side) → cell red (cell_error_bg) + tooltip
+  • Row with any empty required field  → all cells lightly tinted (row_warn_bg)
+  • Cell just edited → brief yellow flash (blink_bg, 600 ms), then returns
     to the appropriate state (red if still empty, else clear)
   • No persistent "edited" colour — only the error tint is permanent
 """
@@ -47,9 +47,11 @@ from modules.excel_reader import (
     normalise_side,
     write_print_queue,
 )
+from config.themes import ThemeColors
 from modules.logger import get_logger
 from modules.i18n import t
 from ui.styles import apply_search_style, apply_table_style
+from ui.theme_manager import ThemeManager, current_colors
 
 logger = get_logger()
 
@@ -69,15 +71,6 @@ _EDITABLE_COLS = (
     _COL_TITLE, _COL_ARTIST, _COL_LABEL, _COL_CATNO, _COL_COUNTRY, _COL_YEAR, _COL_SIDE,
 )
 _REQUIRED_COLS = (_COL_TITLE, _COL_SIDE)
-
-# ── Colours ───────────────────────────────────────────────────────────────────
-
-_COLOR_CELL_ERROR  = QColor("#FFEBEE")   # empty required field
-_COLOR_ROW_WARN    = QColor("#FFF5F5")   # row contains an empty required field
-_COLOR_BLINK       = QColor("#FFF9C4")   # transient blink on edit (600 ms)
-
-# ── StyleSheets ───────────────────────────────────────────────────────────────
-
 
 
 class ReviewDialog(QDialog):
@@ -112,6 +105,8 @@ class ReviewDialog(QDialog):
 
         self._build_ui()
         self._fill_table(records)
+        self._apply_theme()
+        ThemeManager.instance().theme_changed.connect(self._apply_theme)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -120,39 +115,22 @@ class ReviewDialog(QDialog):
         root.setSpacing(6)
         root.setContentsMargins(8, 8, 8, 8)
 
-        # ── Info banner ───────────────────────────────────────────────────────
-        banner = QWidget()
-        banner.setStyleSheet("""
-            QWidget {
-                border-left: 4px solid #2196F3;
-                border-top: none;
-                border-right: none;
-                border-bottom: none;
-                padding: 0px;
-                margin: 0px;
-            }
-        """)
-        banner_layout = QHBoxLayout(banner)
+        # ── Info banner (colors: _apply_theme) ────────────────────────────────
+        self._banner = QWidget()
+        banner_layout = QHBoxLayout(self._banner)
         banner_layout.setContentsMargins(12, 8, 12, 8)
         banner_layout.setSpacing(10)
 
-        icon_lbl = QLabel("ℹ")
-        icon_lbl.setStyleSheet(
-            "color: #2196F3; font-size: 16px; font-weight: bold;"
-            " background: transparent; border: none;"
-        )
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._banner_icon = QLabel("ℹ")
+        self._banner_icon.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        text_lbl = QLabel(
-            f"<b>{t('review_banner_line1')}</b><br>"
-            f"<span style='color:#555;'>{t('review_banner_line2')}</span>"
-        )
-        text_lbl.setStyleSheet("background: transparent; border: none;")
-        text_lbl.setWordWrap(True)
+        self._banner_text = QLabel()
+        self._banner_text.setStyleSheet("background: transparent; border: none;")
+        self._banner_text.setWordWrap(True)
 
-        banner_layout.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignTop)
-        banner_layout.addWidget(text_lbl, 1)
-        root.addWidget(banner)
+        banner_layout.addWidget(self._banner_icon, 0, Qt.AlignmentFlag.AlignTop)
+        banner_layout.addWidget(self._banner_text, 1)
+        root.addWidget(self._banner)
 
         # ── Toolbar ───────────────────────────────────────────────────────────
         toolbar = QHBoxLayout()
@@ -292,8 +270,40 @@ class ReviewDialog(QDialog):
 
     # ── Colour helpers ────────────────────────────────────────────────────────
 
+    def _apply_theme(self, colors: ThemeColors | None = None) -> None:
+        """(Re)apply all colors; runs at build time and on theme_changed."""
+        colors = colors or current_colors()
+        if not colors:
+            return
+        self._banner.setStyleSheet(f"""
+            QWidget {{
+                border-left: 4px solid {colors.info_border};
+                border-top: none;
+                border-right: none;
+                border-bottom: none;
+                padding: 0px;
+                margin: 0px;
+            }}
+        """)
+        self._banner_icon.setStyleSheet(
+            f"color: {colors.info_border}; font-size: 16px; font-weight: bold;"
+            " background: transparent; border: none;"
+        )
+        # The secondary text color is part of the rich text
+        self._banner_text.setText(
+            f"<b>{t('review_banner_line1')}</b><br>"
+            f"<span style='color:{colors.info_text};'>{t('review_banner_line2')}</span>"
+        )
+        self._update_status()
+        for row in range(self._table.rowCount()):
+            self._refresh_cell_colors(row)
+
     def _refresh_cell_colors(self, row: int) -> None:
         """Apply (or clear) background colours on every cell in *row*."""
+        colors = current_colors()
+        # Without a theme the cells keep their default background
+        cell_error = QBrush(QColor(colors.cell_error_bg)) if colors else QBrush()
+        row_warn   = QBrush(QColor(colors.row_warn_bg)) if colors else QBrush()
         # Guard: setBackground/setData fire itemChanged synchronously; without
         # this flag _on_item_changed would call _blink_cell again → recursion.
         self._populating = True
@@ -308,7 +318,7 @@ class ReviewDialog(QDialog):
             chk = self._table.item(row, _COL_CHECK)
             if chk:
                 if row_needs_attention:
-                    chk.setBackground(QBrush(_COLOR_ROW_WARN))
+                    chk.setBackground(row_warn)
                 else:
                     chk.setData(Qt.ItemDataRole.BackgroundRole, None)
 
@@ -322,10 +332,10 @@ class ReviewDialog(QDialog):
                 is_empty    = not item.text().strip()
 
                 if is_required and is_empty:
-                    item.setBackground(QBrush(_COLOR_CELL_ERROR))
+                    item.setBackground(cell_error)
                     item.setToolTip(required_tip)
                 elif row_needs_attention:
-                    item.setBackground(QBrush(_COLOR_ROW_WARN))
+                    item.setBackground(row_warn)
                     item.setToolTip("")
                 else:
                     item.setData(Qt.ItemDataRole.BackgroundRole, None)
@@ -336,11 +346,12 @@ class ReviewDialog(QDialog):
     def _blink_cell(self, row: int, col: int) -> None:
         """Flash the cell yellow for 600 ms, then restore the correct colour."""
         item = self._table.item(row, col)
-        if item:
+        colors = current_colors()
+        if item and colors:
             # Guard: setBackground fires itemChanged synchronously; set
             # _populating to prevent _on_item_changed from re-entering here.
             self._populating = True
-            item.setBackground(QBrush(_COLOR_BLINK))
+            item.setBackground(QBrush(QColor(colors.blink_bg)))
             self._populating = False
 
         # Parented timer: destroyed with the dialog, so the callback can never
@@ -471,14 +482,19 @@ class ReviewDialog(QDialog):
             counts_text += f" ({t('review_status_hidden', h=checked_hidden)})"
         self._lbl_status_counts.setText(counts_text)
 
+        colors = current_colors()
         if incomplete:
             self._lbl_status_warning.setText(
                 t("review_status_warning", k=incomplete)
             )
-            self._lbl_status_warning.setStyleSheet("color: #E65100; font-weight: bold;")
+            status_color = colors.status_warn if colors else ""
         else:
             self._lbl_status_warning.setText(t("review_status_ok"))
-            self._lbl_status_warning.setStyleSheet("color: #2E7D32; font-weight: bold;")
+            status_color = colors.status_ok if colors else ""
+        if status_color:
+            self._lbl_status_warning.setStyleSheet(
+                f"color: {status_color}; font-weight: bold;"
+            )
 
         self._btn_confirm.setEnabled(checked > 0)
 
