@@ -210,9 +210,9 @@ fpm -s dir -t deb \
     --deb-priority optional \
     --description "Print labels for 7\" vinyl records
 Vinyl Label Printer creates print-ready PDFs of labels for 7\" vinyl records
-on Avery Zweckform 4780 sheets (A4, 40 labels per sheet). Records come from a
-local Excel database or from a Discogs collection, can be reviewed and edited
-before printing, and are printed from the system's PDF viewer at 100 % scale.
+on Avery Zweckform 4780 sheets (A4, 40 labels per sheet). Records are entered
+in the app, imported from CSV or from a Discogs collection, can be reviewed and
+edited before printing, and are printed from the system's PDF viewer at 100 % scale.
 The package contains a self-contained build with its own Python and Qt 6." \
     "${depends_args[@]}" \
     --after-install "$SCRIPT_DIR/refresh-caches.sh" \

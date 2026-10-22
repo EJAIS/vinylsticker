@@ -1,8 +1,8 @@
 """
-Excel reader module.
+Read-only reader for the database.xlsx of versions before 1.1.
 
-Loads label records from the "Print" and "Database" sheets of the project
-Excel file.  The "Database" sheet is always opened read-only.
+Only used once, by the migration into labels.db (modules.xlsx_migration).
+The workbook is opened read-only and is never written.
 
 Column layout (A–G): Title, Artist, Label, Country, Year, Side, CatNo.
 Files without column G (CatNo) load with an empty catalog number.
@@ -10,85 +10,49 @@ Files without column G (CatNo) load with an empty catalog number.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import openpyxl
 
 from modules.logger import get_logger
+from modules.records import LabelRecord, normalise_side
 
 logger = get_logger()
 
 SHEET_PRINT    = "Print"
 SHEET_DATABASE = "Database"
-COLUMNS        = ("Title", "Artist", "Label", "Country", "Year", "Side", "CatNo")
 
 
 @dataclass
-class LabelRecord:
-    title:   str
-    artist:  str
-    label:   str
-    country: str
-    year:    str
-    side:    str   # always "A" or "B" after normalisation
-    catno:   str = ""
+class LegacyWorkbook:
+    """Content of a legacy database.xlsx."""
+    print_records: list[LabelRecord]
+    # Rows with a title in the "Database" sheet; None if there is no such sheet
+    database_rows: int | None
 
 
-# ── Public helpers ────────────────────────────────────────────────────────────
+def read_legacy_workbook(xlsx_path: Path) -> LegacyWorkbook:
+    """Read the 'Print' sheet as LabelRecords and count the 'Database' rows.
 
-def load_print_queue(xlsx_path: Path) -> list[LabelRecord]:
-    """Read the 'Print' sheet and return all non-empty rows as LabelRecords.
+    The workbook is opened with read_only=True (never modified) and
+    data_only=True so formula cells resolve to their cached value.
 
-    The workbook is opened with data_only=True so formula cells resolve to
-    their cached value rather than the formula string.
+    Raises:
+        KeyError: if the workbook has no 'Print' sheet.
+        Exception: whatever openpyxl raises for an unreadable file.
     """
+    wb = openpyxl.load_workbook(str(xlsx_path), read_only=True, data_only=True)
     try:
-        wb = openpyxl.load_workbook(str(xlsx_path), data_only=True)
-        ws = wb[SHEET_PRINT]
-        records = _read_sheet(ws)
+        records = _read_sheet(wb[SHEET_PRINT])
+        database_rows = (
+            len(_read_sheet(wb[SHEET_DATABASE]))
+            if SHEET_DATABASE in wb.sheetnames else None
+        )
+    finally:
         wb.close()
-    except Exception as e:
-        logger.error(f"Excel error loading {xlsx_path}: {e}")
-        raise
-    logger.info(f"Excel loaded: {len(records)} records from print queue")
-    return records
-
-
-def write_print_queue(xlsx_path: Path, records: list[LabelRecord]) -> None:
-    """Overwrite the 'Print' sheet with *records*.
-
-    The sheet is cleared and rewritten with a header row followed by one
-    data row per record.  All other sheets in the workbook are untouched.
-    """
-    wb = openpyxl.load_workbook(str(xlsx_path))
-    ws = wb[SHEET_PRINT]
-    ws.delete_rows(1, ws.max_row)          # clear all existing rows
-    ws.append(list(COLUMNS))              # write header
-    for rec in records:
-        ws.append([
-            rec.title, rec.artist, rec.label, rec.country, rec.year, rec.side, rec.catno,
-        ])
-    wb.save(str(xlsx_path))
-    wb.close()
-
-
-def load_database(xlsx_path: Path) -> list[LabelRecord]:
-    """Read the 'Database' sheet (read-only, never modified).
-
-    Opens the workbook in read_only mode for efficiency.
-    """
-    try:
-        wb = openpyxl.load_workbook(str(xlsx_path), read_only=True, data_only=True)
-        ws = wb[SHEET_DATABASE]
-        records = _read_sheet(ws)
-        wb.close()
-    except Exception as e:
-        logger.error(f"Excel error loading {xlsx_path}: {e}")
-        raise
-    logger.info(f"Database loaded: {len(records)} records")
-    return records
+    logger.info(f"Legacy workbook read: {len(records)} records in the Print sheet")
+    return LegacyWorkbook(records, database_rows)
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -136,49 +100,3 @@ def _str(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
-
-
-_SIDE_PREFIX_RE = re.compile(r"^(?:SEITE|SIDE|[\s\-:])+")
-
-
-def resolve_side(value: object) -> str | None:
-    """Return "A" or "B" for *value*, or None if it names no A/B side.
-
-    Same rules as normalise_side() but without the "A" default, e.g.
-    "C1", "D" or "3" → None.
-    """
-    raw = str(value).strip().upper() if value is not None else ""
-    raw = _SIDE_PREFIX_RE.sub("", raw)
-    if not raw:
-        return None
-    if raw.startswith("AA"):
-        return "B"
-    if raw[0] in ("A", "B"):
-        return raw[0]
-    # Fallback: take the last character that is A or B
-    for ch in reversed(raw):
-        if ch in ("A", "B"):
-            return ch
-    return None
-
-
-def normalise_side(value: object) -> str:
-    """Normalise a side / track position to a single uppercase 'A' or 'B'.
-
-    Rules (case-insensitive, trimmed):
-      • Prefixes "Seite", "Side", "-", ":" and whitespace are removed.
-      • "AA…" (UK double-A side) → "B".
-      • Starts with "A" → "A" (A, A1, A2); starts with "B" → "B".
-      • Otherwise the last A/B character wins; failing that, "A".
-
-    Examples::
-
-        normalise_side("A")       # → "A"
-        normalise_side("AA")      # → "B"
-        normalise_side("A2")      # → "A"
-        normalise_side("B2")      # → "B"
-        normalise_side("Seite B") # → "B"
-        normalise_side("side a")  # → "A"
-        normalise_side("")        # → "A"
-    """
-    return resolve_side(value) or "A"

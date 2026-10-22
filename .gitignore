@@ -35,6 +35,8 @@ Thumbs.db
 
 # Personal data
 **/data/database.xlsx
+**/data/labels.db
+**/data/labels.db-journal
 **/data/discogs_cache.db
 **/data/discogs_cache.db-shm
 **/data/discogs_cache.db-wal

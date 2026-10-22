@@ -30,7 +30,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from config.avery_formats import MM_PER_PT, get_format, label_rect_pt, mm_to_pt
-from modules.excel_reader import LabelRecord
+from modules.records import LabelRecord
 from modules.logger import get_logger
 
 logger = get_logger()

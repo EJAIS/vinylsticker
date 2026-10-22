@@ -108,7 +108,6 @@ Comment: Python distribution:
  charset-normalizer
 
 Files: _internal/config/*
-       _internal/examples/*
        _internal/icons/*
 Copyright: 2026 Alexander (EJAIS) <125554454+EJAIS@users.noreply.github.com>
 License: GPL-3.0-or-later

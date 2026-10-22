@@ -4,7 +4,7 @@ A desktop application for printing 7" vinyl record labels on **Avery Zweckform 4
 
 Made with :heart: and ClaudeCode - by a Collector for Collectors.
 
-+ Local database (Excel) or Discogs integration.
++ Local print queue (SQLite), maintained in the app — entry form, editable table, CSV import / export — or imported from Discogs.
 + Discogs integration reads your 7" collection including **catalog numbers**, loads A/B sides on demand at import time, and caches data locally (SQLite, 6-hour expiry per Discogs API ToU — for the collection and for each release's details).
 + Catalog number is shown, editable and printed: the info line reads `Label CatNo (Country, Year)`, e.g. `Pyramid PYR 6013 (UK, 1967)`.
 + Sides are always printed as **A** or **B** (`A1`/`A2` → A, UK double-A side `AA` → B).
@@ -166,7 +166,7 @@ reinstalling or uninstalling the app never touches them. The folders are created
 | Content | Linux | Windows |
 |---|---|---|
 | Settings (`settings.json`), Discogs credentials (`credentials.json`) | `~/.config/vinyl-label-printer/` | `%APPDATA%\vinyl-label-printer\` |
-| Your database (`database.xlsx`) | `~/.local/share/vinyl-label-printer/` | `%APPDATA%\vinyl-label-printer\` |
+| Your print queue (`labels.db`) | `~/.local/share/vinyl-label-printer/` | `%APPDATA%\vinyl-label-printer\` |
 | Discogs cache (`discogs_cache.db`), generated PDFs (`output/`) | `~/.cache/vinyl-label-printer/` | `%LOCALAPPDATA%\vinyl-label-printer\Cache\` |
 | Log file (`app.log`) | `~/.local/state/vinyl-label-printer/log/` | `%LOCALAPPDATA%\vinyl-label-printer\Logs\` |
 
@@ -174,11 +174,32 @@ On Linux the `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` and `XDG_STATE
 variables are respected. On Windows, `%APPDATA%` is `C:\Users\<you>\AppData\Roaming` and
 `%LOCALAPPDATA%` is `C:\Users\<you>\AppData\Local`.
 
-To edit your database in Excel or LibreOffice Calc, open **⚙ Settings → Data source** — the
-**Data folder** section shows the path and has an **Open folder** button.
+The print queue is stored in `labels.db`, a single SQLite file in the data folder. It is edited
+only inside the app: **Load data** (Local mode) or **Queue** (both modes) opens the queue editor
+(see [Option A — Local mode](#option-a--local-mode-enter-records-in-the-app)). To edit many
+entries at once, or to keep a backup in a readable format, use **Export CSV** and **Import CSV**
+in the queue editor (see [CSV import and export](#csv-import-and-export)). To back up the whole
+file, copy `labels.db` while the app is closed. **⚙ Settings → Data source** shows the data
+folder and has an **Open folder** button.
 
-If no `database.xlsx` exists when the app starts, the example database is copied into the
-data folder automatically. Replace it with your own file.
+A new installation starts with an empty print queue.
+
+### Upgrading from 1.0: what happens to your database.xlsx
+
+Versions up to 1.0 kept the print queue in the **Print** sheet of `database.xlsx` in the data
+folder. On the first start of 1.1 the app takes the rows of that sheet over into `labels.db`
+**once**, in a single step — either all rows are taken over or none.
+
+- `database.xlsx` is **never modified, renamed or deleted**. Keep it as a backup or delete it
+  yourself. After the takeover the app no longer reads it: later changes to the xlsx have no
+  effect — save the sheet as CSV and use **Import CSV** instead.
+- The **Database** sheet was never used by the app. It is not taken over and stays in the xlsx
+  (`app.log` notes how many rows it has).
+- If there is no `database.xlsx` on the first start of 1.1 (e.g. a new installation), nothing is
+  taken over and the app never checks again. A `database.xlsx` that you put into the data folder
+  **later is not taken over** — save its Print sheet as CSV and use **Import CSV**.
+- If the takeover fails (e.g. the file is damaged or cannot be read), the app shows a message,
+  starts with an empty print queue and tries again on the next start. Details are in `app.log`.
 
 ### One-time migration from older versions
 
@@ -193,7 +214,9 @@ of a newer version the app **copies** `settings.json`, `credentials.json`, `data
 The original files are left untouched and existing files are never overwritten. Logs are not
 migrated. The migration runs once — a marker file `legacy-migration.json` in the settings folder
 records what was copied. To run it again, close the app, delete that marker file and start the
-app (files that already exist in the new folders are still never overwritten).
+app (files that already exist in the new folders are still never overwritten). A
+`database.xlsx` copied this way is then taken over into `labels.db` on the same start (see
+[Upgrading from 1.0](#upgrading-from-10-what-happens-to-your-databasexlsx)).
 
 ---
 
@@ -312,7 +335,7 @@ The app reads the print queue from one of two sources. Choose it in
 
 | Mode | Description |
 |---|---|
-| **Local database** | Reads the print queue from the Excel file (`database.xlsx` in the [data folder](#where-your-data-is-stored)). This is the default. |
+| **Local database** | You maintain the print queue in the app — entry form, editable table, CSV import / export. It is stored in `labels.db` in the [data folder](#where-your-data-is-stored). This is the default. |
 | **Discogs** | Imports your 7" singles from your Discogs collection into the print queue. |
 
 The selected mode is **persisted across sessions** and shown in the footer bar, together with
@@ -321,44 +344,91 @@ and opens the **Discogs account** tab (see [Discogs Import](#discogs-import)).
 
 ---
 
-#### Option A — Manual: prepare the Excel file
+#### Option A — Local mode: enter records in the app
 
-The application reads from the **Print** sheet of your Excel workbook. Each row represents one label to be printed. Fill in the following columns (A–G):
+Click **Load data** (or **Queue**) in the sidebar. The queue editor opens — also when the queue
+is empty.
 
-| Column | Header | Description | Example |
-|---|---|---|---|
-| A | Title | Record title | I Won't Let You Go |
-| B | Artist | Artist or band name | Blues Busters |
-| C | Label | Record label | Kentone |
-| D | Country | Country of origin | Japan |
-| E | Year | Release year | 2014 |
-| F | Side | Vinyl side — `A` or `B` (see below) | A |
-| G | CatNo | Catalog number (optional) | RE-001 |
+- **Add entry …** opens a small form for one record: Artist, Label, Country, Year and Catalog
+  number (shared by both sides) plus **Title side A** and **Title side B**. Each filled title
+  becomes one row with side A or B. At least one title is required; the year is empty or four
+  digits. **Add** adds the rows and closes the form; **Add and next** adds them, clears the form
+  and puts the cursor into the first field for the next record.
+- **Add row** adds an empty row to fill in directly in the table.
+- **Import CSV …** / **Export CSV …** — see [CSV import and export](#csv-import-and-export).
+- Edit cells, drag rows to reorder them, delete or duplicate rows via the context menu, filter
+  with the search bar (the table works as described in
+  [Step 5 — Review and confirm](#step-5--review-and-confirm)).
 
-Files created before column G existed still load — the catalog number is simply empty.
+Nothing is stored until you click **Save**. Only checked rows are saved; unchecked rows are
+removed from the queue. Rows without a title are not saved and an empty side is saved as **A** —
+the app warns you before. Saving with no row checked empties the queue after a confirmation, e.g.
+to clear it after printing. Closing the editor with unsaved changes asks whether to **Save**,
+**Discard** them or **Cancel** (keep editing).
+
+| Field | Description | Example |
+|---|---|---|
+| Title | Record title (required) | I Won't Let You Go |
+| Artist | Artist or band name | Blues Busters |
+| Label | Record label | Kentone |
+| Country | Country of origin | Japan |
+| Year | Release year, stored as text | 2014 |
+| Side | Vinyl side — `A` or `B` (see below) | A |
+| Cat. No. | Catalog number (optional) | RE-001 |
 
 **Side values** are always normalised to `A` or `B` (case-insensitive): prefixes like `Seite`, `Side`, `-` or `:` are ignored; `A`, `A1`, `A2` → **A**; `B`, `B1`, `B2` → **B**; the UK double-A side `AA` → **B**; anything unrecognised → **A**.
 
-The **Database** sheet is a read-only master reference and is never written to by the application.
+##### CSV import and export
 
-The app always uses the `database.xlsx` in the [data folder](#where-your-data-is-stored);
-**⚙ Settings → Data source → Open folder** opens it in the file manager. After editing the file
-externally (e.g. in LibreOffice Calc or Excel while the app is open), click **Load data** in
-the sidebar to read it again.
+CSV is the way to edit many entries at once in a spreadsheet (LibreOffice Calc, Excel) and to
+back up the queue in a readable format.
+
+**Export CSV …** writes all rows currently in the table — also unchecked rows and rows hidden by
+the search filter — to a file named `vinyl-labels-YYYY-MM-DD.csv` (proposed in your Documents
+folder). Format: header row `Title;Artist;Label;Country;Year;Side;CatNo`, semicolon as
+delimiter, UTF-8 with BOM, so umlauts show correctly in Excel and LibreOffice. An exported file
+imports back to identical rows.
+
+**Import CSV …** reads a CSV file:
+
+- delimiter: comma, semicolon or tab — detected automatically;
+- encoding: UTF-8 (with or without BOM) or Windows-1252 (e.g. "CSV (semicolon separated)" from
+  a German Excel);
+- the first row must be a header row. Columns are matched by name — case-insensitive, in any
+  order; other columns are ignored:
+
+| Field | English header | German header |
+|---|---|---|
+| Title (required) | `Title` | `Titel` |
+| Artist | `Artist` | `Künstler`, `Kuenstler`, `Interpret` |
+| Label | `Label` | `Label` |
+| Country | `Country` | `Land` |
+| Year | `Year` | `Jahr` |
+| Side | `Side` | `Seite` |
+| Catalog number | `CatNo` | `Katalognummer` |
+
+Without a Side column every row is side A. Rows without a title are skipped; afterwards the app
+reports how many rows were imported and how many were skipped. If the table already has rows,
+you are asked whether to **append** the imported rows or **replace** the table. As with every
+change in the editor, nothing is stored until you click **Save**.
+
+Bulk editing: **Export CSV** → edit the file in a spreadsheet → save it as CSV → **Import CSV**
+→ **Replace** → **Save**.
 
 ---
 
 #### Option B — Discogs import
 
-Select **Discogs** in **⚙ Settings → Data source**, then click **Load data** in the sidebar to fetch your 7" singles directly from your Discogs collection. See [Discogs Import](#discogs-import) for a full walkthrough. After confirming the import the print queue is written automatically — no manual Excel editing required.
+Select **Discogs** in **⚙ Settings → Data source**, then click **Load data** in the sidebar to fetch your 7" singles directly from your Discogs collection. See [Discogs Import](#discogs-import) for a full walkthrough. After confirming the import the rows are written to the print queue automatically.
 
 ---
 
 **Step 2 — Check the queue (optional)**
 
 The **Queue** entry in the sidebar shows how many labels are queued. Click it to review and
-edit the queue in the Review dialog (see [Step 5 — Review and confirm](#step-5--review-and-confirm));
-confirming there replaces the queue with the edited list.
+edit the queue in the queue editor (see
+[Option A — Local mode](#option-a--local-mode-enter-records-in-the-app)) — in both modes, also
+when the queue is empty; **Save** replaces the queue with the checked rows.
 
 **Step 3 — Set a start position (optional)**
 
@@ -423,7 +493,7 @@ and **About** (version check).
 
 ### Discogs Import
 
-The app can fetch your 7" singles directly from your Discogs collection (including catalog numbers), resolve A- and B-side track names automatically, and write the result to the print queue — all without touching the Excel file manually.
+The app can fetch your 7" singles directly from your Discogs collection (including catalog numbers), resolve A- and B-side track names automatically, and write the result to the print queue.
 
 #### Step 1 — Create a personal access token
 
@@ -471,7 +541,7 @@ The table shows Title, Artist, Label, **Cat. No.** and Year. Use the search bar 
 
 #### Step 5 — Review and confirm
 
-A **Review dialog** opens showing all expanded rows before anything is written to the Excel file.
+A **Review dialog** opens showing all expanded rows before anything is written to the print queue.
 
 | Column | Editable | Notes |
 |---|---|---|
@@ -479,7 +549,7 @@ A **Review dialog** opens showing all expanded rows before anything is written t
 | Title | Yes | Red background if empty (required) |
 | Artist | Yes | |
 | Label | Yes | |
-| Cat. No. | Yes | Catalog number — written to column G and printed on the label |
+| Cat. No. | Yes | Catalog number — stored with the entry and printed on the label |
 | Country | Yes | |
 | Year | Yes | |
 | Side | Yes | Red background if empty (required); free text like `Side b` is saved as `B` |
@@ -494,7 +564,7 @@ A **Review dialog** opens showing all expanded rows before anything is written t
 
 **Status bar** at the bottom shows the total number of rows, how many are checked, and how many have incomplete required fields.
 
-**Confirm** (blue button) becomes active once at least one row is checked — including rows currently hidden by the search filter. Clicking it writes all checked rows (visible or hidden) to the Print sheet and closes both dialogs; unchecked rows are not written. If a search filter hides checked rows, the status bar says so (e.g. `2 of them hidden`). The main window reloads the queue count automatically.
+**Confirm** (blue button) becomes active once at least one row is checked — including rows currently hidden by the search filter. Clicking it writes all checked rows (visible or hidden) to the print queue and closes both dialogs; unchecked rows are not written. If a search filter hides checked rows, the status bar says so (e.g. `2 of them hidden`). The main window reloads the queue count automatically.
 
 If the print queue already contains entries, you are asked how to proceed:
 
@@ -504,9 +574,11 @@ If the print queue already contains entries, you are asked how to proceed:
 | **Replace** | The queue is replaced by the new rows |
 | **Cancel** | Nothing is written; you return to the review dialog |
 
-Opening the queue for editing via the sidebar never asks — there the edited list always replaces the queue.
+The queue editor (sidebar **Queue**) never asks — there **Save** always replaces the queue with
+the checked rows.
 
-**Cancel** returns to the collection panel — your selection is preserved.
+**Cancel** returns to the collection panel — your selection is preserved. As the reviewed rows
+are not stored yet, the app first asks whether to save them, discard them or keep reviewing.
 
 #### Privacy & security
 
@@ -592,7 +664,7 @@ Restart the application after installing Poppler. If the preview still does not 
 | Collection asks for a reload after an update | The cache schema gained the catalog number | Click **Load 7" Singles / Reload** once; the next sync fills in the catalog numbers. |
 | Country is empty | Country comes from the release details, which may not list one | Edit the Country field in the Review dialog. |
 | "Cache expired" warning in collection dialog | Cache is older than 6 hours | Click **Reload** to fetch a fresh copy. This is required by the Discogs API Terms of Use. |
-| A selected release is listed in the import warning | Its details could not be loaded, or it has no A/B tracks (e.g. numbered tracks only) | Add the rows manually in the Review dialog (**Add row**) or via the Excel file. |
+| A selected release is listed in the import warning | Its details could not be loaded, or it has no A/B tracks (e.g. numbered tracks only) | Add the rows manually in the queue editor (**Add entry** or **Add row**). |
 
 ---
 
@@ -615,7 +687,11 @@ vinyl-label-printer/
 ├── modules/
 │   ├── child_env.py               # Environment for started programs (frozen Linux build)
 │   ├── data_source.py             # DataSourceMode enum (LOCAL / DISCOGS)
-│   ├── excel_reader.py            # openpyxl — loads/writes Print sheet, loads Database
+│   ├── records.py                 # LabelRecord dataclass, side normalisation (no storage dependency)
+│   ├── label_store.py             # SQLite print queue labels.db — the only code that talks to it
+│   ├── xlsx_migration.py          # One-time takeover of the Print sheet of a pre-1.1 database.xlsx
+│   ├── excel_reader.py            # openpyxl — read-only reader of the pre-1.1 database.xlsx
+│   ├── csv_io.py                  # CSV import (delimiter / encoding / header detection) and export
 │   ├── logger.py                  # Centralised rotating-file logger; debug toggle
 │   ├── paths.py                   # All file locations: bundled resources, user dirs, legacy migration
 │   ├── pdf_generator.py           # ReportLab — renders labels to PDF, dynamic font sizing
@@ -634,14 +710,19 @@ vinyl-label-printer/
 │   ├── grid_widget.py             # QWidget — interactive 4×10 start-position grid
 │   ├── preview_widget.py          # QWidget — pdf2image + QPixmap page viewer
 │   ├── discogs_dialog.py          # QDialog — Discogs import (setup + collection panels)
-│   ├── review_widget.py           # QDialog — editable review table before queue write
+│   ├── review_widget.py           # QDialog — print queue editor and import review table
+│   ├── entry_dialog.py            # QDialog — "Add entry" form (one record, side A and / or B)
 │   └── theme_manager.py           # ThemeManager — theme setting, global stylesheet, live switching
 └── tests/
     ├── conftest.py                # Headless Qt + throw-away user directories
-    └── test_theme_switch.py       # Regression test: theme switches restyle every open window
+    ├── test_theme_switch.py       # Regression test: theme switches restyle every open window
+    ├── test_label_store.py        # labels.db: schema, order, side CHECK, transactions, versions
+    ├── test_xlsx_migration.py     # database.xlsx takeover: rows, untouched file, retry, no file
+    ├── test_csv_io.py             # CSV delimiters, headers, encodings, round trip
+    └── test_queue_editor.py       # Entry form, saving / clearing the queue, unsaved changes, CSV
 ```
 
-User files (`settings.json`, `credentials.json`, `database.xlsx`, `discogs_cache.db`, generated
+User files (`settings.json`, `credentials.json`, `labels.db`, `discogs_cache.db`, generated
 PDFs, `app.log`) are not part of the project tree — see
 [Where your data is stored](#where-your-data-is-stored).
 
@@ -651,10 +732,13 @@ PDFs, `app.log`) are not part of the project tree — see
 |---|---|---|
 | PyQt6 | ≥ 6.4 | UI framework |
 | reportlab | ≥ 4.0 | PDF generation |
-| openpyxl | ≥ 3.1 | Excel file reading and writing |
+| openpyxl | ≥ 3.1 | Reading the `database.xlsx` of versions before 1.1, once, for the takeover into `labels.db` |
 | pdf2image | ≥ 1.17 | PDF → image for preview (requires Poppler system library) |
 | Pillow | ≥ 10.0 | Image loading and watermark alpha processing |
 | requests | ≥ 2.31 | HTTP client (Discogs API + GitHub version check) |
+
+The print queue (`labels.db`) and the Discogs cache use `sqlite3` from the Python standard
+library; CSV import / export uses the standard `csv` module.
 
 Dark / Light / Auto theming is implemented in-house (`config/themes.py`, `config/stylesheet.py`,
 `ui/theme_manager.py`) — no external theming package is used.
@@ -729,16 +813,68 @@ Reads and writes `settings.json` in the config folder (`modules.paths.get_settin
 |------------------|---------------------------------------------------------------|
 | `DataSourceMode` | `Enum` with members `LOCAL = "local"` and `DISCOGS = "discogs"` |
 
+#### `modules/records.py`
+
+| Symbol | Description |
+|---|---|
+| `LabelRecord` | Dataclass: `title`, `artist`, `label`, `country`, `year`, `side`, `catno` (default `""`); plus `id` and `source` of the row in `labels.db`, which are ignored by `==` |
+| `normalise_side(value)` | Maps any side / position to `"A"` or `"B"` (`AA` → `B`, `A1` → `A`, `Seite B` → `B`, empty → `A`) |
+| `resolve_side(value)` | Like `normalise_side()` but returns `None` for values that name no A/B side (used by the Discogs import) |
+
+#### `modules/label_store.py`
+
+The only code that talks to `labels.db`. Every function opens a short-lived connection and runs
+in one transaction (`BEGIN IMMEDIATE` … `COMMIT`, `ROLLBACK` on any error). Default rollback
+journal, no WAL — `labels.db` stays a single file.
+
+| Symbol | Description |
+|---|---|
+| `load_queue()` | The print queue as `LabelRecord`s, ordered by `position` |
+| `replace_queue(records, source)` | Makes `records` the whole queue in this order; rows with a known `id` keep `id`, `source` and `created_at` |
+| `append_to_queue(records, source, meta)` | Appends new rows; optional `meta` key/value pairs are written in the same transaction |
+| `queue_count()`, `get_meta(key)` | Number of queued entries; a value of the `meta` table |
+| `SCHEMA_VERSION`, `_MIGRATIONS` | Ordered schema steps; `PRAGMA user_version` holds the number applied. Later versions append steps (e.g. tables for a record collection) |
+
+Schema version 1:
+
+```sql
+CREATE TABLE print_queue (
+    id         INTEGER PRIMARY KEY,
+    position   INTEGER NOT NULL,                          -- explicit order
+    title      TEXT    NOT NULL CHECK (title <> ''),
+    artist     TEXT    NOT NULL DEFAULT '',
+    label      TEXT    NOT NULL DEFAULT '',
+    country    TEXT    NOT NULL DEFAULT '',
+    year       TEXT    NOT NULL DEFAULT '',               -- text, as entered
+    side       TEXT    NOT NULL CHECK (side IN ('A', 'B')),
+    catno      TEXT    NOT NULL DEFAULT '',
+    source     TEXT    NOT NULL DEFAULT 'manual',         -- manual | csv | discogs | xlsx-migration
+    created_at TEXT    NOT NULL,                          -- ISO 8601, UTC
+    updated_at TEXT    NOT NULL
+);
+CREATE INDEX print_queue_position ON print_queue (position);
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);   -- e.g. xlsx_migrated
+```
+
+#### `modules/xlsx_migration.py`
+
+| Symbol | Description |
+|---|---|
+| `migrate_xlsx_queue()` | Called by `main.py` after `migrate_legacy_data()`, before the main window. Without the `xlsx_migrated` marker: copies the Print sheet of `database.xlsx` into `labels.db` (source `xlsx-migration`) together with the marker in one transaction, or sets the marker with 0 rows if there is no xlsx. Never raises; a failure leaves no marker, so it is retried on the next start |
+
 #### `modules/excel_reader.py`
 
 | Symbol | Description |
 |---|---|
-| `LabelRecord` | Dataclass: `title`, `artist`, `label`, `country`, `year`, `side`, `catno` (default `""`) |
-| `COLUMNS` | Sheet header: `Title`, `Artist`, `Label`, `Country`, `Year`, `Side`, `CatNo` (columns A–G) |
-| `load_print_queue(path)` | Reads the `Print` sheet; skips blank rows; normalises `side`; files without column G load with `catno=""` |
-| `load_database(path)` | Reads the `Database` sheet in read-only mode |
-| `write_print_queue(path, records)` | Overwrites the `Print` sheet with the given `LabelRecord` list (all 7 columns) |
-| `normalise_side(value)` | Maps any side / position to `"A"` or `"B"` (`AA` → `B`, `A1` → `A`, `Seite B` → `B`, empty → `A`) |
+| `read_legacy_workbook(path)` | Opens a pre-1.1 `database.xlsx` read-only; returns the `Print` sheet as `LabelRecord`s (blank rows skipped, sides normalised, no column G → `catno=""`) and the row count of the `Database` sheet |
+
+#### `modules/csv_io.py`
+
+| Symbol | Description |
+|---|---|
+| `read_csv(path)` | Detects encoding (UTF-8 with / without BOM, else Windows-1252) and delimiter (`,` `;` tab), maps the header row (English / German names), returns the records and the number of rows skipped for an empty title; raises `CsvImportError` |
+| `write_csv(path, records)` | English header, `;`, UTF-8 with BOM |
+| `default_export_name()` | `vinyl-labels-YYYY-MM-DD.csv` |
 
 #### `modules/pdf_generator.py`
 
@@ -823,9 +959,9 @@ The toggle is exposed in **Settings → Appearance → Developer → Debug loggi
 | `resource_path(relative)` | Absolute path of a read-only resource shipped with the app — relative to `vinyl-label-printer/` when running from source, relative to the PyInstaller bundle (`sys._MEIPASS`) when frozen |
 | `get_poppler_path()` | Bundled Poppler `bin` folder (Windows builds only) or `None`, in which case pdf2image uses Poppler from the system `PATH` |
 | `get_config_dir()` / `get_data_dir()` / `get_cache_dir()` / `get_log_dir()` | Per-user directories via [platformdirs](https://github.com/tox-dev/platformdirs) (app name `vinyl-label-printer`, no author folder), created on demand; config and data use the roaming profile on Windows |
-| `get_settings_file()`, `get_credentials_file()`, `get_database_file()`, `get_discogs_cache_file()`, `get_output_dir()`, `get_log_file()` | Locations of the individual user files |
+| `get_settings_file()`, `get_credentials_file()`, `get_labels_db_file()`, `get_discogs_cache_file()`, `get_output_dir()`, `get_log_file()` | Locations of the individual user files |
+| `get_database_file()` | `database.xlsx` of versions before 1.1 — only read by the one-time takeover and copied by the legacy migration |
 | `migrate_legacy_data()` | One-time copy of user files from the legacy app-relative layout; never overwrites, never raises; writes `legacy-migration.json` into the config dir on success |
-| `seed_example_database()` | Copies the bundled example `database.xlsx` into the data dir if none exists |
 
 #### `modules/version_checker.py`
 
@@ -927,7 +1063,8 @@ All workers share one cancel event. Closing the dialog in any way (Cancel, Esc, 
 
 #### `ui/review_widget.py`
 
-`ReviewDialog(QDialog)` — editable preview table before writing to the Print sheet.
+`ReviewDialog(QDialog)` — the print queue editor (queue mode) and the review table of a Discogs
+import (import mode). Writes through `label_store`; nothing is written before the user confirms.
 
 | Feature | Details |
 |---|---|
@@ -935,9 +1072,11 @@ All workers share one cancel event. Closing the dialog in any way (Cancel, Esc, 
 | Required fields | Title, Side — highlighted red when empty |
 | Edit feedback | Edited cell flashes yellow (600 ms) then returns to normal or red |
 | Row operations | Drag & drop reorder; context menu delete / duplicate; toolbar add / delete |
+| Editor tools (queue mode) | **Add entry** (`ui/entry_dialog.py`), **Import CSV** (append / replace the table), **Export CSV** (all rows, also unchecked and hidden) |
 | Search | Live filter by title or artist (`setRowHidden`); **Select all / none** only affect visible rows |
-| Confirm | Writes all checked rows (visible or hidden) via `write_print_queue()`; sides saved via `normalise_side()`; disabled until ≥ 1 row is checked |
-| `import_mode` | `True` when opened from the Discogs import: asks **Append / Replace / Cancel** if the Print sheet is not empty. `False` (editing the queue from the sidebar) always replaces |
+| Confirm | Writes all checked rows (visible or hidden) via `label_store`; sides saved via `normalise_side()`; rows without a title are not saved. Queue mode (**Save**): `replace_queue()`, nothing checked empties the queue after a confirmation. Import mode: disabled until ≥ 1 row is checked |
+| Unsaved changes | Cancel, Esc and the window's close button ask **Save / Discard / Cancel** if the table differs from what is stored |
+| `import_mode` | `True` when opened from the Discogs import: asks **Append / Replace / Cancel** if the print queue is not empty (rows get source `discogs`). `False` (the queue editor) always replaces |
 
 ### Printer Calibration
 

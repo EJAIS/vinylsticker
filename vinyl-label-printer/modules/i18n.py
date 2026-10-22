@@ -22,7 +22,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "group_start":       "Startposition",
 
         # Buttons
-        "btn_open_db":       "Datei öffnen …",
         "btn_reload":        "Neu laden",
         "btn_watermark":     "Wasserzeichen …",
         "btn_watermark_clear": "Entfernen",
@@ -40,7 +39,6 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Status bar messages
         "status_loaded":     "{n} Etiketten in der Warteschlange",
-        "status_no_records": "Keine Datensätze in der Warteschlange.",
         "status_pdf_ready":  "PDF erstellt – bereit zum Drucken.",
         "status_printing":   "Druckauftrag gesendet.",
 
@@ -52,17 +50,14 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Linux:   sudo apt install poppler-utils\n"
             "  Windows: poppler-DLLs in PATH eintragen"
         ),
-        "err_excel":         "Excel-Datei konnte nicht geladen werden:\n{detail}",
         "err_pdf":           "PDF konnte nicht erstellt werden:\n{detail}",
-        "err_db_missing":    (
-            "Datenbankdatei nicht gefunden:\n{path}\n\n"
-            "Bitte manuell kopieren:\n"
-            "  Quelle:  examples/database.xlsx (GitHub-Repository)\n"
-            "  Ziel:    {path}\n\n"
-            "Download:\n"
-            "  https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx\n\n"
-            "Oder die App neu starten — fehlt die Datei, wird die "
-            "Beispieldatenbank automatisch angelegt."
+        "err_queue_load":    "Die Druckwarteschlange konnte nicht geladen werden:\n{detail}",
+        "xlsx_migration_failed_msg": (
+            "Die Daten der bisherigen database.xlsx konnten nicht in die neue "
+            "Datenbank übernommen werden:\n{path}\n\n"
+            "Die Datei bleibt unverändert. Die Übernahme wird beim nächsten Start "
+            "erneut versucht; bis dahin ist die Druckwarteschlange leer. "
+            "Details stehen im Log (Einstellungen → Erscheinungsbild → Entwickler)."
         ),
         "err_print":         "Druckfehler:\n{detail}",
 
@@ -70,15 +65,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "tooltip_grid":      (
             "Klicken Sie auf eine Zelle,\num die Startposition zu wählen."
         ),
-        "tooltip_open_db":   "Excel-Datei (database.xlsx) auswählen",
-        "tooltip_reload":    "Druckwarteschlange aus der Excel-Datei neu einlesen",
         "tooltip_watermark": "PNG- oder JPG-Bild als Wasserzeichen auswählen",
         "tooltip_watermark_clear": "Wasserzeichen entfernen",
 
         # File dialog
-        "dlg_open_db_title": "Datenbankdatei öffnen",
-        "dlg_open_db_filter":"Excel-Dateien (*.xlsx *.xls);;Alle Dateien (*)",
-        "status_db_loaded":  "Datei geladen: {path}",
         "status_reloaded":   "Neu geladen: {n} Etiketten in der Warteschlange.",
         "status_watermark_set": "Wasserzeichen: {name}",
         "status_watermark_cleared": "Wasserzeichen entfernt.",
@@ -116,8 +106,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "datasource_switch_local_title": "Zu lokaler Datenbank wechseln",
         "datasource_switch_local_msg":   (
             "Du wechselst zur lokalen Datenbank. "
-            "Die Druckwarteschlange bleibt erhalten und kann manuell "
-            "in Excel bearbeitet werden."
+            "Die Druckwarteschlange bleibt erhalten. Bearbeite sie in der App über "
+            "„Daten laden“ oder „Warteschlange“ – einzeln oder per CSV-Import."
         ),
         "datasource_discogs_hint":       (
             "\u2139 Änderungen an der Druckwarteschlange werden in die "
@@ -234,6 +224,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         # Review dialog — info banner
         "review_banner_line1":   "Bitte prüfe die übernommenen Daten vor dem Druck.",
         "review_banner_line2":   "Klicke in eine Zelle, um sie zu bearbeiten. Einträge mit roter Markierung erfordern deine Aufmerksamkeit.",
+        "review_banner_queue_line1": "Hier bearbeitest du die Druckwarteschlange. Änderungen werden erst mit „Speichern“ übernommen.",
+        "review_banner_queue_line2": (
+            "Neue Einträge über „Eintrag hinzufügen“ oder per CSV-Import. "
+            "Gespeichert werden nur markierte Einträge; Einträge mit roter "
+            "Markierung erfordern deine Aufmerksamkeit."
+        ),
 
         # Review dialog — column headers (editable cols get ✎ appended in code)
         "review_col_title":     "Titel",
@@ -250,6 +246,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_btn_none":      "Auswahl aufheben",
         "review_btn_delete_sel":"Ausgewählte Zeilen löschen",
         "review_btn_add_row":   "Zeile hinzufügen",
+        "review_btn_add_entry": "Eintrag hinzufügen …",
+        "review_btn_add_entry_tip": "Formular für eine Platte: Titel für Seite A und / oder B",
+        "review_btn_import_csv": "CSV importieren …",
+        "review_btn_import_csv_tip": "Einträge aus einer CSV-Datei übernehmen (anhängen oder ersetzen)",
+        "review_btn_export_csv": "CSV exportieren …",
+        "review_btn_export_csv_tip": (
+            "Alle Zeilen der Tabelle als CSV speichern – zum Sichern oder "
+            "zum Bearbeiten in einer Tabellenkalkulation"
+        ),
         "review_search_ph":     "Titel oder Interpret suchen…",
 
         # Review dialog — context menu
@@ -269,10 +274,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_btn_cancel":    "Abbrechen",
         "review_btn_confirm":   "Weiter zum Drucken →",
         "review_btn_confirm_tip": "Überträgt die markierten Einträge in die Druckwarteschlange",
+        "review_btn_save":      "Speichern",
+        "review_btn_save_tip":  (
+            "Speichert die markierten Einträge als Druckwarteschlange; "
+            "nicht markierte Einträge werden entfernt"
+        ),
 
         # Review dialog — validation messages
         "review_warn_title":    "Unvollständige Einträge",
-        "review_warn_msg":      "{k} Einträge haben leere Felder (markiert in Rot).\nMöchtest du trotzdem fortfahren?",
+        "review_warn_msg":      (
+            "{k} Einträge haben leere Pflichtfelder (markiert in Rot).\n"
+            "Einträge ohne Titel werden nicht gespeichert, eine leere Seite wird "
+            "als Seite A gespeichert.\nMöchtest du trotzdem fortfahren?"
+        ),
         "review_warn_continue": "Fortfahren",
         "review_warn_back":     "Zurück zur Liste",
         "review_queue_exists_title": "Druckwarteschlange nicht leer",
@@ -282,6 +296,56 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_queue_replace":      "Ersetzen",
         "review_queue_cancel":       "Abbrechen",
         "review_no_sel_msg":    "Keine Zeilen ausgewählt.",
+        "review_clear_title":   "Druckwarteschlange leeren?",
+        "review_clear_msg":     (
+            "Es ist kein Eintrag markiert. Beim Speichern wird die "
+            "Druckwarteschlange geleert – {n} Einträge werden gelöscht."
+        ),
+        "review_clear_confirm": "Warteschlange leeren",
+        "review_unsaved_title": "Ungespeicherte Änderungen",
+        "review_unsaved_msg":   "Die Druckwarteschlange hat ungespeicherte Änderungen. Speichern?",
+        "review_unsaved_save":  "Speichern",
+        "review_unsaved_discard": "Verwerfen",
+        "review_unsaved_cancel": "Abbrechen",
+
+        # CSV import / export
+        "csv_filter":           "CSV-Dateien (*.csv *.txt);;Alle Dateien (*)",
+        "csv_import_title":     "CSV importieren",
+        "csv_import_done":      "{n} Einträge importiert, {k} übersprungen (ohne Titel).",
+        "csv_import_none":      "Die Datei enthält keine Einträge mit Titel ({k} übersprungen).",
+        "csv_err_empty":        "Die Datei ist leer. Die erste Zeile muss eine Kopfzeile sein.",
+        "csv_err_no_title":     (
+            "Keine Titel-Spalte gefunden. Die erste Zeile muss eine Kopfzeile sein, "
+            "z. B.:\nTitle;Artist;Label;Country;Year;Side;CatNo\n"
+            "Titel;Interpret;Label;Land;Jahr;Seite;Katalognummer\n\n"
+            "Gefundene Spalten: {columns}"
+        ),
+        "csv_err_read":         "Die CSV-Datei konnte nicht gelesen werden:\n{detail}",
+        "csv_export_title":     "CSV exportieren",
+        "csv_export_done":      "{n} Einträge exportiert:\n{path}",
+        "csv_export_err":       "Die CSV-Datei konnte nicht geschrieben werden:\n{detail}",
+
+        # Add entry form
+        "entry_title":          "Eintrag hinzufügen",
+        "entry_lbl_artist":     "Interpret",
+        "entry_lbl_label":      "Label",
+        "entry_lbl_country":    "Land",
+        "entry_lbl_year":       "Jahr",
+        "entry_ph_year":        "z. B. 1969",
+        "entry_lbl_catno":      "Katalognummer",
+        "entry_lbl_title_a":    "Titel Seite A",
+        "entry_lbl_title_b":    "Titel Seite B",
+        "entry_hint":           (
+            "Pro ausgefülltem Titel entsteht ein Label (Seite A / B) mit den "
+            "gemeinsamen Angaben. Gespeichert wird erst mit „Speichern“ in der "
+            "Warteschlange."
+        ),
+        "entry_btn_add":        "Hinzufügen",
+        "entry_btn_add_next":   "Hinzufügen und nächster",
+        "entry_btn_close":      "Schließen",
+        "entry_err_no_title":   "Bitte mindestens einen Titel eingeben (Seite A oder B).",
+        "entry_err_year":       "Jahr: leer lassen oder vierstellig eingeben (z. B. 1969).",
+        "entry_added":          "{n} Zeile(n) zur Tabelle hinzugefügt.",
 
         # Settings menu / theme / language
         "menu_settings":            "Einstellungen",
@@ -317,7 +381,7 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Settings dialog — data source tab
         "settings_active_mode":         "Aktiver Modus",
-        "settings_mode_local_sub":      "manuell gepflegt",
+        "settings_mode_local_sub":      "in der App erfasst",
         "settings_mode_discogs_sub":    "Sammlung via Discogs API",
         "settings_mode_switch_warn":    (
             "Beim Wechsel des Modus werden vorhandene "
@@ -325,8 +389,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "settings_data_folder":         "Datenordner",
         "settings_data_folder_info":    (
-            "Hier liegt Ihre database.xlsx. Bearbeiten Sie sie mit "
-            "Excel oder LibreOffice Calc."
+            "Hier liegt die Datenbank labels.db mit Ihrer Druckwarteschlange. "
+            "Bearbeitet wird sie in der App (Warteschlange); für Massenänderungen "
+            "und Sicherungen gibt es CSV-Import und -Export. Eine database.xlsx "
+            "älterer Versionen wurde beim ersten Start übernommen und bleibt "
+            "unverändert hier liegen."
         ),
         "settings_open_folder":         "Ordner öffnen",
         "err_open_folder":              "Ordner konnte nicht geöffnet werden:\n{path}\n\n{detail}",
@@ -379,6 +446,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         # Sidebar / footer
         "sidebar_load_data":        "Daten laden",
         "sidebar_queue":            "Warteschlange",
+        "sidebar_load_data_tip_local": (
+            "Druckwarteschlange bearbeiten: Einträge erfassen, CSV importieren "
+            "oder exportieren"
+        ),
+        "sidebar_load_data_tip_discogs": "7\" Singles aus der Discogs-Sammlung importieren",
+        "sidebar_queue_tip":        "Druckwarteschlange anzeigen und bearbeiten",
         "sidebar_labels_ready":     "Labels bereit",
         "sidebar_empty":            "Leer",
         "sidebar_start_pos":        "Startposition",
@@ -425,7 +498,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "group_start":       "Start Position",
 
         # Buttons
-        "btn_open_db":       "Open file …",
         "btn_reload":        "Reload",
         "btn_watermark":     "Watermark …",
         "btn_watermark_clear": "Remove",
@@ -443,7 +515,6 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Status bar messages
         "status_loaded":     "{n} labels in queue",
-        "status_no_records": "No records in print queue.",
         "status_pdf_ready":  "PDF generated – ready to print.",
         "status_printing":   "Print job sent.",
 
@@ -455,31 +526,23 @@ _STRINGS: dict[str, dict[str, str]] = {
             "  Linux:   sudo apt install poppler-utils\n"
             "  Windows: add poppler DLLs folder to PATH"
         ),
-        "err_excel":         "Could not load Excel file:\n{detail}",
         "err_pdf":           "Could not create PDF:\n{detail}",
-        "err_db_missing":    (
-            "Database file not found:\n{path}\n\n"
-            "Please copy it manually:\n"
-            "  Source: examples/database.xlsx (GitHub repository)\n"
-            "  Target: {path}\n\n"
-            "Download:\n"
-            "  https://github.com/EJAIS/vinylsticker/raw/main/examples/database.xlsx\n\n"
-            "Or restart the app — if the file is missing, the example "
-            "database is created automatically."
+        "err_queue_load":    "Could not load the print queue:\n{detail}",
+        "xlsx_migration_failed_msg": (
+            "The data of your previous database.xlsx could not be taken over "
+            "into the new database:\n{path}\n\n"
+            "The file is left unchanged. The takeover will be retried on the next "
+            "start; until then the print queue is empty. "
+            "See the log for details (Settings → Appearance → Developer)."
         ),
         "err_print":         "Print error:\n{detail}",
 
         # Tooltips
         "tooltip_grid":      "Click a cell to set the start position.",
-        "tooltip_open_db":   "Select the Excel database file (database.xlsx)",
-        "tooltip_reload":    "Re-read the print queue from the Excel file",
         "tooltip_watermark": "Select a PNG or JPG image to use as watermark",
         "tooltip_watermark_clear": "Remove the watermark",
 
         # File dialog
-        "dlg_open_db_title": "Open database file",
-        "dlg_open_db_filter":"Excel files (*.xlsx *.xls);;All files (*)",
-        "status_db_loaded":  "File loaded: {path}",
         "status_reloaded":   "Reloaded: {n} labels in queue.",
         "status_watermark_set": "Watermark: {name}",
         "status_watermark_cleared": "Watermark removed.",
@@ -516,7 +579,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "datasource_switch_local_title": "Switch to local database",
         "datasource_switch_local_msg":   (
             "You are switching to the local database. "
-            "The print queue is preserved and can be edited manually in Excel."
+            "The print queue is preserved. Edit it in the app via "
+            "“Load data” or “Queue” – entry by entry or by CSV import."
         ),
         "datasource_discogs_hint":       (
             "\u2139 Changes to the print queue are written to the local "
@@ -632,6 +696,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         # Review dialog — info banner
         "review_banner_line1":   "Please review the imported data before printing.",
         "review_banner_line2":   "Click a cell to edit it. Entries with red marking require your attention.",
+        "review_banner_queue_line1": "Edit your print queue here. Changes are only kept when you click “Save”.",
+        "review_banner_queue_line2": (
+            "Add new entries with “Add entry” or by CSV import. Only checked "
+            "entries are saved; entries with red marking require your attention."
+        ),
 
         # Review dialog — column headers (editable cols get ✎ appended in code)
         "review_col_title":     "Title",
@@ -648,6 +717,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_btn_none":      "Deselect all",
         "review_btn_delete_sel":"Delete selected rows",
         "review_btn_add_row":   "Add row",
+        "review_btn_add_entry": "Add entry …",
+        "review_btn_add_entry_tip": "Form for one record: titles for side A and / or B",
+        "review_btn_import_csv": "Import CSV …",
+        "review_btn_import_csv_tip": "Take over entries from a CSV file (append or replace)",
+        "review_btn_export_csv": "Export CSV …",
+        "review_btn_export_csv_tip": (
+            "Save all rows of the table as CSV – as a backup or to edit them "
+            "in a spreadsheet"
+        ),
         "review_search_ph":     "Search title or artist…",
 
         # Review dialog — context menu
@@ -667,10 +745,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_btn_cancel":    "Cancel",
         "review_btn_confirm":   "Continue to print →",
         "review_btn_confirm_tip": "Transfers the checked entries to the print queue",
+        "review_btn_save":      "Save",
+        "review_btn_save_tip":  (
+            "Saves the checked entries as the print queue; unchecked entries "
+            "are removed"
+        ),
 
         # Review dialog — validation messages
         "review_warn_title":    "Incomplete entries",
-        "review_warn_msg":      "{k} entries have empty fields (marked in red).\nContinue anyway?",
+        "review_warn_msg":      (
+            "{k} entries have empty required fields (marked in red).\n"
+            "Entries without a title are not saved, an empty side is saved as "
+            "side A.\nContinue anyway?"
+        ),
         "review_warn_continue": "Continue",
         "review_warn_back":     "Back to list",
         "review_queue_exists_title": "Print queue not empty",
@@ -680,6 +767,55 @@ _STRINGS: dict[str, dict[str, str]] = {
         "review_queue_replace":      "Replace",
         "review_queue_cancel":       "Cancel",
         "review_no_sel_msg":    "No rows selected.",
+        "review_clear_title":   "Empty the print queue?",
+        "review_clear_msg":     (
+            "No entry is checked. Saving empties the print queue – "
+            "{n} entries will be deleted."
+        ),
+        "review_clear_confirm": "Empty queue",
+        "review_unsaved_title": "Unsaved changes",
+        "review_unsaved_msg":   "The print queue has unsaved changes. Save them?",
+        "review_unsaved_save":  "Save",
+        "review_unsaved_discard": "Discard",
+        "review_unsaved_cancel": "Cancel",
+
+        # CSV import / export
+        "csv_filter":           "CSV files (*.csv *.txt);;All files (*)",
+        "csv_import_title":     "Import CSV",
+        "csv_import_done":      "{n} entries imported, {k} skipped (no title).",
+        "csv_import_none":      "The file contains no entries with a title ({k} skipped).",
+        "csv_err_empty":        "The file is empty. The first row must be a header row.",
+        "csv_err_no_title":     (
+            "No title column found. The first row must be a header row, "
+            "e.g.:\nTitle;Artist;Label;Country;Year;Side;CatNo\n"
+            "Titel;Interpret;Label;Land;Jahr;Seite;Katalognummer\n\n"
+            "Columns found: {columns}"
+        ),
+        "csv_err_read":         "Could not read the CSV file:\n{detail}",
+        "csv_export_title":     "Export CSV",
+        "csv_export_done":      "{n} entries exported:\n{path}",
+        "csv_export_err":       "Could not write the CSV file:\n{detail}",
+
+        # Add entry form
+        "entry_title":          "Add entry",
+        "entry_lbl_artist":     "Artist",
+        "entry_lbl_label":      "Label",
+        "entry_lbl_country":    "Country",
+        "entry_lbl_year":       "Year",
+        "entry_ph_year":        "e.g. 1969",
+        "entry_lbl_catno":      "Catalog number",
+        "entry_lbl_title_a":    "Title side A",
+        "entry_lbl_title_b":    "Title side B",
+        "entry_hint":           (
+            "Each filled title becomes one label (side A / B) with the shared "
+            "details. Nothing is saved until you click “Save” in the queue."
+        ),
+        "entry_btn_add":        "Add",
+        "entry_btn_add_next":   "Add and next",
+        "entry_btn_close":      "Close",
+        "entry_err_no_title":   "Please enter at least one title (side A or B).",
+        "entry_err_year":       "Year: leave empty or enter four digits (e.g. 1969).",
+        "entry_added":          "{n} row(s) added to the table.",
 
         # Settings menu / theme / language
         "menu_settings":            "Settings",
@@ -715,15 +851,17 @@ _STRINGS: dict[str, dict[str, str]] = {
 
         # Settings dialog — data source tab
         "settings_active_mode":         "Active mode",
-        "settings_mode_local_sub":      "manually maintained",
+        "settings_mode_local_sub":      "entered in the app",
         "settings_mode_discogs_sub":    "Collection via Discogs API",
         "settings_mode_switch_warn":    (
             "When switching modes, existing queue data may be overwritten."
         ),
         "settings_data_folder":         "Data folder",
         "settings_data_folder_info":    (
-            "Your database.xlsx is stored here. Edit it with "
-            "Excel or LibreOffice Calc."
+            "Your print queue database labels.db is stored here. Edit the "
+            "queue in the app (Queue); use CSV import and export for bulk "
+            "changes and backups. A database.xlsx of an older version was "
+            "taken over on the first start and is kept here unchanged."
         ),
         "settings_open_folder":         "Open folder",
         "err_open_folder":              "Could not open the folder:\n{path}\n\n{detail}",
@@ -772,6 +910,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         # Sidebar / footer
         "sidebar_load_data":        "Load data",
         "sidebar_queue":            "Queue",
+        "sidebar_load_data_tip_local": (
+            "Edit the print queue: add entries, import or export CSV"
+        ),
+        "sidebar_load_data_tip_discogs": "Import 7\" singles from your Discogs collection",
+        "sidebar_queue_tip":        "Show and edit the print queue",
         "sidebar_labels_ready":     "Labels ready",
         "sidebar_empty":            "Empty",
         "sidebar_start_pos":        "Start position",

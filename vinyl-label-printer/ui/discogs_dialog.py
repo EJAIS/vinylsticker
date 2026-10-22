@@ -9,7 +9,7 @@ Flow:
      → _ImportWorker loads release details (tracks, country) for each release
        — from the cache if younger than 6 h, otherwise from the API
      → ReviewDialog opens for editing / confirmation
-     → on ReviewDialog.accept(): write to Print sheet, close dialog
+     → on ReviewDialog.accept(): write to the print queue (labels.db), close dialog
 
 Setup panel
 ───────────
@@ -30,7 +30,6 @@ Collection panel
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 from typing import Optional
 
 import requests as _requests
@@ -60,6 +59,7 @@ from modules.discogs_client import (
     map_tracks_to_sides,
 )
 from modules.i18n import t
+from modules.label_store import SOURCE_DISCOGS
 from modules.logger import get_logger
 from config.themes import ThemeColors
 from ui.review_widget import ReviewDialog
@@ -295,9 +295,8 @@ class DiscogsDialog(QDialog):
     one Discogs account and is cleared on logout.
     """
 
-    def __init__(self, db_path: Path, parent=None) -> None:
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._db_path   = db_path
         self._cred_mgr  = CredentialsManager()
         self._releases: list[dict] = []
         self._displayed: list[dict] = []
@@ -909,7 +908,9 @@ class DiscogsDialog(QDialog):
         if not records_data:
             return   # nothing importable — the warning above lists the releases
 
-        dlg = ReviewDialog(records_data, self._db_path, import_mode=True, parent=self)
+        dlg = ReviewDialog(
+            records_data, import_mode=True, import_source=SOURCE_DISCOGS, parent=self,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.accept()
 

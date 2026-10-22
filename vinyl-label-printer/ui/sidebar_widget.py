@@ -327,8 +327,11 @@ class SidebarWidget(QWidget):
         self._mode = mode
         if mode == DataSourceMode.DISCOGS:
             self._btn_load_data.set_subtitle(t("sidebar_discogs_mode"))
+            self._btn_load_data.setToolTip(t("sidebar_load_data_tip_discogs"))
         else:
             self._btn_load_data.set_subtitle(t("sidebar_local"))
+            self._btn_load_data.setToolTip(t("sidebar_load_data_tip_local"))
+        self._btn_queue.setToolTip(t("sidebar_queue_tip"))
 
     def retranslate(self) -> None:
         self._lbl_section_data.setText(t("sidebar_section_data").upper())

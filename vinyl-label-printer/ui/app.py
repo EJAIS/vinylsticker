@@ -5,7 +5,7 @@ Wires together:
   - SidebarWidget   — navigation / action panel
   - PreviewWidget   — PDF preview
   - FooterWidget    — settings button + connection / mode status
-  - excel_reader    — print-queue loader
+  - label_store     — print queue (labels.db)
   - pdf_generator   — PDF generation
   - printer         — OS print trigger
   - i18n            — language switching
@@ -36,12 +36,13 @@ from modules.i18n import t
 from modules.logger import get_logger
 
 logger = get_logger()
-from modules.excel_reader import LabelRecord, load_print_queue
+from modules import label_store
+from modules.records import LabelRecord
 from modules.pdf_generator import generate_pdf
 from modules.printer import print_pdf
 from modules.data_source import DataSourceMode
 from modules.credentials_manager import CredentialsManager
-from modules.paths import get_database_file, get_output_dir
+from modules.paths import get_output_dir
 from config.settings import (
     get_watermark_path, set_watermark_path,
     get_data_source_mode,
@@ -71,7 +72,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._records:        list[LabelRecord] = []
         self._pdf_path:       Path | None = None
-        self._db_path:        Path = get_database_file()
         self._watermark_path: Path | None = get_watermark_path()
         self._mode:           DataSourceMode = get_data_source_mode()
         self._start_index:    int = 0
@@ -142,18 +142,13 @@ class MainWindow(QMainWindow):
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def _load_queue(self) -> None:
-        """Load the Print sheet from disk and update the sidebar queue count."""
+        """Load the print queue from labels.db and update the sidebar queue count."""
         try:
-            self._records = load_print_queue(self._db_path)
-        except FileNotFoundError:
-            QMessageBox.critical(
-                self, t("app_title"),
-                t("err_db_missing", path=str(self._db_path))
-            )
-            self._records = []
+            self._records = label_store.load_queue()
         except Exception as exc:
+            logger.error(f"Could not load the print queue: {type(exc).__name__}: {exc}")
             QMessageBox.critical(
-                self, t("app_title"), t("err_excel", detail=str(exc))
+                self, t("app_title"), t("err_queue_load", detail=str(exc))
             )
             self._records = []
         self._sidebar.set_queue_count(len(self._records))
@@ -161,29 +156,20 @@ class MainWindow(QMainWindow):
     # ── Main action handlers ──────────────────────────────────────────────────
 
     def on_load_data(self) -> None:
-        """Load data button: reload Excel (LOCAL) or open Discogs dialog (DISCOGS)."""
+        """Load data button: open the queue editor (LOCAL) or the Discogs dialog (DISCOGS)."""
         if self._mode == DataSourceMode.DISCOGS:
-            dlg = DiscogsDialog(self._db_path, parent=self)
+            dlg = DiscogsDialog(parent=self)
             accepted = dlg.exec() == QDialog.DialogCode.Accepted
             dlg.deleteLater()
             if accepted:
                 self._load_queue()
                 self._update_footer_status()
         else:
-            self._load_queue()
+            self.on_open_queue()
 
     def on_open_queue(self) -> None:
-        """Queue button: open the ReviewDialog so the user can inspect / edit records."""
-        if not self._records:
-            QMessageBox.information(
-                self, t("app_title"), t("status_no_records")
-            )
-            return
-        dlg = ReviewDialog(
-            [asdict(r) for r in self._records],
-            self._db_path,
-            parent=self,
-        )
+        """Queue button: open the queue editor (ReviewDialog), also when the queue is empty."""
+        dlg = ReviewDialog([asdict(r) for r in self._records], parent=self)
         accepted = dlg.exec() == QDialog.DialogCode.Accepted
         dlg.deleteLater()
         if accepted:
@@ -281,7 +267,6 @@ class MainWindow(QMainWindow):
         from ui.settings_dialog import SettingsDialog
         if not hasattr(self, "_settings_dialog"):
             self._settings_dialog = SettingsDialog(self)
-            self._settings_dialog._db_path = self._db_path
             self._settings_dialog.mode_changed.connect(self.on_mode_changed)
             self._settings_dialog.language_changed.connect(self._retranslate_ui)
             self._settings_dialog.debug_mode_changed.connect(
