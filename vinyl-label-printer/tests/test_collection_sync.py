@@ -211,11 +211,12 @@ def test_print_question_is_asked_once_for_linked_rows_only(window):
     assert window.asked == [2]
     assert _printed(record.id) == (None, None)
 
-    # A changed queue asks again
+    # A changed queue regenerates the PDF without asking; printing it asks again
     label_store.append_to_queue(queue_rows_for_sides(record, "A"))
     window._load_queue()
-    window.on_print()                                      # the PDF still holds the old queue
     assert window.asked == [2]
+    window.on_print()                                      # prints the regenerated PDF
+    assert window.asked == [2, 3]
     window.on_create_pdf()
     assert window.asked == [2, 3]
 
