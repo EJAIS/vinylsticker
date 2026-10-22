@@ -531,7 +531,11 @@ jobs:
             test -f "/opt/vinyl-label-printer/_internal/fonts/$f" \
               || { echo "::error::fonts/$f missing in the .deb"; exit 1; }
           done
-          test -f /usr/share/doc/vinyl-label-printer/third-party/fonts/DejaVu-2.37.LICENSE
+          # The licence copy under /usr/share/doc is checked in the package itself:
+          # the Ubuntu container images exclude /usr/share/doc/* (except copyright)
+          # from installation (/etc/dpkg/dpkg.cfg.d/excludes).
+          dpkg-deb -c "$DEB_FILE" \
+            | grep '\./usr/share/doc/vinyl-label-printer/third-party/fonts/DejaVu-2\.37\.LICENSE$'
 
       - name: Check that all bundled libraries resolve
         run: packaging/linux/check_bundle_libs.sh /opt/vinyl-label-printer
