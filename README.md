@@ -10,7 +10,7 @@ Made with :heart: and ClaudeCode - by a Collector for Collectors.
 + Sides are always printed as **A** or **B** (`A1`/`A2` → A, UK double-A side `AA` → B).
 + Discogs imports ask whether to **append** to or **replace** an existing print queue.
 + Watermark option available (main window sidebar and **⚙ Settings → Appearance**).
-+ Dark / Light theme via **⚙ Settings → Appearance** — follows the OS setting until you pick one explicitly.
++ Dark / Light theme via **⚙ Settings → Appearance** — **Automatic (system setting)** follows the OS light/dark mode live; a switch applies at once, without a restart.
 + Printer calibration with X/Y fine-tuning and a built-in calibration PDF generator (**⚙ Settings → Appearance → Printer Calibration**).
 
 ![Picture of an example label](https://github.com/EJAIS/vinylsticker/blob/main/examples/label_with_watermark.png)
@@ -280,6 +280,14 @@ python3 -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\Activate.ps1
 pip install -r vinyl-label-printer/requirements.txt
 python vinyl-label-printer/main.py
+```
+
+Tests (headless, pytest from `requirements-dev.txt`):
+
+```bash
+pip install -r vinyl-label-printer/requirements-dev.txt
+cd vinyl-label-printer
+QT_QPA_PLATFORM=offscreen python -m pytest tests
 ```
 
 The PDF preview needs **Poppler** as a system package:
@@ -597,6 +605,7 @@ vinyl-label-printer/
 ├── main.py                        # Entry point — creates QApplication and MainWindow
 ├── __version__.py                 # App version string — read by the CI build and version_checker.py
 ├── requirements.txt                # pip dependencies
+├── requirements-dev.txt            # test tools (pytest) — not needed at runtime
 ├── config/
 │   ├── avery_formats.py           # Avery sheet dimensions and coordinate helpers
 │   ├── settings.py                # Persistent JSON settings (watermark path, data source mode, theme, ...)
@@ -616,16 +625,20 @@ vinyl-label-printer/
 │   ├── discogs_cache.py           # SQLite cache: collection fields + per-release details (6 h ToU each)
 │   ├── version_checker.py         # GitHub release check + semantic version comparison
 │   └── credentials_manager.py     # Load/save/clear credentials.json
-└── ui/
-    ├── app.py                     # QMainWindow — wires all components together (no menu bar)
-    ├── styles.py                  # Table/search-field style helpers used by dialogs
-    ├── sidebar_widget.py          # QWidget — left panel: data source, print queue, start grid, watermark
-    ├── footer_widget.py           # QWidget — footer bar: ⚙ Settings button + Discogs/mode status
-    ├── settings_dialog.py         # QDialog — Settings (Appearance, Data source, Discogs account, About)
-    ├── grid_widget.py             # QWidget — interactive 4×10 start-position grid
-    ├── preview_widget.py          # QWidget — pdf2image + QPixmap page viewer
-    ├── discogs_dialog.py          # QDialog — Discogs import (setup + collection panels)
-    └── review_widget.py           # QDialog — editable review table before queue write
+├── ui/
+│   ├── app.py                     # QMainWindow — wires all components together (no menu bar)
+│   ├── styles.py                  # Table/search-field style helpers used by dialogs
+│   ├── sidebar_widget.py          # QWidget — left panel: data source, print queue, start grid, watermark
+│   ├── footer_widget.py           # QWidget — footer bar: ⚙ Settings button + Discogs/mode status
+│   ├── settings_dialog.py         # QDialog — Settings (Appearance, Data source, Discogs account, About)
+│   ├── grid_widget.py             # QWidget — interactive 4×10 start-position grid
+│   ├── preview_widget.py          # QWidget — pdf2image + QPixmap page viewer
+│   ├── discogs_dialog.py          # QDialog — Discogs import (setup + collection panels)
+│   ├── review_widget.py           # QDialog — editable review table before queue write
+│   └── theme_manager.py           # ThemeManager — theme setting, global stylesheet, live switching
+└── tests/
+    ├── conftest.py                # Headless Qt + throw-away user directories
+    └── test_theme_switch.py       # Regression test: theme switches restyle every open window
 ```
 
 User files (`settings.json`, `credentials.json`, `database.xlsx`, `discogs_cache.db`, generated
@@ -643,7 +656,8 @@ PDFs, `app.log`) are not part of the project tree — see
 | Pillow | ≥ 10.0 | Image loading and watermark alpha processing |
 | requests | ≥ 2.31 | HTTP client (Discogs API + GitHub version check) |
 
-Dark / Light / Auto theming is implemented in-house (`config/themes.py`, `config/stylesheet.py`) — no external theming package is used.
+Dark / Light / Auto theming is implemented in-house (`config/themes.py`, `config/stylesheet.py`,
+`ui/theme_manager.py`) — no external theming package is used.
 
 ### Avery 4780 Sheet Dimensions
 
@@ -855,12 +869,36 @@ Before opening the OS print dialog, `print_pdf()` shows a one-time `QMessageBox`
 
 | Tab | Contents |
 |---|---|
-| Appearance | Theme (Dark / Light), language (DE / EN), watermark select/clear, Printer Calibration, Developer (debug logging) |
+| Appearance | Theme (Automatic / Dark / Light), language (DE / EN), watermark select/clear, Printer Calibration, Developer (debug logging) |
 | Data source | Switch between Local database and Discogs mode |
 | Discogs account | Token setup, change token, log out |
 | About | App info, license, author, version check, GitHub link |
 
-Emits `theme_changed(str)`, `mode_changed(str)`, and `language_changed()` to `MainWindow`.
+Emits `mode_changed(str)` and `language_changed()` to `MainWindow`. A theme card calls
+`ThemeManager.set_setting()`; the dialog restyles itself on `ThemeManager.theme_changed` like
+every other window.
+
+#### `ui/theme_manager.py`
+
+`ThemeManager` (one per `QApplication`, `ThemeManager.instance()`) is the only place that
+resolves and applies the theme:
+
+| Member | Purpose |
+|---|---|
+| `set_setting(setting, persist=True)` | `"auto"`, `"dark"` or `"light"`; saves it (unless `persist=False`, used at startup) and applies it at once |
+| `setting` / `resolved` / `colors` | Saved setting, applied theme (`"dark"` / `"light"`), active `ThemeColors` |
+| `theme_changed(ThemeColors)` | Emitted after the global stylesheet was replaced |
+| `setting_changed(str)` | Emitted when the setting changes, even if the applied theme stays the same |
+
+`"auto"` uses `QStyleHints.colorScheme()` and follows `colorSchemeChanged` (and `paletteChanged`)
+live. If the color scheme is unknown (e.g. Linux without a working xdg-desktop-portal), the
+lightness of the platform palette's window color decides. The resolved theme and the reason are
+logged.
+
+Widgets that set colors themselves read `current_colors()` when they are built and connect one
+method that re-applies them to `theme_changed`. `ThemedStyles` keeps per-widget stylesheet
+builders for dialogs with many styled widgets. Connections to bound methods are dropped by PyQt
+when the widget is destroyed, so closed dialogs never receive the signal.
 
 #### `ui/discogs_dialog.py`
 
