@@ -4,6 +4,10 @@ PDF preview widget.
 Renders each page of a generated PDF as a QPixmap using pdf2image (which
 requires poppler to be installed system-wide) and displays it in a QLabel
 with page navigation controls.
+
+Without a PDF a placeholder hint is shown; MainWindow sets its text
+(set_placeholder_text) from the queue and mode state. Its color comes from
+the theme manager.
 """
 
 from __future__ import annotations
@@ -22,8 +26,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from config.themes import ThemeColors
 from modules.i18n import t
 from modules.paths import get_poppler_path
+from ui.theme_manager import ThemeManager, current_colors
 
 
 class PreviewWidget(QWidget):
@@ -36,6 +42,8 @@ class PreviewWidget(QWidget):
         self._pages: list  = []   # list[PIL.Image.Image]
         self._current_page: int = 0
         self._init_ui()
+        self._apply_theme()
+        ThemeManager.instance().theme_changed.connect(self._apply_theme)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -67,6 +75,22 @@ class PreviewWidget(QWidget):
         self._current_page = 0
         self._show_current_page()
 
+    def clear(self) -> None:
+        """Drop the rendered pages and show the placeholder again."""
+        self._pages = []
+        self._current_page = 0
+        self._image_label.clear()
+        self._show_current_page()
+
+    def has_pages(self) -> bool:
+        return bool(self._pages)
+
+    def set_placeholder_text(self, text: str) -> None:
+        self._placeholder.setText(text)
+
+    def placeholder_text(self) -> str:
+        return self._placeholder.text()
+
     def retranslate(self) -> None:
         """Update all translatable texts after a language switch."""
         self._btn_prev.setText(t("btn_prev"))
@@ -89,14 +113,15 @@ class PreviewWidget(QWidget):
         self._image_label.setMinimumSize(300, 420)
         self._image_label.setVisible(False)
 
-        # Placeholder shown before any PDF is loaded
-        self._placeholder = QLabel(t("no_preview"))
+        # Placeholder shown while no PDF is loaded (text: set_placeholder_text)
+        self._placeholder = QLabel()
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._placeholder.setWordWrap(True)
+        self._placeholder.setContentsMargins(24, 0, 24, 0)
         self._placeholder.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
-        self._placeholder.setStyleSheet("color: grey; font-style: italic;")
 
         layout.addWidget(self._image_label)
         layout.addWidget(self._placeholder)
@@ -122,6 +147,14 @@ class PreviewWidget(QWidget):
         nav_layout.addWidget(self._btn_next)
 
         layout.addLayout(nav_layout)
+
+    def _apply_theme(self, colors: ThemeColors | None = None) -> None:
+        """(Re)apply the placeholder color; runs at build time and on theme_changed."""
+        colors = colors or current_colors()
+        if colors:
+            self._placeholder.setStyleSheet(
+                f"color: {colors.text_muted}; font-style: italic; background: transparent;"
+            )
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 
@@ -161,7 +194,8 @@ class PreviewWidget(QWidget):
     def _update_nav(self) -> None:
         total = len(self._pages)
         if total == 0:
-            self._page_label.setText(t("no_preview"))
+            # The placeholder explains what to do; no second hint here
+            self._page_label.setText("")
         else:
             self._page_label.setText(
                 t("page_indicator", current=self._current_page + 1, total=total)

@@ -65,6 +65,7 @@ from config.themes import ThemeColors
 from ui.review_widget import ReviewDialog
 from ui.styles import apply_search_style, apply_table_style
 from ui.theme_manager import ThemeManager, current_colors
+from ui.window_state import HeaderKeeper, restore_geometry, save_geometry
 
 logger = get_logger()
 
@@ -279,6 +280,9 @@ class _ImportWorker(QThread):
 _SETUP_IDX      = 0
 _COLLECTION_IDX = 1
 
+# Geometry and columns in settings.json
+_SETTINGS_KEY = "discogs_dialog"
+
 _COL_CHECK  = 0
 _COL_TITLE  = 1
 _COL_ARTIST = 2
@@ -336,6 +340,9 @@ class DiscogsDialog(QDialog):
         self.setSizeGripEnabled(True)
 
         self._build_ui()
+        self._header_keeper = HeaderKeeper(self._table.horizontalHeader(), _SETTINGS_KEY)
+        self._header_keeper.restore()
+        restore_geometry(self, _SETTINGS_KEY)
         self._init_state()
         self._apply_theme()
         ThemeManager.instance().theme_changed.connect(self._apply_theme)
@@ -1101,6 +1108,8 @@ class DiscogsDialog(QDialog):
     def done(self, result: int) -> None:
         # Covers accept(), reject() (Cancel / Esc) and close
         self._shutdown_workers()
+        save_geometry(self, _SETTINGS_KEY)
+        self._header_keeper.save()
         super().done(result)
 
     def closeEvent(self, event) -> None:

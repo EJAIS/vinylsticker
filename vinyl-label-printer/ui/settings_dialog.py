@@ -68,6 +68,9 @@ from config.themes import ThemeColors
 from modules.logger import set_debug_mode
 from modules.paths import get_data_dir, get_log_file, get_output_dir
 from ui.theme_manager import ThemedStyles, ThemeManager, current_colors
+from ui.window_state import restore_geometry, save_geometry
+
+_GEOMETRY_KEY = "settings_dialog"
 
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
@@ -290,6 +293,8 @@ class SettingsDialog(QDialog):
     mode_changed     = pyqtSignal(str)   # 'local' | 'discogs'
     language_changed = pyqtSignal()      # emitted after language switch
     debug_mode_changed = pyqtSignal(bool)  # emitted when debug toggle changes
+    # Watermark or printer calibration changed: an existing PDF is outdated
+    print_layout_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -314,6 +319,12 @@ class SettingsDialog(QDialog):
         theme = ThemeManager.instance()
         theme.theme_changed.connect(self._apply_theme)
         theme.setting_changed.connect(self._update_theme_cards)
+        restore_geometry(self, _GEOMETRY_KEY)
+
+    def done(self, result: int) -> None:
+        # Covers the close button and Esc (both reject the dialog)
+        save_geometry(self, _GEOMETRY_KEY)
+        super().done(result)
 
     # ── UI construction ────────────────────────────────────────────────────────
 
@@ -1131,11 +1142,13 @@ class SettingsDialog(QDialog):
         from config.avery_formats import AVERY_FORMATS
         AVERY_FORMATS["4780"]["calibration_x_mm"] = value
         set_calibration_x(value)
+        self.print_layout_changed.emit()
 
     def _on_calibration_y_changed(self, value: float) -> None:
         from config.avery_formats import AVERY_FORMATS
         AVERY_FORMATS["4780"]["calibration_y_mm"] = value
         set_calibration_y(value)
+        self.print_layout_changed.emit()
 
     def _on_calibration_reset(self) -> None:
         self._spin_cal_x.setValue(0.0)
@@ -1168,13 +1181,15 @@ class SettingsDialog(QDialog):
     def _on_select_watermark(self) -> None:
         main = self.parent()
         if hasattr(main, "_on_select_watermark"):
-            main._on_select_watermark()
+            if main._on_select_watermark():
+                self.print_layout_changed.emit()
             self._refresh_watermark_status()
 
     def _on_clear_watermark(self) -> None:
         main = self.parent()
         if hasattr(main, "_on_clear_watermark"):
-            main._on_clear_watermark()
+            if main._on_clear_watermark():
+                self.print_layout_changed.emit()
             self._refresh_watermark_status()
 
     def _refresh_watermark_status(self) -> None:

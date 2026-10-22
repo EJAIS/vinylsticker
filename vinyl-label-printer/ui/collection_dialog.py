@@ -73,7 +73,9 @@ from modules.logger import get_logger
 from modules.records import CollectionRecord, LabelRecord, printed_date, queue_rows_for_sides
 from ui.entry_dialog import EntryDialog
 from ui.review_widget import ReviewDialog, default_csv_dir, remember_csv_dir
+from ui.shortcuts import StandardKey, add_shortcut, keys, plain, with_shortcut
 from ui.theme_manager import ThemedStyles, ThemeManager
+from ui.window_state import HeaderKeeper, restore_geometry, save_geometry
 
 logger = get_logger()
 
@@ -103,6 +105,8 @@ _ROLE_SORT = Qt.ItemDataRole.UserRole + 1
 _PAGE_TABLE = 0
 _PAGE_EMPTY = 1
 
+_SETTINGS_KEY = "collection_dialog"
+
 
 class _DateItem(QTableWidgetItem):
     """A printed date: shown in the locale format, sorted by date."""
@@ -126,6 +130,8 @@ class CollectionDialog(QDialog):
 
     # Queue rows were changed (a record edit updated its linked rows)
     queue_changed = pyqtSignal()
+    # The collection was (re)loaded after a change (footer counts)
+    collection_changed = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -144,8 +150,52 @@ class CollectionDialog(QDialog):
         self.setSizeGripEnabled(True)
 
         self._build_ui()
+        self._init_shortcuts()
+        # Before reload(): the restored sort column orders the rows
+        self._header_keeper = HeaderKeeper(self._table.horizontalHeader(), _SETTINGS_KEY)
+        self._header_keeper.restore()
+        restore_geometry(self, _SETTINGS_KEY)
         self.reload()
         ThemeManager.instance().theme_changed.connect(self._apply_theme)
+
+    def _init_shortcuts(self) -> None:
+        """Ctrl+F search, Ctrl+N new, Enter / F2 edit, Del delete, Ctrl+Return to queue."""
+        find, new = keys(StandardKey.Find, "Ctrl+F"), keys(StandardKey.New, "Ctrl+N")
+        edit, delete = keys(None, "Return", "Enter", "F2"), keys(StandardKey.Delete, "Del")
+        to_queue = keys(None, "Ctrl+Return", "Ctrl+Enter")
+        add_shortcut(self, find, self._focus_search)
+        add_shortcut(self, new, self._on_new)
+        add_shortcut(self, to_queue, lambda: self._click(self._btn_queue))
+        # Enter / Del only act on the table (Del still edits the search text)
+        table = Qt.ShortcutContext.WidgetWithChildrenShortcut
+        add_shortcut(self._table, edit, lambda: self._click(self._btn_edit), table)
+        add_shortcut(self._table, delete, lambda: self._click(self._btn_delete), table)
+
+        self._search.setToolTip(with_shortcut(t("shortcut_search"), find))
+        for button, sequences in (
+            (self._btn_new, new), (self._btn_empty_new, new), (self._btn_delete, delete),
+        ):
+            button.setToolTip(with_shortcut(plain(button.text()), sequences))
+        # "Enter, F2" (Return and keypad Enter are both "Enter" to the user)
+        self._btn_edit.setToolTip(with_shortcut(t("collection_btn_edit_tip"), edit[1:], 2))
+        self._btn_queue.setToolTip(with_shortcut(t("collection_btn_to_queue_tip"), to_queue))
+
+    @staticmethod
+    def _click(button: QPushButton) -> None:
+        """A shortcut acts like its button: only when the button is enabled."""
+        if button.isEnabled() and button.isVisibleTo(button.window()):
+            button.click()
+
+    def _focus_search(self) -> None:
+        if self._search.isEnabled():
+            self._search.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            self._search.selectAll()
+
+    def done(self, result: int) -> None:
+        # Covers "Add to print queue" (accept), Close, Esc and the close button
+        save_geometry(self, _SETTINGS_KEY)
+        self._header_keeper.save()
+        super().done(result)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -324,6 +374,7 @@ class CollectionDialog(QDialog):
         if select_id is not None:
             self._select_record(select_id)
         self._update_buttons()
+        self.collection_changed.emit()
 
     def _set_row(self, row: int, record: CollectionRecord, checked: set[str]) -> None:
         for side, col in _SIDE_COLS.items():
