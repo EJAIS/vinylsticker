@@ -54,6 +54,7 @@ from ui.grid_widget import GridWidget
 from ui.preview_widget import PreviewWidget
 from ui.sidebar_widget import SidebarWidget
 from ui.footer_widget import FooterWidget
+from ui.collection_dialog import CollectionDialog
 from ui.discogs_dialog import DiscogsDialog
 from ui.review_widget import ReviewDialog
 
@@ -156,7 +157,7 @@ class MainWindow(QMainWindow):
     # ── Main action handlers ──────────────────────────────────────────────────
 
     def on_load_data(self) -> None:
-        """Load data button: open the queue editor (LOCAL) or the Discogs dialog (DISCOGS)."""
+        """Load data button: open the collection (LOCAL) or the Discogs dialog (DISCOGS)."""
         if self._mode == DataSourceMode.DISCOGS:
             dlg = DiscogsDialog(parent=self)
             accepted = dlg.exec() == QDialog.DialogCode.Accepted
@@ -165,11 +166,22 @@ class MainWindow(QMainWindow):
                 self._load_queue()
                 self._update_footer_status()
         else:
-            self.on_open_queue()
+            dlg = CollectionDialog(parent=self)
+            accepted = dlg.exec() == QDialog.DialogCode.Accepted
+            dlg.deleteLater()
+            if accepted:
+                self._load_queue()
 
     def on_open_queue(self) -> None:
-        """Queue button: open the queue editor (ReviewDialog), also when the queue is empty."""
-        dlg = ReviewDialog([asdict(r) for r in self._records], parent=self)
+        """Queue button: open the queue editor (ReviewDialog), also when the queue is empty.
+
+        In LOCAL mode it offers "Also save to collection" for new entries.
+        """
+        dlg = ReviewDialog(
+            [asdict(r) for r in self._records],
+            parent=self,
+            collection=self._mode == DataSourceMode.LOCAL,
+        )
         accepted = dlg.exec() == QDialog.DialogCode.Accepted
         dlg.deleteLater()
         if accepted:

@@ -5,6 +5,7 @@ Currently stores:
   watermark_path    — absolute path string, or null
   data_source_mode  — "local" or "discogs"
   theme             — "auto", "dark", or "light"
+  save_to_collection — queue editor (LOCAL mode): "Also save to collection"
 """
 
 from __future__ import annotations
@@ -157,4 +158,16 @@ def set_show_print_hint(value: bool) -> None:
     """Persist whether to show the print-settings hint dialog."""
     data = _load()
     data["show_print_hint"] = value
+    _save(data)
+
+
+def get_save_to_collection() -> bool:
+    """Return the last state of "Also save to collection", defaulting to True."""
+    return bool(_load().get("save_to_collection", True))
+
+
+def set_save_to_collection(value: bool) -> None:
+    """Persist the state of "Also save to collection" (queue editor, LOCAL mode)."""
+    data = _load()
+    data["save_to_collection"] = value
     _save(data)

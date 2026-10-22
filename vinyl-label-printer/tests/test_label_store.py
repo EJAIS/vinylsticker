@@ -33,10 +33,10 @@ def test_schema_is_created_on_first_use(data_dir):
         columns = [row[1] for row in conn.execute("PRAGMA table_info(print_queue)")]
         # Default rollback journal: labels.db stays a plain single file
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
-    assert {"print_queue", "meta"} <= tables
+    assert {"print_queue", "meta", "records"} <= tables
     assert columns == [
         "id", "position", "title", "artist", "label", "country", "year", "side",
-        "catno", "source", "created_at", "updated_at",
+        "catno", "source", "created_at", "updated_at", "record_id", "record_side",
     ]
     assert not (data_dir / "labels.db-wal").exists()
 
@@ -143,13 +143,14 @@ def test_meta_is_written_with_the_rows():
 
 def test_later_schema_version_is_applied_in_order(monkeypatch):
     label_store.replace_queue([_rec("one")])
+    next_version = label_store.SCHEMA_VERSION + 1
     extra = ("CREATE TABLE collection_test (id INTEGER PRIMARY KEY)",)
     monkeypatch.setattr(label_store, "_MIGRATIONS", label_store._MIGRATIONS + (extra,))
     monkeypatch.setattr(label_store, "SCHEMA_VERSION", label_store.SCHEMA_VERSION + 1)
 
     assert [r.title for r in label_store.load_queue()] == ["one"]
     with _connect() as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == next_version
         assert conn.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE name = 'collection_test'"
         ).fetchone()[0] == 1
