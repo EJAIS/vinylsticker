@@ -8,18 +8,26 @@ import / export and the review dialog.
 CollectionRecord is one record of the local collection (LOCAL mode): the
 shared print data plus a title per side. A queue row can link to the side of
 a collection record it was made from (record_id / record_side).
+
+Also here, so the rules are testable without Qt or labels.db: the duplicate
+key of collection records, the dates of printed_*_at, and how queue rows and
+their records are compared and synchronised.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime
 
 SIDES = ("A", "B")
 
 # Field order of the print data, also the column order of the CSV export
 RECORD_FIELDS = ("title", "artist", "label", "country", "year", "side", "catno")
+
+# Print data a collection record shares between its sides (and its queue rows)
+SHARED_FIELDS = ("artist", "label", "country", "year", "catno")
 
 
 @dataclass
@@ -58,7 +66,8 @@ class CollectionRecord:
     title_a: str = ""
     title_b: str = ""
     id:      int | None = field(default=None, compare=False)
-    # When a side was last printed (ISO timestamps); the UI comes in part 2
+    # When a side was last printed: an ISO timestamp (UTC), or an ISO date
+    # (YYYY-MM-DD) from a CSV import; None = never. See printed_date().
     printed_a_at: str | None = field(default=None, compare=False)
     printed_b_at: str | None = field(default=None, compare=False)
     created_at:   str = field(default="", compare=False)
@@ -67,6 +76,90 @@ class CollectionRecord:
     def title(self, side: str) -> str:
         """Title of *side* ("A" / "B")."""
         return self.title_a if side == "A" else self.title_b
+
+    def printed_at(self, side: str) -> str | None:
+        """printed_*_at of *side* ("A" / "B")."""
+        return self.printed_a_at if side == "A" else self.printed_b_at
+
+    def unprinted_sides(self) -> list[str]:
+        """The sides with a title that were never printed, A before B."""
+        return [
+            side for side in SIDES
+            if self.title(side) and printed_date(self.printed_at(side)) is None
+        ]
+
+
+def _fold(value: object) -> str:
+    return str(value or "").strip().casefold()
+
+
+def duplicate_key(record: CollectionRecord) -> tuple[str, ...]:
+    """When two collection records count as the same record (CSV imports).
+
+    Same artist and catalog number if the catalog number is not empty,
+    otherwise same artist and both titles; compared trimmed and casefolded.
+    """
+    if _fold(record.catno):
+        return ("catno", _fold(record.artist), _fold(record.catno))
+    return ("titles", _fold(record.artist), _fold(record.title_a), _fold(record.title_b))
+
+
+def printed_date(value: str | None) -> date | None:
+    """The local date of a printed_*_at value, None if empty or unreadable.
+
+    Timestamps with a time zone (as the app writes them) are converted to
+    local time; a bare date (from a CSV import) is taken as it is.
+    """
+    if not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    if moment.tzinfo is not None:
+        moment = moment.astimezone()
+    return moment.date()
+
+
+def row_matches_record(row: LabelRecord, record: CollectionRecord) -> bool:
+    """Whether queue *row* carries the title of its record side and the shared fields."""
+    side = row.record_side if row.record_side in SIDES else normalise_side(row.side)
+    return row.title == record.title(side) and all(
+        getattr(row, name) == getattr(record, name) for name in SHARED_FIELDS
+    )
+
+
+def record_with_rows(record: CollectionRecord, rows: Sequence[LabelRecord]) -> CollectionRecord:
+    """*record* with the edits of its linked queue *rows* (in table order).
+
+    Field by field: a row changes a shared field or the title of its record
+    side only where its value differs from *record*. If several rows changed
+    the same field — e.g. the A and the B row of the record got different
+    artists — the row that comes last in the table order wins, so the result
+    does not depend on which side was edited first. Fields no row changed
+    keep the record's value. Ids and printed dates stay as they are.
+    """
+    result = replace(record)
+    for row in rows:
+        for name in SHARED_FIELDS:
+            value = getattr(row, name)
+            if value != getattr(record, name):
+                setattr(result, name, value)
+        side = row.record_side
+        if side in SIDES and row.title and row.title != record.title(side):
+            setattr(result, f"title_{side.lower()}", row.title)
+    return result
+
+
+def row_from_record(row: LabelRecord, record: CollectionRecord) -> LabelRecord:
+    """Queue *row* with the shared fields and the title of its side from *record*.
+
+    A side without a title in *record* keeps the row's title (a queue row
+    always needs one).
+    """
+    side = row.record_side if row.record_side in SIDES else normalise_side(row.side)
+    shared = {name: getattr(record, name) for name in SHARED_FIELDS}
+    return replace(row, title=record.title(side) or row.title, **shared)
 
 
 def queue_rows_for_sides(record: CollectionRecord, sides: Iterable[str]) -> list[LabelRecord]:

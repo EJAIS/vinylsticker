@@ -407,6 +407,76 @@ _STRINGS: dict[str, dict[str, str]] = {
         "collection_delete_confirm": "Löschen",
         "collection_load_err":      "Die Sammlung konnte nicht geladen werden:\n{detail}",
         "collection_write_err":     "Die Sammlung konnte nicht gespeichert werden:\n{detail}",
+        "collection_col_printed_a": "Gedruckt A",
+        "collection_col_printed_b": "Gedruckt B",
+        "collection_col_printed_tip": "Wann die Seite zuletzt gedruckt wurde (leer = noch nie)",
+        "collection_btn_mark_printed":   "Als gedruckt markieren",
+        "collection_btn_mark_printed_tip": (
+            "Setzt für jede Seite mit Titel der markierten Platten das heutige Datum"
+        ),
+        "collection_btn_mark_unprinted": "Als nicht gedruckt markieren",
+        "collection_btn_mark_unprinted_tip": (
+            "Entfernt das Druckdatum beider Seiten der markierten Platten"
+        ),
+        "collection_chk_unprinted":      "Nur nicht gedruckte",
+        "collection_chk_unprinted_tip":  (
+            "Nur Platten mit mindestens einer Seite mit Titel, die noch nie gedruckt wurde"
+        ),
+        "collection_btn_all_unprinted":  "Alle ungedruckten Seiten auswählen",
+        "collection_btn_all_unprinted_tip": (
+            "Alle noch nie gedruckten Seiten mit Titel der sichtbaren Platten auswählen"
+        ),
+        "collection_btn_import_csv":     "CSV importieren …",
+        "collection_btn_import_csv_tip": (
+            "Platten aus einer CSV-Datei übernehmen (eine Zeile pro Platte)"
+        ),
+        "collection_btn_export_csv":     "CSV exportieren …",
+        "collection_btn_export_csv_tip": (
+            "Alle Platten der Sammlung als CSV-Datei speichern (unabhängig vom Filter)"
+        ),
+        "collection_csv_err_no_title":   (
+            "Keine Titel-Spalte gefunden. Die erste Zeile muss eine Kopfzeile sein, "
+            "z. B.:\nArtist;Label;Country;Year;CatNo;TitleA;TitleB;PrintedA;PrintedB\n"
+            "Künstler;Label;Land;Jahr;Katalognummer;Titel A;Titel B;Gedruckt A;Gedruckt B"
+            "\n\nGefundene Spalten: {columns}"
+        ),
+        "collection_csv_none":           (
+            "Die Datei enthält keine Platten mit Titel ({k} übersprungen)."
+        ),
+        "collection_csv_dup_title":      "Doppelte Platten",
+        "collection_csv_dup_msg":        (
+            "{n} Zeile(n) der Datei entsprechen Platten, die schon in der Sammlung "
+            "oder weiter oben in der Datei stehen (gleicher Interpret und gleiche "
+            "Katalognummer, ohne Katalognummer gleicher Interpret und gleiche Titel)."
+        ),
+        "collection_csv_dup_skip":       "Überspringen",
+        "collection_csv_dup_update":     "Vorhandene aktualisieren",
+        "collection_csv_import_done":    (
+            "{i} Platte(n) importiert, {u} aktualisiert, {s} übersprungen."
+        ),
+        "collection_csv_import_unchanged": "{c} Platte(n) waren bereits aktuell.",
+        "collection_csv_export_done":    "{n} Platte(n) exportiert:\n{path}",
+        "collection_sync_queue_title":   "Druckwarteschlange aktualisieren?",
+        "collection_sync_queue_msg":     (
+            "Auch die {n} Einträge in der Druckwarteschlange aktualisieren?"
+        ),
+
+        # Printed marking / sync between queue and collection
+        "btn_yes":                  "Ja",
+        "btn_no":                   "Nein",
+        "printed_ask_title":        "Als gedruckt markieren?",
+        "printed_ask_msg":          "Die {n} Etiketten aus der Sammlung als gedruckt markieren?",
+        "printed_mark_err":         "Das Druckdatum konnte nicht gespeichert werden:\n{detail}",
+        "review_sync_title":        "Sammlung aktualisieren?",
+        "review_sync_msg":          (
+            "{n} geänderte Einträge gehören zu Platten in der Sammlung. "
+            "Änderungen auch in der Sammlung übernehmen?"
+        ),
+        "review_sync_collection":   "Sammlung aktualisieren",
+        "review_sync_queue_only":   "Nur die Druckwarteschlange",
+        "csv_import_collection_linked": (
+            "{l} Zeile(n) werden mit vorhandenen Platten der Sammlung verknüpft."
+        ),
 
         # Settings menu / theme / language
         "menu_settings":            "Einstellungen",
@@ -937,6 +1007,74 @@ _STRINGS: dict[str, dict[str, str]] = {
         "collection_delete_confirm": "Delete",
         "collection_load_err":      "The collection could not be loaded:\n{detail}",
         "collection_write_err":     "The collection could not be saved:\n{detail}",
+        "collection_col_printed_a": "Printed A",
+        "collection_col_printed_b": "Printed B",
+        "collection_col_printed_tip": "When the side was last printed (empty = never)",
+        "collection_btn_mark_printed":   "Mark as printed",
+        "collection_btn_mark_printed_tip": (
+            "Sets today's date for every side with a title of the selected records"
+        ),
+        "collection_btn_mark_unprinted": "Mark as not printed",
+        "collection_btn_mark_unprinted_tip": (
+            "Removes the printed date of both sides of the selected records"
+        ),
+        "collection_chk_unprinted":      "Only not printed",
+        "collection_chk_unprinted_tip":  (
+            "Only records with at least one side with a title that was never printed"
+        ),
+        "collection_btn_all_unprinted":  "Select all unprinted sides",
+        "collection_btn_all_unprinted_tip": (
+            "Select every never printed side with a title of the visible records"
+        ),
+        "collection_btn_import_csv":     "Import CSV …",
+        "collection_btn_import_csv_tip": (
+            "Take over records from a CSV file (one row per record)"
+        ),
+        "collection_btn_export_csv":     "Export CSV …",
+        "collection_btn_export_csv_tip": (
+            "Save every record of the collection as a CSV file (regardless of the filter)"
+        ),
+        "collection_csv_err_no_title":   (
+            "No title column found. The first row must be a header row, "
+            "e.g.:\nArtist;Label;Country;Year;CatNo;TitleA;TitleB;PrintedA;PrintedB\n"
+            "Künstler;Label;Land;Jahr;Katalognummer;Titel A;Titel B;Gedruckt A;Gedruckt B"
+            "\n\nColumns found: {columns}"
+        ),
+        "collection_csv_none":           (
+            "The file contains no records with a title ({k} skipped)."
+        ),
+        "collection_csv_dup_title":      "Duplicate records",
+        "collection_csv_dup_msg":        (
+            "{n} row(s) of the file match records that are already in the collection "
+            "or further up in the file (same artist and catalog number; without a "
+            "catalog number same artist and titles)."
+        ),
+        "collection_csv_dup_skip":       "Skip",
+        "collection_csv_dup_update":     "Update existing",
+        "collection_csv_import_done":    (
+            "{i} record(s) imported, {u} updated, {s} skipped."
+        ),
+        "collection_csv_import_unchanged": "{c} record(s) were already up to date.",
+        "collection_csv_export_done":    "{n} record(s) exported:\n{path}",
+        "collection_sync_queue_title":   "Update the print queue?",
+        "collection_sync_queue_msg":     "Also update the {n} entries in the print queue?",
+
+        # Printed marking / sync between queue and collection
+        "btn_yes":                  "Yes",
+        "btn_no":                   "No",
+        "printed_ask_title":        "Mark as printed?",
+        "printed_ask_msg":          "Mark the {n} labels from the collection as printed?",
+        "printed_mark_err":         "The printed date could not be saved:\n{detail}",
+        "review_sync_title":        "Update the collection?",
+        "review_sync_msg":          (
+            "{n} changed entries belong to records in the collection. "
+            "Apply the changes to the collection too?"
+        ),
+        "review_sync_collection":   "Update collection",
+        "review_sync_queue_only":   "Only the print queue",
+        "csv_import_collection_linked": (
+            "{l} row(s) will be linked to existing records of the collection."
+        ),
 
         # Settings menu / theme / language
         "menu_settings":            "Settings",
