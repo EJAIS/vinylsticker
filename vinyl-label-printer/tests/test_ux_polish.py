@@ -1,7 +1,8 @@
 """
-UX polish (1.2): the PDF follows the queue, start position reset after
-printing, remembered window geometry and table columns, keyboard shortcuts,
-the collection status in the footer (LOCAL mode) and the preview placeholder.
+UX polish (1.2): the PDF follows the queue, the start position stays until
+the user changes it, remembered window geometry and table columns, keyboard
+shortcuts, the collection status in the footer (LOCAL mode) and the preview
+placeholder.
 """
 
 from __future__ import annotations
@@ -260,31 +261,82 @@ def test_watermark_or_calibration_change_regenerates_an_existing_pdf(window, mon
     assert len(window.calls["generated"]) == 2
 
 
-# ── 2. Start position reset after printing ────────────────────────────────────
+# ── 2. The start position stays until the user changes it ───────────────────
 
-def test_start_position_resets_after_print_but_not_after_create_pdf(window):
-    label_store.append_to_queue([_one_off("One")])
-    window._load_queue()
-    window._start_index = 5
+def _set_start(window, index: int) -> None:
+    window._start_index = index
     window._update_start_position_text()
 
+
+def test_start_position_unchanged_after_print_and_create_pdf(window):
+    label_store.append_to_queue([_one_off("One")])
+    window._load_queue()
+    _set_start(window, 12)
+
     window.on_create_pdf()
-    assert window._start_index == 5
-    assert window.calls["generated"][-1] == (["One"], 5)
+    assert window._start_index == 12
+    assert window.calls["generated"] == [(["One"], 12)]
 
     window.calls["print_error"] = RuntimeError("xdg-open failed")
     window.on_print()
-    assert window._start_index == 5                       # failed print: kept
+    assert window._start_index == 12                      # failed print: kept
 
     window.calls["print_error"] = None
     window.on_print()
-    assert window._start_index == 0
-    assert window._sidebar.start_position_text() == "Label 1 (R1 C1)"
-    assert window.calls["generated"][-1] == (["One"], 0)  # preview and file match
-    # The viewer got a copy of the PDF at start position 6, not the regenerated file
+    window.on_print()
+    assert window._start_index == 12
+    assert window._sidebar.start_position_text() == "Label 13 (R4 C1)"
+    assert window.calls["generated"] == [(["One"], 12)]   # Print never regenerates
+    # The viewer got a copy of the PDF, not the file itself
     printed = window.calls["printed"][-1]
     assert printed != window.output / "labels.pdf"
-    assert b"'start_position': 5" in printed.read_bytes()
+    assert b"'start_position': 12" in printed.read_bytes()
+
+    window.on_create_pdf()
+    assert window._start_index == 12
+    assert window.calls["generated"][-1] == (["One"], 12)
+
+
+def test_start_position_survives_a_queue_change(window):
+    label_store.append_to_queue([_one_off("One")])
+    window._load_queue()
+    _set_start(window, 12)
+    window.on_create_pdf()
+    window.on_print()
+
+    label_store.append_to_queue([_one_off("Two")])
+    window._load_queue()                                  # automatic regeneration
+    assert window.calls["generated"][-1] == (["One", "Two"], 12)
+    assert window._start_index == 12
+    assert window._sidebar.start_position_text() == "Label 13 (R4 C1)"
+
+
+def test_start_position_survives_a_mode_and_language_switch(window):
+    label_store.append_to_queue([_one_off("One")])
+    window._load_queue()
+    _set_start(window, 12)
+
+    window.on_mode_changed(DataSourceMode.DISCOGS.value)
+    window.on_mode_changed(DataSourceMode.LOCAL.value)
+    assert window._start_index == 12
+    try:
+        window._on_language_changed("DE")
+        assert window._start_index == 12
+    finally:
+        window._on_language_changed("EN")
+    assert window._sidebar.start_position_text() == "Label 13 (R4 C1)"
+
+    window.on_create_pdf()
+    assert window.calls["generated"][-1] == (["One"], 12)
+
+
+def test_new_main_window_starts_at_label_1(window):
+    import ui.app as app_module
+
+    _set_start(window, 12)
+    fresh = app_module.MainWindow()
+    assert fresh._start_index == 0
+    assert fresh._sidebar.start_position_text() == "Label 1 (R1 C1)"
 
 
 def test_old_print_copies_are_removed(window):
