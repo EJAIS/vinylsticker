@@ -469,6 +469,9 @@ The grid always shows 4 columns × 10 rows, mirroring the physical Avery 4780 sh
 
 Changing the start position after a PDF has been generated regenerates the PDF and updates the preview once, when you close the picker (**OK** or the window's close button) — clicking around in the grid itself is instant.
 
+The start position stays until you change it here or close the app, also after **Print**,
+**Create PDF** and queue changes. After the app starts it is label 1 (R1 C1).
+
 **Step 4 — Set a watermark (optional)**
 
 In **⚙ Settings → Appearance → Watermark**, click **Select file...** to choose a PNG or JPG image. It will be printed as a faint background graphic on every label (approximately 10 % opacity), behind all text. The selected file path is saved permanently. Click **Remove** to remove the watermark.
@@ -651,12 +654,13 @@ if a regeneration fails, an error is shown and **Print** stays disabled until a 
 created again. No PDF is created on app start: the preview shows a hint instead (what to load,
 or how many labels are waiting for **Create PDF**).
 
-**Start position after printing.** After a successful **Print** the start position goes back to
-label 1 (R1 C1) and the PDF is regenerated to match, because the next print usually goes onto a
-fresh sheet (**Create PDF** keeps the start position). The start position is not saved; on app
-start it is label 1. The OS print dialog gets a copy of the PDF (`labels-print-….pdf` in the
-output folder, the newest five are kept), so the regenerated PDF never changes the file the
-viewer is printing.
+**Start position after printing.** The start position stays until you change it in the start
+position picker or close the app: **Print**, **Create PDF**, queue changes and the automatic PDF
+regeneration, a mode switch and a language switch all keep it, and **Print** does not regenerate
+the PDF. The start position is not saved; after the app starts it is label 1 (R1 C1). The OS
+print dialog gets a copy of the PDF (`labels-print-….pdf` in the output folder, the newest five
+are kept), so a regeneration while the viewer is still open (e.g. after a queue change) never
+changes the file the viewer is printing.
 
 The size and position of the main window and of the dialogs, and the column widths and sort
 column of their tables, are remembered between sessions. A window whose saved position is no

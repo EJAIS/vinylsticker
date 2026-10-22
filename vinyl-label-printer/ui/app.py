@@ -112,8 +112,8 @@ class MainWindow(QMainWindow):
         self._watermark_path: Path | None = get_watermark_path()
         self._mode:           DataSourceMode = get_data_source_mode()
         # The start position is deliberately not persisted: it is label 1 on
-        # app start and is reset to label 1 after every successful "Print",
-        # because the next print usually goes onto a fresh sheet.
+        # app start and then only changes in the start position picker (never
+        # after Print, Create PDF, queue changes, or a mode or language switch).
         self._start_index:    int = 0
 
         # Apply persisted calibration to the active format dict
@@ -441,14 +441,14 @@ class MainWindow(QMainWindow):
             )
             return
         self._offer_mark_printed()
-        self._reset_start_position()
 
     def _print_copy(self) -> Path:
         """Copy the PDF for the OS print dialog and return the copy.
 
         The viewer opened by print_pdf() reads the file asynchronously, and
-        the PDF is regenerated right after printing (start position reset):
-        a copy of its own keeps the viewer on the labels that were printed.
+        the PDF may be regenerated while it is still open (queue or settings
+        changes): a copy of its own keeps the viewer on the labels that were
+        printed.
         Older copies beyond the newest few are removed (files still open in
         a viewer on Windows cannot be, and are tried again next time).
         """
@@ -464,15 +464,6 @@ class MainWindow(QMainWindow):
             except OSError as exc:
                 logger.debug(f"Could not remove old print copy {path.name}: {exc}")
         return copy
-
-    def _reset_start_position(self) -> None:
-        """After a successful "Print": start position back to label 1, PDF to match."""
-        if self._start_index == 0:
-            return
-        self._start_index = 0
-        self._update_start_position_text()
-        if self._records:
-            self._create_pdf()
 
     # ── Printed marking (LOCAL mode) ──────────────────────────────────────────
 
