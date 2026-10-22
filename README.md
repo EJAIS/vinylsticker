@@ -35,6 +35,7 @@ The application UI is available in **German (DE)** and **English (EN)**, switcha
    - [Workflow](#workflow)
    - [Collection (Local mode)](#collection-local-mode)
    - [Interface Overview](#interface-overview)
+   - [Keyboard shortcuts](#keyboard-shortcuts)
    - [Discogs Import](#discogs-import)
 8. [Troubleshooting](#troubleshooting)
    - [Labels are misaligned](#labels-are-misaligned)
@@ -611,13 +612,63 @@ the collection unchanged.
 │    Ready                 │                                              │
 │  [ Print ]               │                                              │
 ├──────────────────────────┴──────────────────────────────────────────────┤
-│ ⚙ Settings                                  ● Discogs status   Mode     │
+│ ⚙ Settings                     12 records · 3 not printed   Local mode   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 The **⚙ Settings** button in the footer opens the Settings dialog: **Appearance** (theme,
 language, watermark, printer calibration, debug logging), **Data source**, **Discogs account**
-and **About** (version check).
+and **About** (version check). A click on the mode badge (**Local mode** / **Discogs mode**)
+opens the **Data source** tab directly.
+
+Footer status: in Local mode it shows the collection — `{n} records · {m} not printed`
+(a record counts as not printed while one of its sides with a title has no printed date) or
+**Collection empty**. In Discogs mode it shows the connection dot and the Discogs username.
+
+**The preview follows the queue.** Once a PDF was created in a session, every change of the
+print queue — the queue editor, **Add to print queue** from the collection, a Discogs import, a
+record edit that updates linked queue rows — regenerates the PDF, and so does a change of the
+watermark or the printer calibration. **Print** therefore always prints what the preview shows.
+These automatic regenerations never ask whether to mark labels as printed; only **Create PDF**
+and **Print** do. If the queue becomes empty, the preview is cleared and **Print** is disabled;
+if a regeneration fails, an error is shown and **Print** stays disabled until a PDF could be
+created again. No PDF is created on app start: the preview shows a hint instead (what to load,
+or how many labels are waiting for **Create PDF**).
+
+**Start position after printing.** After a successful **Print** the start position goes back to
+label 1 (R1 C1) and the PDF is regenerated to match, because the next print usually goes onto a
+fresh sheet (**Create PDF** keeps the start position). The start position is not saved; on app
+start it is label 1. The OS print dialog gets a copy of the PDF (`labels-print-….pdf` in the
+output folder, the newest five are kept), so the regenerated PDF never changes the file the
+viewer is printing.
+
+The size and position of the main window and of the dialogs, and the column widths and sort
+column of their tables, are remembered between sessions. A window whose saved position is no
+longer on any screen (e.g. a monitor was removed) opens centered at its default size.
+
+### Keyboard shortcuts
+
+On macOS, Ctrl is ⌘. Every shortcut is also shown in the tooltip of its button.
+
+| Where | Shortcut | Action |
+|---|---|---|
+| Main window | Ctrl+L | Load data (collection or Discogs) |
+| | Ctrl+E | Open the print queue |
+| | Ctrl+Shift+P | Create PDF |
+| | Ctrl+P | Print (only when Print is enabled) |
+| | Ctrl+, | Settings |
+| Collection | Ctrl+F | Focus the search field |
+| | Ctrl+N | New record |
+| | Enter / F2 | Edit the selected record (table focused) |
+| | Del | Delete the selected records (with confirmation; table focused) |
+| | Ctrl+Enter | Add to print queue |
+| Queue editor | Ctrl+F | Focus the search field |
+| | Del | Delete the selected rows (table focused) |
+| | Ctrl+N | Add entry (queue editor, not in the import review) |
+| | Ctrl+S / Ctrl+Enter | Save / continue to print |
+
+No shortcut fires while a table cell is being edited: the cell editor keeps every key
+(e.g. Del deletes text, not the row).
 
 ### Discogs Import
 
@@ -831,14 +882,16 @@ vinyl-label-printer/
 │   ├── app.py                     # QMainWindow — wires all components together (no menu bar)
 │   ├── styles.py                  # Table/search-field style helpers used by dialogs
 │   ├── sidebar_widget.py          # QWidget — left panel: data source, print queue, start grid, watermark
-│   ├── footer_widget.py           # QWidget — footer bar: ⚙ Settings button + Discogs/mode status
+│   ├── footer_widget.py           # QWidget — footer bar: ⚙ Settings button + collection / Discogs status, mode badge
 │   ├── settings_dialog.py         # QDialog — Settings (Appearance, Data source, Discogs account, About)
 │   ├── grid_widget.py             # QWidget — interactive 4×10 start-position grid
-│   ├── preview_widget.py          # QWidget — pdf2image + QPixmap page viewer
+│   ├── preview_widget.py          # QWidget — pdf2image + QPixmap page viewer, state-dependent placeholder
 │   ├── discogs_dialog.py          # QDialog — Discogs import (setup + collection panels)
 │   ├── review_widget.py           # QDialog — print queue editor and import review table
 │   ├── entry_dialog.py            # QDialog — "Add entry" / record form (one record, side A and / or B)
 │   ├── collection_dialog.py       # QDialog — local record collection: printed dates, CSV (LOCAL mode)
+│   ├── shortcuts.py               # Keyboard shortcut helpers (standard keys, tooltips, cell editor guard)
+│   ├── window_state.py            # Remembered window geometry and table columns (settings.json)
 │   └── theme_manager.py           # ThemeManager — theme setting, global stylesheet, live switching
 └── tests/
     ├── conftest.py                # Headless Qt + throw-away user directories
@@ -848,7 +901,8 @@ vinyl-label-printer/
     ├── test_csv_io.py             # CSV delimiters, headers, encodings, round trip
     ├── test_queue_editor.py       # Entry form, saving / clearing the queue, unsaved changes, CSV
     ├── test_collection.py         # Collection: schema 1 → 2, records, links, dialog, CSV grouping
-    └── test_collection_sync.py    # Printed marking, queue ↔ collection sync, collection CSV
+    ├── test_collection_sync.py    # Printed marking, queue ↔ collection sync, collection CSV
+    └── test_ux_polish.py          # PDF follows the queue, start position, window state, shortcuts, footer
 ```
 
 User files (`settings.json`, `credentials.json`, `labels.db`, `discogs_cache.db`, generated
@@ -935,6 +989,9 @@ Reads and writes `settings.json` in the config folder (`modules.paths.get_settin
 | `calibration_x_mm` | `number` | Horizontal label offset in mm applied at PDF generation; default `0.0` |
 | `calibration_y_mm` | `number` | Vertical label offset in mm applied at PDF generation; default `0.0` |
 | `show_print_hint` | `boolean` | Whether to show the print-settings reminder before printing; default `true` |
+| `save_to_collection` | `boolean` | Last state of "Also save to collection" in the queue editor; default `true` |
+| `window_geometry` | `object` | Per window (`main_window`, `collection_dialog`, `review_dialog`, `discogs_dialog`, `settings_dialog`): base64 of `saveGeometry()` |
+| `header_state` | `object` | Per dialog with a table: `{"columns": n, "state": base64 of QHeaderView.saveState()}`; ignored if the column count changed or Qt rejects it |
 
 #### `modules/data_source.py`
 
@@ -972,6 +1029,7 @@ The only code that talks to `labels.db`. Every function opens a short-lived conn
 | `append_to_queue(records, source, meta, new_records)` | Appends new rows; optional `meta` key/value pairs and new records are written in the same transaction |
 | `queue_count()`, `get_meta(key)` | Number of queued entries; a value of the `meta` table |
 | `list_records(search)`, `record_count()` | The collection sorted by artist and titles; `search`: every word in any text column |
+| `collection_counts()` | `(records, not printed)` in one query — the footer status in Local mode |
 | `get_record(id)`, `add_record(record)`, `update_record(record, sync_queue)`, `delete_record(id)`, `delete_records(ids)` | Collection CRUD; deleting keeps the record's queue rows and drops their link. `sync_queue`: also update the linked queue rows, same transaction |
 | `queue_rows_to_sync(record)` | The linked queue rows that `update_record(record, sync_queue=True)` would change |
 | `mark_sides_printed(sides)`, `mark_records_printed(ids)`, `clear_printed(ids)` | Printed marks: `(record id, side)` pairs; every side with a title; both sides cleared. `updated_at` is not changed |
